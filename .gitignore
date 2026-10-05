@@ -1,3 +1,6 @@
+# Результаты прогона валидации (python -m app.services.validation)
+backend/var/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
