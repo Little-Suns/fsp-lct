@@ -78,6 +78,12 @@ test('задача на код: редактор, запуск на пример
   await langs.getByRole('button', { name: 'Python' }).click();
   expect(await ed.inputValue()).toMatch(/\n {4}$/);
   await ed.fill(`def ${py}(*args):\n    return None\n`);
+  // чаще раза в 3 с — 429 с понятным текстом, запуск не списан
+  run = api(page, 'POST', '/api/quest/run');
+  await page.getByRole('button', { name: 'Запустить на примерах' }).click();
+  expect((await run).status()).toBe(429);
+  await expect(toast(page)).toHaveText('Слишком часто: подождите пару секунд');
+  await page.waitForTimeout(3100);  // пауза между запусками — RUN_GAP_S на сервере
   run = api(page, 'POST', '/api/quest/run');
   await page.getByRole('button', { name: 'Запустить на примерах' }).click();
   res = await run;

@@ -103,6 +103,8 @@ def test_time_limit():
     st, r = one("python", "def f():\n    while True:\n        pass\n", limits={"time_ms": 500})
     assert st == "tle" and r["results"][0]["time_ms"] == 500
     assert time.monotonic() - t0 < 4
+    # sched_setaffinity запрещён: решение не выйдет за --max_cpus 1
+    assert one("python", "import os\n\ndef f():\n    try:\n        os.sched_setaffinity(0, set(range(os.cpu_count() or 1)))\n        return 'set'\n    except OSError:\n        return 'denied'\n", "denied")[0] == "ok"
     assert one("typescript", "function f(): number { for (;;) {} }", limits={"time_ms": 700})[0] == "tle"
     # после убийства по таймауту в контейнере не остаётся процессов решения
     time.sleep(0.5)
@@ -213,7 +215,8 @@ function f(): string[] {
 
 
 def test_seccomp_kills_dangerous_syscalls():
-    for call in ("libc.ptrace(0, 0, 0, 0)", "libc.unshare(0x10000000)", "libc.mount(b'none', b'/tmp', b'tmpfs', 0, None)"):
+    for call in ("libc.ptrace(0, 0, 0, 0)", "libc.unshare(0x10000000)", "libc.mount(b'none', b'/tmp', b'tmpfs', 0, None)",
+                 "libc.syscall(447, 0)", "libc.personality(0x0040000)", "libc.mknod(b'/tmp/x', 0o20666, 0)"):
         code = f"import ctypes\n\ndef f():\n    libc = ctypes.CDLL(None)\n    {call}\n    return 'alive'\n"
         assert one("python", code, "alive")[0] == "re", call
 
@@ -241,7 +244,7 @@ def test_validation_caps():
 
 @pytest.fixture(scope="module")
 def http():
-    server.HEALTH["ok"] = server.selfcheck()
+    assert server.health()
     srv = server.ThreadingHTTPServer(("127.0.0.1", int(os.environ["SANDBOX_PORT"])), server.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"
@@ -269,13 +272,21 @@ def test_http_api(http):
     assert _post(http, {**body, "lang": "ruby"})[0] == 422
 
 
-def test_overload_returns_503(monkeypatch):
+def test_forged_jail_error_is_candidate_error():
+    """Строка «[F][…]» в stderr решения — ошибка решения, а не сбой песочницы (иначе кандидат «обнулил» бы задачу)."""
+    st, _ = one("python", "import sys\n\ndef f():\n    sys.stderr.write('[F][2026] main(): fail\\n')\n    sys.exit(1)\n")
+    assert st == "re"
+    st, _ = one("typescript", "console.error('[F][2026] main(): fail');\nprocess.exit(1);\nfunction f() { return 1; }")
+    assert st == "re"
+
+
+def test_overload_returns_429(monkeypatch):
     monkeypatch.setattr(server, "QUEUE_WAIT_S", 0.1)
     for _ in range(server.WORKERS):
         assert server._slots.acquire(timeout=1)
     try:
         code, r = server.handle_run({"lang": "python", "code": "def f():\n    return 1\n", "harness": {"entry": "f"}, "tests": [{"args": [], "expected": 1}]})
-        assert code == 503 and "перегружена" in r["detail"]
+        assert code == 429 and "перегружена" in r["detail"]
     finally:
         for _ in range(server.WORKERS):
             server._slots.release()

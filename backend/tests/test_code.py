@@ -61,11 +61,14 @@ def box(monkeypatch):
     monkeypatch.setattr(config, "SANDBOX_URL", "http://sandbox.test")
     monkeypatch.setattr(config, "SANDBOX_TOKEN", "secret")
     monkeypatch.setattr(sandbox, "ready", lambda: True)
+    monkeypatch.setattr(quest, "RUN_GAP_S", 0)
 
     def fake(lang, code, entry, tests, *, time_ms, memory_mb, fail_fast=False, echo=False):
         calls.append(SimpleNamespace(lang=lang, code=code, entry=entry, tests=tests, fail_fast=fail_fast, echo=echo, time_ms=time_ms))
         if "DOWN" in code:
             raise sandbox.Unavailable("тест")
+        if "BUSY" in code:
+            raise sandbox.Busy("тест")
         st = "ok" if "OK" in code else "wrong"
         res = [{"status": st if i == 0 or st == "ok" else "skip", "time_ms": 5, **({"got": "0"} if echo else {})} for i in range(len(tests))]
         return {"status": st, "passed": sum(r["status"] == "ok" for r in res), "total": len(tests), "results": res, "stderr": None if st == "ok" else "AssertionError"}
@@ -269,6 +272,31 @@ def test_sandbox_down_voids_item(env, box):
     assert hist["items"] == sum(1 for a in _session(cand_id).answers if not a.get("void"))
 
 
+def test_sandbox_busy_keeps_item(env, box, monkeypatch):
+    """Перегрузка — не сбой: задание не void, запуск не списан, время ответа — по первой отправке."""
+    client, items, cand_id = env["clients"][5], env["items"], env["cand_ids"][5]
+    client.post("/api/quest/finish")  # сессия из test_no_code_without_sandbox
+    it = _to_code(client, items)["item"]
+    r = client.post("/api/quest/run", json={"item_id": it["id"], "lang": "python", "code": "BUSY"})
+    assert r.status_code == 503 and "не засчитан" in r.json()["detail"]
+    assert client.post("/api/quest/run", json={"item_id": it["id"], "lang": "python", "code": "OK"}).json()["runs_left"] == quest.RUNS_MAX - 1
+    monkeypatch.setattr(quest, "RUN_GAP_S", 60)
+    assert client.post("/api/quest/run", json={"item_id": it["id"], "lang": "python", "code": "OK"}).status_code == 429  # слишком часто
+    r = client.post("/api/quest/answer", json={"item_id": it["id"], "lang": "python", "code": "BUSY"})
+    assert r.status_code == 503 and r.json()["detail"] == quest.SANDBOX_BUSY
+    pend = _session(cand_id).answers[-1]
+    assert pend["item_id"] == it["id"] and pend["response"] is None and pend["submitted_at"] and pend["runs"] == 1
+    # первая отправка — через 10 с после выдачи; повтор позже лимита не делает ответ опоздавшим
+    served = datetime.now(UTC) - timedelta(hours=1)
+    with SessionLocal() as db:
+        s = db.scalar(select(QuestSession).where(QuestSession.candidate_id == cand_id, QuestSession.finished_at.is_(None)))
+        s.answers = [*s.answers[:-1], {**s.answers[-1], "served_at": served.isoformat(), "submitted_at": (served + timedelta(seconds=10)).isoformat()}]
+        db.commit()
+    assert client.post("/api/quest/answer", json={"item_id": it["id"], "lang": "python", "code": "OK"}).status_code == 200
+    rec = next(a for a in _session(cand_id).answers if a["item_id"] == it["id"])
+    assert rec["correct"] is True and rec["timeout"] is False and 9_000 <= rec["server_ms"] <= 11_000
+
+
 def test_concurrent_check_and_changed_session(env, box, monkeypatch):
     client, items, cand_id = env["clients"][4], env["items"], env["cand_ids"][4]
     it = _to_code(client, items)["item"]
@@ -337,15 +365,35 @@ def test_sandbox_client(monkeypatch):
 
     for reply, ok in [((200, good), True), ((503, {"detail": "x"}), False), ((200, b"not json"), False),
                       ((200, {**good, "results": []}), False), ((200, {**good, "passed": 0}), False),
-                      ((200, {**good, "results": [{"status": "pwned"}]}), False), (httpx.ConnectError("x"), False)]:
+                      ((200, {**good, "results": [{"status": "pwned"}]}), False), (httpx.ConnectError("x"), False), ((429, {"detail": "x"}), "busy")]:
         monkeypatch.setattr(httpx, "post", lambda url, json, headers, timeout, reply=reply: post(url, json, headers, timeout, reply))
-        if ok:
+        if ok == "busy":
+            with pytest.raises(sandbox.Busy):
+                sandbox.run("python", "code", "f", tests, time_ms=1000, memory_mb=128)
+        elif ok:
             assert sandbox.run("python", "code", "f", tests, time_ms=1000, memory_mb=128, fail_fast=True) == good
             assert sent["url"] == "http://sandbox.test/run" and sent["headers"] == {"X-Sandbox-Token": "secret"}
             assert sent["body"]["harness"] == {"entry": "f"} and sent["body"]["fail_fast"] and sent["body"]["limits"] == {"time_ms": 1000, "memory_mb": 128}
         else:
             with pytest.raises(sandbox.Unavailable):
                 sandbox.run("python", "code", "f", tests, time_ms=1000, memory_mb=128)
+
+
+def test_sandbox_api_slots(monkeypatch):
+    """Все слоты API заняты — Busy сразу, без запроса и без занятого потока на минуту."""
+    monkeypatch.setattr(config, "SANDBOX_URL", "http://sandbox.test")
+    monkeypatch.setattr(config, "SANDBOX_TOKEN", "secret")
+    monkeypatch.setattr(httpx, "post", lambda *a, **kw: pytest.fail("запроса быть не должно"))
+    taken = 0
+    while sandbox._slots.acquire(blocking=False):
+        taken += 1
+    try:
+        assert taken == config.SANDBOX_API_SLOTS
+        with pytest.raises(sandbox.Busy):
+            sandbox.run("python", "code", "f", [{"args": [], "expected": 1}], time_ms=1000, memory_mb=128)
+    finally:
+        for _ in range(taken):
+            sandbox._slots.release()
 
 
 def test_sandbox_ready_is_cached(monkeypatch):

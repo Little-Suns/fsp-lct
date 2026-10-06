@@ -60,10 +60,10 @@ class JailError(Exception):
     """nsjail не смог подготовить песочницу (политика, cgroup, монтирование) — сбой стенда, а не решения."""
 
 
-def _jail(task: Path, time_ms: int, memory_mb: int) -> list[str]:
+def _jail(task: Path, log: Path, time_ms: int, memory_mb: int) -> list[str]:
     secs = math.ceil(time_ms / 1000)
     cmd = [
-        "nsjail", "-Mo", "-Q",
+        "nsjail", "-Mo", "-Q", "-l", str(log),  # свой журнал nsjail вне песочницы: stderr решения его не подделает
         "--use_cgroupv2", "--cgroup_mem_max", str(memory_mb * 1024 * 1024), "--cgroup_mem_swap_max", "0", "--cgroup_pids_max", "32",
         "-t", str(secs + 1), "--rlimit_cpu", str(secs + 1), "--rlimit_as", "max", "--rlimit_fsize", "8", "--rlimit_nofile", "64",
         "--rlimit_stack", "64", "--max_cpus", "1",
@@ -156,10 +156,11 @@ def _classify(rc: int, wall_ms: int, time_ms: int, out: str, err: str) -> tuple[
 def _run_one(task: Path, io: Path, lang: str, entry: str, args: list, time_ms: int, memory_mb: int) -> tuple[str, int, object, str | None]:
     (task / "input.json").write_text(json.dumps({"entry": entry, "args": args}), encoding="utf-8")
     (task / "input.json").chmod(0o644)
-    out_p, err_p = io / "out", io / "err"
+    out_p, err_p, log_p = io / "out", io / "err", io / "nsjail.log"
+    log_p.unlink(missing_ok=True)
     t0 = time.monotonic()
     with open(out_p, "wb") as fo, open(err_p, "wb") as fe:
-        proc = subprocess.Popen(_jail(task, time_ms, memory_mb) + ["--"] + _program(lang, memory_mb),
+        proc = subprocess.Popen(_jail(task, log_p, time_ms, memory_mb) + ["--"] + _program(lang, memory_mb),
                                 stdin=subprocess.DEVNULL, stdout=fo, stderr=fe, env={"PATH": "/usr/local/bin:/usr/bin:/bin"},
                                 start_new_session=True)
         try:
@@ -176,8 +177,9 @@ def _run_one(task: Path, io: Path, lang: str, entry: str, args: list, time_ms: i
         out = f.read(OUT_MAX).decode("utf-8", "replace")
     with open(err_p, "rb") as f:
         err = f.read(64 * 1024).decode("utf-8", "replace")
-    if MARK not in out and re.search(r"^\[F\]\[", err, re.M):  # с -Q nsjail пишет только фатальные ошибки: «[F][время]…»
-        raise JailError(err[:300])
+    jail_log = log_p.read_text("utf-8", "replace")[:2000] if log_p.exists() else ""
+    if re.search(r"^\[F\]\[", jail_log, re.M):  # с -Q nsjail пишет только фатальные ошибки: «[F][время]…»
+        raise JailError(jail_log[:300])
     status, got, msg = _classify(rc, wall, time_ms, out, err)
     return status, min(wall, time_ms), got, msg
 
@@ -262,11 +264,11 @@ def handle_run(req) -> tuple[int, dict]:
         return 422, {"detail": str(e)}
     with _pending_lock:
         if _pending >= MAX_PENDING:
-            return 503, {"detail": "Песочница перегружена"}
+            return 429, {"detail": "Песочница перегружена"}
         _pending += 1
     try:
         if not _slots.acquire(timeout=QUEUE_WAIT_S):
-            return 503, {"detail": "Песочница перегружена"}
+            return 429, {"detail": "Песочница перегружена"}
         with _pending_lock:
             _busy += 1
         try:
@@ -300,14 +302,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            ok = HEALTH["ok"]
+            ok = health()
             return self._send(200 if ok else 503, {"ok": ok, "workers": WORKERS, "busy": _busy})
         self._send(404, {"detail": "Не найдено"})
 
     def do_POST(self):
         if self.path != "/run":
             return self._send(404, {"detail": "Не найдено"})
-        if not TOKEN or not hmac.compare_digest(self.headers.get("X-Sandbox-Token", ""), TOKEN):
+        if not TOKEN or not hmac.compare_digest(self.headers.get("X-Sandbox-Token", "").encode(), TOKEN.encode()):
             return self._send(401, {"detail": "Нет доступа"})
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -323,7 +325,17 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, obj)
 
 
-HEALTH = {"ok": False}
+HEALTH = {"ok": False, "at": -1e9}
+HEALTH_TTL_S = 30
+_health_lock = threading.Lock()
+
+
+def health() -> bool:
+    """Самопроверка не только при старте: раз в 30 с повторяется (cgroup могли поднять позже, nsjail мог сломаться)."""
+    with _health_lock:
+        if time.monotonic() - HEALTH["at"] >= HEALTH_TTL_S:
+            HEALTH.update(ok=selfcheck(), at=time.monotonic())
+        return HEALTH["ok"]
 
 
 def selfcheck() -> bool:
@@ -342,7 +354,7 @@ def main():
     if not TOKEN:
         sys.exit("SANDBOX_TOKEN не задан: без общего секрета песочница не стартует")
     RUN_ROOT.mkdir(parents=True, exist_ok=True)
-    HEALTH["ok"] = selfcheck()
+    health()
     print(f"sandbox: workers={WORKERS} selfcheck={'ok' if HEALTH['ok'] else 'FAIL'}", file=sys.stderr, flush=True)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     srv.daemon_threads = True

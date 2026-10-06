@@ -43,6 +43,8 @@ CODE_MAX = 20_000  # байт решения (столько же принима
 RUNS_MAX = 20  # запусков «на примерах» на одну задачу
 PASTE_SHARE = 0.5  # флаг code_pasted: верное решение, больше половины которого вставлено из буфера
 SANDBOX_DOWN = "Песочница для проверки кода сейчас недоступна. Задание не засчитано ни в плюс, ни в минус — переходим к следующему."
+SANDBOX_BUSY = "Песочница сейчас занята, решение не проверено. Отправьте его ещё раз через минуту: время ответа считается по первой отправке."
+RUN_GAP_S = 3  # пауза между запусками на примерах
 
 # компетенция → навыки, которые она подтверждает (канон catalog.SKILLS)
 COMP_SKILLS = {
@@ -287,7 +289,9 @@ def answer(body: AnswerIn, cand: Candidate = Depends(current_candidate), db: Ses
     if not item:
         raise HTTPException(409, "Задание больше недоступно")
     p = item.payload
-    server_ms = int((_now() - datetime.fromisoformat(pend["served_at"])).total_seconds() * 1000)
+    # задача на код: если песочница была занята, время ответа — по первой отправке (submitted_at), а не по повторной
+    answered_at = datetime.fromisoformat(pend["submitted_at"]) if pend.get("submitted_at") else _now()
+    server_ms = int((answered_at - datetime.fromisoformat(pend["served_at"])).total_seconds() * 1000)
     timeout = server_ms > (p["time_limit_s"] + TIMEOUT_GRACE_S) * 1000
     if item.kind == "code":
         return _answer_code(db, cand, sess, pend, item, body, server_ms, timeout)
@@ -311,18 +315,26 @@ def _answer_code(db: Session, cand: Candidate, sess: QuestSession, pend: dict, i
     lang, code = _code_in(body.lang, body.code)
     sid, served_at = sess.id, pend["served_at"]
     db.commit()
-    res, down = None, False
+    submitted_at = pend.get("submitted_at") or _now().isoformat()
+    res, down, busy = None, False, False
     if not timeout:  # опоздавший ответ — неверный, как у остальных заданий; песочницу не гоняем
         with _one_check(sid):
             try:
                 res = sandbox.run(lang, code, item.payload["code"]["entry"][lang], code_items.hidden_tests(item.family, item.payload["key"]["seed"]),
                                   time_ms=code_items.TIME_MS, memory_mb=code_items.MEMORY_MB, fail_fast=True)
+            except sandbox.Busy:
+                busy = True
             except sandbox.Unavailable:
                 down = True
     sess = _active(db, cand, lock=True)
     pend = _pending(sess) if sess else None
     if not pend or pend["item_id"] != item.id or pend["served_at"] != served_at:
         raise HTTPException(409, "Ответ на это задание уже сохранён")
+    if busy:
+        # перегрузка — не сбой: задание остаётся текущим, время ответа фиксируется по первой отправке
+        sess.answers = [*sess.answers[:-1], {**pend, "submitted_at": submitted_at}]
+        db.commit()
+        raise HTTPException(503, SANDBOX_BUSY)
     bank = _bank(db, cand.spec)
     rec = {**pend, "lang": lang, "code": code, "pasted": max(0, min(body.pasted or 0, len(code))), "ms": body.ms, "server_ms": server_ms,
            "comment": None, "timeout": timeout}
@@ -356,16 +368,26 @@ def run_examples(body: RunIn, cand: Candidate = Depends(current_candidate), db: 
     runs = pend.get("runs", 0)
     if runs >= RUNS_MAX:
         raise HTTPException(429, f"Запусков на примерах уже {RUNS_MAX} — отправьте решение")
-    sid = sess.id
-    sess.answers = [*sess.answers[:-1], {**pend, "runs": runs + 1}]
-    db.commit()
+    last = pend.get("run_at")
+    if last and (_now() - datetime.fromisoformat(last)).total_seconds() < RUN_GAP_S:
+        raise HTTPException(429, "Слишком часто: подождите пару секунд")
+    sid, served_at = sess.id, pend["served_at"]
+    db.commit()  # блокировку на время прогона отпускаем; запуск засчитывается только удачный (ниже)
     ex = item.payload["code"]["examples"]
     with _one_check(sid):
         try:
             res = sandbox.run(lang, code, item.payload["code"]["entry"][lang], ex, time_ms=code_items.TIME_MS, memory_mb=code_items.MEMORY_MB, echo=True)
+        except sandbox.Busy:
+            raise HTTPException(503, "Песочница сейчас занята — запустите ещё раз через минуту. Запуск не засчитан.") from None
         except sandbox.Unavailable:
             raise HTTPException(503, "Песочница сейчас недоступна, запуск на примерах не удался. Решение можно отправить: при сбое проверки задание не засчитается.") from None
-    return {"status": res["status"], "passed": res["passed"], "total": res["total"], "stderr": res.get("stderr"), "runs_left": RUNS_MAX - runs - 1,
+    sess = _active(db, cand, lock=True)
+    pend = _pending(sess) if sess else None
+    if pend and pend["item_id"] == item.id and pend["served_at"] == served_at:
+        runs = pend.get("runs", 0)
+        sess.answers = [*sess.answers[:-1], {**pend, "runs": runs + 1, "run_at": _now().isoformat()}]
+        db.commit()
+    return {"status": res["status"], "passed": res["passed"], "total": res["total"], "stderr": res.get("stderr"), "runs_left": max(0, RUNS_MAX - runs - 1),
             "results": [{"status": r["status"], "time_ms": r["time_ms"], "got": r.get("got"), "expected": json.dumps(e["expected"], ensure_ascii=False)}
                         for r, e in zip(res["results"], ex)]}
 

@@ -15,7 +15,7 @@ from collections import Counter
 
 SPECS = ["Backend", "Frontend", "Mobile", "ML / DS", "Data Eng / Analytics"]  # у кого есть компетенция «Алгоритмы»
 COMPETENCY = "Алгоритмы"
-TIME_MS, MEMORY_MB = 2000, 256  # лимиты на один тест; эталон на самом большом тесте — до ~0,3 с на Python
+TIME_MS, MEMORY_MB = 3000, 256  # лимиты на один тест (стенка, со стартом рантайма): эталон на большом тесте — до ~0,5 с, запас от ложного tle под нагрузкой
 BIG = 100_000  # размер большого теста: O(n·q) на нём не укладывается в лимит ни на Python, ни на Node
 TS_NOTE = "TypeScript запускается без компиляции (Node 22, --experimental-strip-types): типы стираются, enum и namespace не поддерживаются."
 

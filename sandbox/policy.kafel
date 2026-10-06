@@ -11,6 +11,9 @@ POLICY sbx {
     init_module, finit_module, delete_module, kexec_load,
     reboot, swapon, swapoff, acct, quotactl, syslog, vhangup,
     settimeofday, clock_settime, clock_adjtime, adjtimex, sethostname, setdomainname, fanotify_init,
+    personality, mknodat, lookup_dcookie,
+    // process_madvise (440), memfd_secret (447)
+    SYSCALL[440], SYSCALL[447],
     // новый API монтирования: open_tree, move_mount, fsopen, fsconfig, fsmount, fspick, mount_setattr
     SYSCALL[428], SYSCALL[429], SYSCALL[430], SYSCALL[431], SYSCALL[432], SYSCALL[433], SYSCALL[442],
     // новые пространства имён через clone: CLONE_NEWNS|NEWCGROUP|NEWUTS|NEWIPC|NEWUSER|NEWPID|NEWNET
@@ -19,11 +22,14 @@ POLICY sbx {
   ERRNO(38) {
     // clone3 (435): флаги в структуре в памяти не проверить — ENOSYS, glibc откатится на clone;
     // io_uring (425–427) — ENOSYS, libuv откатится на обычные вызовы
-    SYSCALL[435], SYSCALL[425], SYSCALL[426], SYSCALL[427]
+    SYSCALL[435], SYSCALL[425], SYSCALL[426], SYSCALL[427],
+    // pidfd_send_signal, pidfd_open, pidfd_getfd (424, 434, 438) — ENOSYS, рантаймы откатываются на обычные сигналы
+    SYSCALL[424], SYSCALL[434], SYSCALL[438]
   },
   ERRNO(1) {
-    // сети в песочнице нет (своё пустое сетевое пространство); сокеты не нужны ни Python, ни Node
-    socket, socketpair
+    // сети в песочнице нет (своё пустое сетевое пространство); сокеты не нужны ни Python, ни Node;
+    // sched_setaffinity — решение не расширит себе CPU сверх --max_cpus 1
+    socket, socketpair, sched_setaffinity
   }
 }
 USE sbx DEFAULT ALLOW

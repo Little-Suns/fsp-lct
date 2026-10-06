@@ -28,3 +28,4 @@ SECRET_KEY = os.environ.get("SECRET_KEY") or __import__("secrets").token_hex(32)
 SANDBOX_URL = os.environ.get("SANDBOX_URL", "").rstrip("/")
 SANDBOX_TOKEN = os.environ.get("SANDBOX_TOKEN", "")  # общий секрет API ↔ песочница (заголовок X-Sandbox-Token)
 SANDBOX_TIMEOUT = float(os.environ.get("SANDBOX_TIMEOUT", "90"))  # очередь песочницы ≤ 20 с + прогон ≤ 60 с
+SANDBOX_API_SLOTS = int(os.environ.get("SANDBOX_API_SLOTS", "8"))  # одновременных обращений API к песочнице (пул FastAPI — 40 потоков)
