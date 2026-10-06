@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from app import catalog as C
 from app.db import SessionLocal, engine, init_db, reset_schema
 from app.integrations.scoring import place_weight
+from app.services import autocheck
 from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Message, Need, Task,
                         TaskSubmission, User, Vacancy)
 
@@ -194,6 +195,7 @@ def cf_rank(r: float) -> str:
 
 class Gen:
     def __init__(self, seed: int):
+        self.seed = seed
         self.rng = np.random.default_rng(seed)
         self.ids: set[str] = set()
         self.handles: set[str] = set()
@@ -752,6 +754,18 @@ SHOWCASE = [  # (компания|None=синтетическая, title, spec, 
     (None, "Ревью эндпоинта выгрузки счетов", "Security", "Веб-уязвимости", "solve", 30,
      "Посмотрите обработчик GET /invoices/{id}/pdf и найдите уязвимости. Предложите исправление."),
 ]
+REF_TASKS = [  # задания с эталоном — проверяет система: (компания|None, title, spec, competency, minutes, text, answer_type, options, reference, верный, неверные)
+    ("ladoga", "Уровень изоляции для двух счетов", "Backend", "Базы данных и транзакции", 10,
+     "Правило: сумма балансов двух счетов клиента не уходит в минус. Две транзакции параллельно читают оба счёта и "
+     "списывают каждая со своего. Какой минимальный уровень изоляции PostgreSQL не даст нарушить правило без явных блокировок?",
+     "choice", ["Read Committed", "Repeatable Read", "Serializable"], {"correct": [2]}, [2], [[0], [1]]),
+    ("kiprey", "Сколько соединений занято", "Backend", "Конкурентность", 10,
+     "Сервис обрабатывает 400 запросов в секунду, каждый держит соединение с базой в среднем 25 мс. Сколько соединений "
+     "занято одновременно в среднем? Ответ — число.", "number", None, {"value": 10, "tolerance": 0}, "10", ["16", "40", "4"]),
+    (None, "Сигнал перед SIGKILL", "DevOps / SRE", "Kubernetes", 5,
+     "Какой сигнал Kubernetes отправляет процессу контейнера при остановке пода до истечения terminationGracePeriodSeconds?",
+     "text", None, {"answers": ["SIGTERM", "TERM", "15"], "exact": False}, "SIGTERM", ["SIGINT", "SIGHUP", "SIGQUIT"]),
+]
 NEED_TASKS = [
     ("Разбор инцидента с дублями платежей", "Диагностика инцидентов", "solve", 45,
      "Ночью часть платежей списалась дважды. Даны логи сервиса, график ретраев и схема таблиц. Найдите причину, "
@@ -829,6 +843,21 @@ def extras(db, g: Gen, ladoga, kiprey, lad_need, companies, hq, orlov, cands) ->
                "первый запрос вставляет запись в статусе processing в той же транзакции, повтор получает сохранённый ответ "
                "или 409 при гонке; TTL ключа 24 ч; события в Kafka через outbox.",
         review_comment="Чёткий план: уникальный индекс, поведение при гонке, outbox. Обсудим детали на интервью."))
+
+    # задания с эталоном: решения проверяет система; свой генератор — основной поток случайных чисел не сдвигается
+    ra = np.random.default_rng(g.seed + 2)
+    for co, t, sp, cmp, m, x, at_, opts, ref, good, bad in REF_TASKS:
+        task = Task(company=demo[co] if co else companies[int(ra.integers(len(companies)))], title=t, spec=sp, competency=cmp, kind="solve", minutes=m, text=x,
+                    public=True, is_synthetic=co is None, answer_type=at_, options=opts, reference=ref)
+        tasks.append(task)
+        group = pool.get(sp, [])
+        for i in ra.choice(len(group), size=min(len(group), int(ra.integers(8, 20))), replace=False):
+            c = group[i]
+            ans = good if ra.random() < 1 / (1 + np.exp(-c.truth["theta_true"])) else bad[int(ra.integers(len(bad)))]
+            choices, text_ = (ans, "") if opts else (None, ans)
+            subs.append(TaskSubmission(task=task, candidate=c, is_synthetic=True, created_at=NOW - DAY * float(ra.uniform(1, 30)),
+                                       answer=autocheck.answer_text(at_, opts, text_, choices),
+                                       auto_ok=autocheck.check(at_, opts, ref, text_, choices)))
 
     # неподтверждённая демо-компания: работает с урезанной квотой, лотерея ей доступна
     u_new = User(email="newco.hr@gmail.com", role="employer")

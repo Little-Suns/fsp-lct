@@ -411,7 +411,7 @@ const S = {
   questInvite: null,                 // тест по приглашению: invitation_id
   vf: { spec: '', grade: '', format: '', city: '', q: '' },   // фильтры вакансий кандидата
   sf: { spec: '', track: '', grade: '', skills: '', q: '', fsp: false, cf: false, hackathon: false, format: '', city: '', page: 1 },
-  vform: null, tform: null, applyNote: '', answer: '', hiddenEdit: false, needAdd: null, plan: null,
+  vform: null, tform: null, applyNote: '', answer: '', picks: [], hiddenEdit: false, needAdd: null, plan: null,
   appDecline: null, reviewFor: null,
   pf: null, cv: null,
   declineFor: null, declineReason: null,
@@ -523,6 +523,9 @@ const APP_ST = { sent: ['s-sent', 'отправлен'], seen: ['s-seen', 'пр�
 const appChip = st => `<span class="status ${(APP_ST[st] || APP_ST.sent)[0]}">${(APP_ST[st] || [0, esc(st)])[1]}</span>`;
 const REVIEW = { strong: ['ok', 'сильное решение'], ok: ['', 'нормально'], weak: ['warn', 'слабо'] };
 const reviewChip = r => r ? `<span class="chip ${REVIEW[r][0]}">${REVIEW[r][1]}</span>` : '<span class="chip dim">ждёт оценки</span>';
+// автопроверка по эталону: верно / неверно; null — открытый ответ или проверка не сработала (тогда ждёт оценки работодателя)
+const autoChip = a => a == null ? '' : `<span class="chip ${a ? 'ok' : 'warn'}">${a ? 'верно' : 'неверно'} · автопроверка</span>`;
+const resultChips = s => s.auto_ok == null ? reviewChip(s.review) : autoChip(s.auto_ok) + (s.review ? reviewChip(s.review) : '');
 // о компании — отдельные проверяемые факты, а не общее «подтверждена»: почта входа на домене сайта, контрольные цифры ИНН.
 // domain_confirmed / inn_checksum_valid приходят в приглашениях, вакансиях и задачах; verified — запасной вариант для старых ответов.
 const domainOk = co => co.domain_confirmed !== undefined ? !!co.domain_confirmed : !!co.verified;
@@ -1094,7 +1097,7 @@ function inviteView() {
       ${(D.invTasks || []).length ? `<div class="panel stack-s">
         <h3>Задания по приглашению</h3>
         <p class="small muted">Задания компании по этой вакансии. Решение уйдёт вместе с приглашением, контакты не раскрываются.</p>
-        ${D.invTasks.map(t => `<div class="row sb" style="padding:6px 0;border-bottom:1px dashed var(--line-2)"><button class="btn ghost small" data-go="/c/task/${t.id}/${id}" style="justify-content:flex-start">${esc(t.title)}</button><span class="row small" style="gap:6px"><span class="muted">${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>${t.submitted ? reviewChip(t.review) : '<span class="chip">не решено</span>'}</span></div>`).join('')}
+        ${D.invTasks.map(t => `<div class="row sb" style="padding:6px 0;border-bottom:1px dashed var(--line-2)"><button class="btn ghost small" data-go="/c/task/${t.id}/${id}" style="justify-content:flex-start">${esc(t.title)}</button><span class="row small" style="gap:6px"><span class="muted">${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>${t.submitted ? resultChips(t) : '<span class="chip">не решено</span>'}</span></div>`).join('')}
       </div>` : ''}
       ${actions}
     </div>
@@ -1285,6 +1288,8 @@ V['/c/applications'] = () => {
 
 /* ---------- витрина задач (кандидат) ---------- */
 const KIND_T = { solve: 'решить', approach: 'предложить подход' };
+const CHECK_T = { open: 'оценю сам', text: 'текст', number: 'число', choice: 'один вариант', multi: 'несколько вариантов', regex: 'шаблон' };
+const isRef = t => t.answer_type && t.answer_type !== 'open';
 V['/c/tasks'] = () => {
   if (!ME) return noProfile('Задачи');
   const T = D.showcase || [], M = D.subs || [];
@@ -1298,7 +1303,7 @@ V['/c/tasks'] = () => {
           <div class="stack-s" style="min-width:0">
             <span class="id">${esc(t.title)}</span>
             <span class="small muted">${esc(t.company.name)} · ${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>
-            <div class="row" style="gap:6px">${coChip(t.company)}${t.submitted ? reviewChip(t.review) : ''}</div>
+            <div class="row" style="gap:6px">${coChip(t.company)}${isRef(t) ? '<span class="chip">проверяет система</span>' : ''}${t.submitted ? resultChips(t) : ''}</div>
           </div>
           <div class="score">${t.submitted ? '<span class="status s-ok">решение отправлено</span>' : '<span class="small muted">открыть</span>'}</div>
         </button>`).join('') || '<div class="panel small muted">Задач по вашей специализации пока нет.</div>'}
@@ -1307,12 +1312,21 @@ V['/c/tasks'] = () => {
       <span class="label">Мои решения</span>
       ${M.map(s => `<div class="stack-s" style="padding:8px 0;border-bottom:1px dashed var(--line-2)">
         <button class="btn ghost small" data-go="/c/task/${s.task.id}" style="justify-content:flex-start">${esc(s.task.title)}</button>
-        <div class="row small" style="gap:6px">${reviewChip(s.review)}<span class="muted">${DAYMON(s.created_at)}</span></div>
+        <div class="row small" style="gap:6px">${resultChips(s)}<span class="muted">${DAYMON(s.created_at)}</span></div>
         ${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}
       </div>`).join('') || '<p class="small muted">Пока нет.</p>'}
     </aside>
   </div>`;
 };
+
+function answerInput(t) {
+  const at = t.answer_type || 'open';
+  if (at === 'choice' || at === 'multi') return `<span class="small muted">${at === 'choice' ? 'Выберите один вариант' : 'Выберите все верные варианты'}</span>
+    <div class="chips" role="group" aria-label="Варианты ответа">${(t.options || []).map((o, i) => `<button class="chip ${S.picks.includes(i) ? 'on' : ''}" aria-pressed="${S.picks.includes(i)}" data-act="tk-pick" data-v="${i}" data-multi="${at === 'multi' ? 1 : ''}">${esc(o)}</button>`).join('')}</div>`;
+  if (at === 'number') return `<input class="input num" id="tk-answer" inputmode="decimal" maxlength="64" style="max-width:240px" placeholder="Число, например 42 или 3,14" value="${esc(S.answer)}">`;
+  if (at !== 'open') return `<input class="input" id="tk-answer" maxlength="500" placeholder="Короткий ответ" value="${esc(S.answer)}">`;
+  return `<textarea class="input" id="tk-answer" maxlength="5000" style="min-height:180px" placeholder="${t.kind === 'solve' ? 'Код или решение' : 'Опишите подход: что делаете, почему, какие риски'}">${esc(S.answer)}</textarea>`;
+}
 
 function cTaskView() {
   if (!ME) return noProfile('Задача');
@@ -1327,25 +1341,26 @@ function cTaskView() {
       <div class="panel stack">
         <div class="row"><span class="logo-sq" style="background:${esc(t.company.color)}">${esc(t.company.name[0])}</span><b>${esc(t.company.name)}</b><span style="margin-left:auto">${coChip(t.company)}</span></div>
         <h2>${esc(t.title)}</h2>
-        <span class="small muted">${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>
+        <span class="small muted">${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин${isRef(t) ? ' · проверяет система' : ''}</span>
         ${S.taskInv ? `<div class="alert info"><span>→</span><span>Задание из приглашения. <button class="btn ghost small" data-go="/c/invite/${S.taskInv}">К приглашению</button></span></div>` : ''}
         <p class="prose pre">${esc(t.text)}</p>
       </div>
       ${mine ? `<div class="panel stack">
         <h3>Ваше решение</h3>
         <p class="small pre">${esc(mine.answer)}</p>
-        <div class="row">${reviewChip(mine.review)}${mine.reviewed_at ? `<span class="small muted">оценено ${DAYMON(mine.reviewed_at)}</span>` : ''}</div>
+        <div class="row">${resultChips(mine)}${mine.reviewed_at ? `<span class="small muted">оценено ${DAYMON(mine.reviewed_at)}</span>` : ''}</div>
+        ${mine.auto_feedback ? `<p class="small">${esc(mine.auto_feedback)}</p>` : ''}
         ${mine.review_comment ? `<p class="small">Комментарий компании: ${esc(mine.review_comment)}</p>` : ''}
       </div>` : `<div class="panel stack">
-        <h3>${t.kind === 'solve' ? 'Решение' : 'Ваш подход'}</h3>
-        <textarea class="input" id="tk-answer" maxlength="5000" style="min-height:180px" placeholder="${t.kind === 'solve' ? 'Код или решение' : 'Опишите подход: что делаете, почему, какие риски'}">${esc(S.answer)}</textarea>
-        <span class="hint">Компания увидит решение с анонимной карточкой — без ФИО и контактов.</span>
+        <h3>${isRef(t) ? 'Ответ' : t.kind === 'solve' ? 'Решение' : 'Ваш подход'}</h3>
+        ${answerInput(t)}
+        <span class="hint">${isRef(t) ? 'Ответ проверит система по эталону компании сразу после отправки. Попытка одна. ' : ''}Компания увидит решение с анонимной карточкой — без ФИО и контактов.</span>
         <div class="row"><button class="btn primary" data-act="task-submit" data-id="${t.id}">Отправить решение</button></div>
       </div>`}
     </div>
     <aside class="panel tight stack-s">
       <span class="label">Как это работает</span>
-      <p class="small">Компания оценивает решение: сильное, нормально или слабо. В карточке у других работодателей появится «решил задачу N дн. назад · оценка». Контакты не раскрываются.</p>
+      <p class="small">Компания оценивает решение: сильное, нормально или слабо. Если у задания есть эталон ответа, проверяет система — вы сразу видите «верно» или «неверно», сам эталон не показывается; компания может переоценить решение вручную. В карточке у других работодателей появится «решил задачу N дн. назад · оценка». Контакты не раскрываются.</p>
     </aside>
   </div>`;
 }
@@ -1795,7 +1810,7 @@ function candView() {
           <div><span class="dot ${c.trust.test ? 'on' : ''}"></span><div>Тест пройден</div></div>
           <div><span class="dot ${c.trust.review ? 'on' : ''}"></span><div>Разбор решения</div></div>
           <div><span class="dot ${c.trust.employer_confirmed ? 'on' : ''}"></span><div>Подтверждён работодателем${c.trust.employer_confirmed ? ` · ${c.trust.employer_confirmed} раз` : ''}</div></div>
-          <div><span class="dot ${c.task_signal ? 'on' : ''}"></span><div>${c.task_signal ? `Решил задачу ${c.task_signal.days_ago ? c.task_signal.days_ago + ' дн. назад' : 'сегодня'} · оценка работодателя: ${esc(c.task_signal.review_text)}${c.task_signal.company_verified ? '' : ' <span class="muted small">(компания не прошла проверку)</span>'}` : 'Задачи компаний: оценённых решений нет'}<br><span class="muted small">свежий сигнал, на скор не влияет</span></div></div>
+          <div><span class="dot ${c.task_signal ? 'on' : ''}"></span><div>${c.task_signal ? `Решил задачу ${c.task_signal.days_ago ? c.task_signal.days_ago + ' дн. назад' : 'сегодня'} · ${c.task_signal.source === 'auto' ? 'автопроверка' : 'оценка работодателя'}: ${esc(c.task_signal.review_text)}${c.task_signal.company_verified ? '' : ' <span class="muted small">(компания не прошла проверку)</span>'}` : 'Задачи компаний: оценённых решений нет'}<br><span class="muted small">свежий сигнал, на скор не влияет</span></div></div>
         </div>
       </div>
       ${softChips(c.roles, c.soft) ? `<div class="panel tight stack-s">
@@ -2061,11 +2076,48 @@ function taskForm() {
       <div class="field"><span>Тип</span><div class="seg" role="group">${[['approach', 'Предложить подход'], ['solve', 'Решить']].map(([k, l]) => `<button data-act="tx-set" data-k="kind" data-v="${k}" aria-pressed="${f.kind === k}">${l}</button>`).join('')}</div></div>
       <label class="field"><span>Минут на решение</span><input class="input num" id="tx-min" inputmode="numeric" value="${f.minutes}"></label>
     </div>
+    <div class="field"><span>Проверка ответа</span><div class="seg" role="group" aria-label="Проверка ответа">${Object.entries(CHECK_T).map(([k, l]) => `<button data-act="tx-set" data-k="answer_type" data-v="${k}" aria-pressed="${f.answer_type === k}">${l}</button>`).join('')}</div></div>
+    ${refFields(f)}
     <button class="switch" role="switch" aria-checked="${f.public}" data-act="tx-set" data-k="public"><i></i> На витрине для всех кандидатов специализации (иначе — только приглашённым)</button>
     ${S.needObj ? `<button class="switch" role="switch" aria-checked="${f.link}" data-act="tx-set" data-k="link"><i></i> К потребности «${esc(roleTitle(S.needObj))}»</button>` : ''}
     <div class="row"><button class="btn primary" data-act="task-save">Создать задание</button><span class="hint">Без уведомлений: кандидаты заходят на витрину сами</span></div>
   </div>`;
 }
+
+function refFields(f) {
+  const hint = '<span class="hint">Эталон видите только вы: кандидату и другим компаниям он не показывается. Система проверит ответ сразу после отправки, вручную переоценить можно в любой момент.</span>';
+  if (f.answer_type === 'open') return '<span class="hint">Открытый ответ: решение оцениваете вы — сильное, нормально или слабо.</span>';
+  if (f.answer_type === 'text') return `<label class="field"><span>Эталонные ответы — через «;»</span><input class="input" id="tx-answers" value="${esc(f.answers)}" placeholder="SIGTERM; TERM; 15"></label>
+    <button class="switch" role="switch" aria-checked="${f.exact}" data-act="tx-set" data-k="exact"><i></i> Точное совпадение (иначе без учёта регистра, ё/е, лишних пробелов и знаков по краям)</button>${hint}`;
+  if (f.answer_type === 'number') return `<div class="grid g2"><label class="field"><span>Эталон — число</span><input class="input num" id="tx-value" inputmode="decimal" value="${esc(f.value)}"></label>
+    <label class="field"><span>Допуск ±</span><input class="input num" id="tx-tol" inputmode="decimal" value="${esc(f.tol)}" placeholder="0"></label></div>${hint}`;
+  if (f.answer_type === 'regex') return `<label class="field"><span>Шаблон (регулярное выражение, полное совпадение, без учёта регистра)</span><input class="input" id="tx-pattern" value="${esc(f.pattern)}" placeholder="\\d{3}-\\d{2}"></label>${hint}`;
+  return `<label class="field"><span>Варианты — по одному на строку, верные отметьте «*» в начале</span><textarea class="input" id="tx-opts" style="min-height:100px" placeholder="Read Committed&#10;Repeatable Read&#10;*Serializable">${esc(f.opts)}</textarea></label>${hint}`;
+}
+
+// эталон из полей формы; ошибки формата ловит и сервер (422)
+function taskRef(f) {
+  const at = f.answer_type, dec = x => parseFloat(String(x).replace(/\s/g, '').replace(',', '.'));
+  if (at === 'open') return {};
+  if (at === 'text') return { reference: { answers: f.answers.split(';').map(x => x.trim()).filter(Boolean), exact: f.exact } };
+  if (at === 'number') {
+    const value = dec(f.value), tolerance = String(f.tol).trim() ? dec(f.tol) : 0;
+    if (!Number.isFinite(value) || !Number.isFinite(tolerance)) throw new Error('Эталон и допуск — числа');
+    return { reference: { value, tolerance } };
+  }
+  if (at === 'regex') return { reference: { pattern: f.pattern } };
+  const lines = f.opts.split('\n').map(x => x.trim()).filter(Boolean);
+  return { options: lines.map(x => x.replace(/^\*\s*/, '')), reference: { correct: lines.flatMap((x, i) => x.startsWith('*') ? [i] : []) } };
+}
+
+const refText = t => {
+  const r = t.reference;
+  if (!r) return '';
+  if (t.answer_type === 'text') return r.answers.join('; ') + (r.exact ? ' (точно)' : '');
+  if (t.answer_type === 'number') return r.tolerance ? `${r.value} ± ${r.tolerance}` : String(r.value);
+  if (t.answer_type === 'regex') return r.pattern;
+  return r.correct.map(i => t.options[i]).join('; ');
+};
 
 V['/e/tasks'] = () => {
   const L = D.mytasks || [];
@@ -2076,9 +2128,9 @@ V['/e/tasks'] = () => {
   <div class="stack">
     ${S.tform ? taskForm() : ''}
     ${L.map(t => `<div class="panel stack-s">
-      <div class="row sb"><b>${esc(t.title)}</b><span class="chip ${t.public ? 'on' : ''}">${t.public ? 'на витрине' : 'только приглашённым'}</span></div>
+      <div class="row sb"><b>${esc(t.title)}</b><span class="row" style="gap:6px">${isRef(t) ? `<span class="chip">автопроверка: ${CHECK_T[t.answer_type] || esc(t.answer_type)}</span>` : ''}<span class="chip ${t.public ? 'on' : ''}">${t.public ? 'на витрине' : 'только приглашённым'}</span></span></div>
       <span class="small muted">${esc(t.spec)}${t.competency ? ' · ' + esc(t.competency) : ''} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин${t.need_id ? ' · к потребности' : ''}</span>
-      <div class="row small" style="gap:12px"><span>Решений: <b class="num">${t.submissions}</b></span><span>оценено ${t.reviewed}</span>${t.avg_review != null ? `<span class="muted">средняя оценка ${DEC(t.avg_review, 1)} из 3</span>` : ''}</div>
+      <div class="row small" style="gap:12px"><span>Решений: <b class="num">${t.submissions}</b></span>${isRef(t) ? `<span>верно ${t.auto_passed} из ${t.auto_checked}</span>` : ''}<span>оценено ${t.reviewed}</span>${t.avg_review != null ? `<span class="muted">средняя оценка ${DEC(t.avg_review, 1)} из 3</span>` : ''}</div>
       <div class="row"><button class="btn ghost small" data-go="/e/task/${t.id}">Решения</button></div>
     </div>`).join('') || '<div class="panel small muted">Заданий пока нет.</div>'}
   </div>`;
@@ -2091,12 +2143,13 @@ function eTaskView() {
   return `
   ${crumbs([['Задания', '/e/tasks'], [esc(t.title)]])}
   ${subnav('e')}
-  <div class="panel stack" style="margin-bottom:16px"><h2>${esc(t.title)}</h2><p class="prose small pre">${esc(t.text)}</p></div>
+  <div class="panel stack" style="margin-bottom:16px"><h2>${esc(t.title)}</h2><p class="prose small pre">${esc(t.text)}</p>${isRef(t) ? `<p class="small">Эталон (${CHECK_T[t.answer_type] || esc(t.answer_type)}): <b>${esc(refText(t))}</b> <span class="muted">— видите только вы</span></p>` : ''}</div>
   <div class="stack">
-    ${T.items.map(s => { const c = s.candidate; if (s.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span><span class="small muted">${DAYMON(s.created_at)}</span></div><span class="small muted">Решение и карточка недоступны: кандидат отозвал согласие или скрыл профиль от компании.</span>${s.review ? `<div class="row">${reviewChip(s.review)}</div>` : ''}</div>`; return `<div class="panel stack-s">
+    ${T.items.map(s => { const c = s.candidate; if (s.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span><span class="small muted">${DAYMON(s.created_at)}</span></div><span class="small muted">Решение и карточка недоступны: кандидат отозвал согласие или скрыл профиль от компании.</span>${s.review || s.auto_ok != null ? `<div class="row">${resultChips(s)}</div>` : ''}</div>`; return `<div class="panel stack-s">
       <div class="row sb"><div class="row"><button class="btn ghost small" data-go="/e/cand/${esc(c.id)}">Кандидат ${esc(c.id)}</button>${catTag(c.spec, c.track, c.grade)}</div><span class="small muted">${DAYMON(s.created_at)}</span></div>
       <p class="small pre" style="background:var(--ground);padding:12px;border-radius:8px">${esc(s.answer)}</p>
-      ${s.review ? `<div class="row">${reviewChip(s.review)}${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}</div>` : `
+      ${s.review ? `<div class="row">${resultChips(s)}${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}</div>` : `
+      ${s.auto_ok != null ? `<div class="row">${autoChip(s.auto_ok)}<span class="small muted">можно переоценить вручную</span></div>` : ''}
       <input class="input" id="rvc-${s.id}" placeholder="Комментарий кандидату, по желанию" style="max-width:520px">
       <div class="row">${['strong', 'ok', 'weak'].map(k => `<button class="btn ${k === 'strong' ? 'primary' : 'ghost'} small" data-act="review" data-id="${s.id}" data-v="${k}">${REVIEW[k][1]}</button>`).join('')}</div>`}
     </div>`; }).join('') || '<div class="panel small muted">Решений пока нет.</div>'}
@@ -2250,7 +2303,7 @@ async function load(r) {
     else if (page === 'vacancy') { [D.vacancy, D.apps] = await Promise.all([or404(api('GET', '/api/vacancies/' + encodeURIComponent(arg))), api('GET', '/api/vacancies/applications/mine')]); S.applyNote = ''; S.applyErr = null; }
     else if (page === 'applications') D.apps = await api('GET', '/api/vacancies/applications/mine');
     else if (page === 'tasks') [D.showcase, D.subs] = await Promise.all([api('GET', '/api/tasks/showcase'), api('GET', '/api/tasks/submissions/mine')]);
-    else if (page === 'task') { S.taskInv = +r.split('/')[4] || null; [D.task, D.subs] = await Promise.all([or404(api('GET', '/api/tasks/' + encodeURIComponent(arg))), api('GET', '/api/tasks/submissions/mine')]); S.answer = ''; }
+    else if (page === 'task') { S.taskInv = +r.split('/')[4] || null; [D.task, D.subs] = await Promise.all([or404(api('GET', '/api/tasks/' + encodeURIComponent(arg))), api('GET', '/api/tasks/submissions/mine')]); S.answer = ''; S.picks = []; }
     else if (page === 'chat') await loadChat(arg);
   }
   if (side === 'e') {
@@ -2363,6 +2416,7 @@ function capture() {
   if (v('sf-q') != null) Object.assign(S.sf, { q: v('sf-q').trim(), spec: v('sf-spec'), track: v('sf-track'), grade: v('sf-grade'), skills: v('sf-skills').trim(), format: v('sf-format'), city: v('sf-city').trim() });
   if (S.vform && v('vx-title') != null) Object.assign(S.vform, { title: v('vx-title'), spec: v('vx-spec'), track: v('vx-track'), must: v('vx-must'), nice: v('vx-nice'), from: num(v('vx-from')), to: num(v('vx-to')), city: v('vx-city'), description: v('vx-desc') });
   if (S.tform && v('tx-title') != null) Object.assign(S.tform, { title: v('tx-title'), text: v('tx-text'), spec: v('tx-spec'), competency: v('tx-comp'), minutes: num(v('tx-min')) || 45 });
+  if (S.tform) for (const [k, id] of [['answers', 'tx-answers'], ['value', 'tx-value'], ['tol', 'tx-tol'], ['pattern', 'tx-pattern'], ['opts', 'tx-opts']]) if (v(id) != null) S.tform[k] = v(id);
 }
 const reloadAch = async () => { ACH = await api('GET', '/api/achievements'); };
 const skillList = s => s.split(/[,;]+/).map(x => x.trim()).filter(Boolean);
@@ -2566,10 +2620,12 @@ const ACT = {
     toast('Отклик отправлен: компания видит ваши контакты'); await refresh();
   },
   async withdraw(a, d) { await api('POST', `/api/vacancies/applications/${d.id}/withdraw`); toast('Отклик отозван'); await refresh(); },
+  'tk-pick': (a, d) => { const i = +d.v; S.picks = d.multi ? (S.picks.includes(i) ? S.picks.filter(x => x !== i) : [...S.picks, i]) : [i]; rerender(); },
   async 'task-submit'(a, d) {
-    if (!S.answer.trim()) throw new Error('Напишите решение');
-    await api('POST', `/api/tasks/${d.id}/submit`, { answer: S.answer.trim(), invitation_id: S.taskInv || null });
-    toast('Решение отправлено. Оценка появится в «Моих решениях»'); await refresh();
+    const t = D.task, pick = t && ['choice', 'multi'].includes(t.answer_type);
+    if (pick ? !S.picks.length : !S.answer.trim()) throw new Error(pick ? 'Выберите вариант ответа' : 'Напишите решение');
+    const s = await api('POST', `/api/tasks/${d.id}/submit`, pick ? { choices: S.picks, invitation_id: S.taskInv || null } : { answer: S.answer.trim(), invitation_id: S.taskInv || null });
+    toast(s.auto_feedback ? 'Решение отправлено. ' + s.auto_feedback : 'Решение отправлено. Оценка появится в «Моих решениях»'); await refresh();
   },
 
   // работодатель
@@ -2667,12 +2723,12 @@ const ACT = {
   },
 
   // задания (работодатель)
-  'task-new': () => { const n = S.needObj; S.tform = { title: '', text: '', spec: n ? n.spec : 'Backend', competency: '', kind: 'approach', minutes: 45, public: true, link: false }; rerender(); },
+  'task-new': () => { const n = S.needObj; S.tform = { title: '', text: '', spec: n ? n.spec : 'Backend', competency: '', kind: 'approach', minutes: 45, public: true, link: false, answer_type: 'open', answers: '', exact: false, value: '', tol: '', pattern: '', opts: '' }; rerender(); },
   'task-cancel': () => { S.tform = null; rerender(); },
-  'tx-set': (a, d) => { S.tform[d.k] = d.k === 'public' || d.k === 'link' ? !S.tform[d.k] : d.v; rerender(); },
+  'tx-set': (a, d) => { S.tform[d.k] = ['public', 'link', 'exact'].includes(d.k) ? !S.tform[d.k] : d.v; rerender(); },
   async 'task-save'() {
     const f = S.tform;
-    await api('POST', '/api/tasks', { title: f.title, text: f.text, spec: f.spec, competency: f.competency || null, kind: f.kind, minutes: f.minutes, public: f.public, need_id: f.link && S.needObj ? S.needObj.id : null });
+    await api('POST', '/api/tasks', { title: f.title, text: f.text, spec: f.spec, competency: f.competency || null, kind: f.kind, minutes: f.minutes, public: f.public, need_id: f.link && S.needObj ? S.needObj.id : null, answer_type: f.answer_type, ...taskRef(f) });
     S.tform = null; toast('Задание создано'); await refresh();
   },
   async review(a, d) {

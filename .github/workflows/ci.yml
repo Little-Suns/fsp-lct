@@ -46,6 +46,7 @@ jobs:
           uv run python -m app.services.parsing
           uv run python -m app.services.lottery
           uv run python -m app.services.irt
+          uv run python -m app.services.autocheck
           uv run python -m seed.gold
 
   frontend-e2e:

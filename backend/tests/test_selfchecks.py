@@ -6,7 +6,7 @@ import warnings
 
 import pytest
 
-MODULES = ["app.integrations.scoring", "app.services.parsing", "app.services.lottery", "app.services.irt", "app.routers.employer", "seed.gold"]
+MODULES = ["app.integrations.scoring", "app.services.parsing", "app.services.lottery", "app.services.irt", "app.services.autocheck", "app.routers.employer", "seed.gold"]
 
 
 @pytest.mark.parametrize("module", MODULES)
