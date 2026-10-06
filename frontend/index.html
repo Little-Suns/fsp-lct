@@ -1579,7 +1579,7 @@ function chatView(side) {
         <textarea id="chat-input" class="input" style="flex:1;min-height:44px;resize:none" maxlength="2000" placeholder="Сообщение"></textarea>
         <button class="btn primary" data-act="chat-send">Отправить</button>
       </div>
-      <span class="hint" style="margin-top:6px">Enter — отправить, Shift+Enter — перенос строки</span>` : '<p class="small muted" style="margin-top:12px">Писать больше нельзя: приглашение или отклик закрыты, либо кандидат отозвал согласие. История остаётся доступной.</p>'}
+      <span class="hint" style="margin-top:6px">Enter — отправить, Shift+Enter — перенос строки</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
     </div>` : `<div class="panel chat-box" style="align-items:center;justify-content:center"><span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог слева'}</span></div>`;
   return `
   ${crumbs(head)}

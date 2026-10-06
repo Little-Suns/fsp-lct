@@ -656,16 +656,17 @@ def demo_dialogs(ladoga, smirnova, orlov, apps) -> list[Message]:
     """Короткие прочитанные диалоги, чтобы чат на стенде не был пустым. Только там, где переписка разрешена (services/chat.py):
     «Ладога Пэй» ↔ Анна Смирнова — принятое приглашение; Орлов ↔ компания его просмотренного отклика — живой отклик.
     Орлов ↔ «Ладога Пэй» не трогаем: приглашение ещё без ответа, e2e принимает его и начинает чат с пустой истории."""
-    app = next(a for a in apps if a.candidate is orlov and a.status == "seen")
+    app = next((a for a in apps if a.candidate is orlov and a.status == "seen"), None)  # нет открытой Backend/Python — без второго диалога
     script = [
         (ladoga, smirnova, NOW - DAY * 5.8, [
             ("employer", "Анна, добрый день! Спасибо, что приняли приглашение. Удобно созвониться в четверг в 11:00?"),
             ("candidate", "Добрый день! Да, четверг подходит. Пришлёте ссылку?"),
             ("employer", "Пришлю приглашение в календарь накануне. До встречи!")]),
-        (app.vacancy.company, orlov, NOW - DAY * 0.3, [
-            ("employer", "Дмитрий, здравствуйте! Посмотрели отклик — расскажите, с какой нагрузкой работали в Kafka?"),
-            ("candidate", "Здравствуйте! Около 2 тыс. сообщений в секунду, консьюмеры на asyncio, exactly-once через outbox.")]),
     ]
+    if app:
+        script.append((app.vacancy.company, orlov, NOW - DAY * 0.3, [
+            ("employer", "Дмитрий, здравствуйте! Посмотрели отклик — расскажите, с какой нагрузкой работали в Kafka?"),
+            ("candidate", "Здравствуйте! Около 2 тыс. сообщений в секунду, консьюмеры на asyncio, exactly-once через outbox.")]))
     return [Message(company_id=co.id, candidate_id=c.id, sender=who, text=t, created_at=at + timedelta(minutes=17 * k),
                     read_at=at + timedelta(minutes=17 * k + 5))
             for co, c, at, msgs in script for k, (who, t) in enumerate(msgs)]
