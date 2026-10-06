@@ -16,7 +16,7 @@ from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
 from app.models import Application, AuditLog, Candidate, Company, Invitation, Need, User, Vacancy
-from app.routers import tasks, vacancies
+from app.routers import candidate, tasks, vacancies
 
 config.LLM_BASE_URL = ""
 NOW = datetime.now(UTC)
@@ -79,7 +79,7 @@ def client():
         for k, u in users.items():
             H[k] = {"Authorization": f"Bearer {issue_token(db, u)}"}
     app = FastAPI()
-    for r in (deps, vacancies, tasks):
+    for r in (deps, vacancies, tasks, candidate):
         app.include_router(r.router)
     yield TestClient(app)
 
@@ -295,7 +295,8 @@ def test_reference_task_validation(client):
            {"answer_type": "multi", "options": ["a", " A "], "reference": {"correct": [0]}},
            {"answer_type": "multi", "options": ["a", "b"], "reference": {}},
            {"answer_type": "regex", "reference": {"pattern": "(["}},
-           {"answer_type": "regex", "reference": {"pattern": "x" * 301}}]
+           {"answer_type": "regex", "reference": {"pattern": "x" * 301}},
+           {"answer_type": "regex", "reference": {"pattern": "((((a{20}){20}){20}){20})"}}]  # раздувается при компиляции
     for b in bad:
         assert client.post("/api/tasks", json={**TASK, **b}, headers=H["emp"]).status_code == 422, b
     # открытое задание: варианты и эталон не сохраняются
@@ -342,6 +343,7 @@ def test_reference_tasks_autocheck(client):
     assert r.status_code == 200 and r.json()["auto_ok"] is None and "работодатель" in r.json()["auto_feedback"]
     assert sub("regex", who="busy", answer="СЕКРЕТ-7").json()["auto_ok"] is True
     assert sub("number", who="busy", answer="1236").json()["auto_ok"] is False
+    assert sub("text", who="shy", answer="Read Committed").json()["auto_ok"] is True  # карточку не публикует
 
     mine = client.get("/api/tasks/submissions/mine", headers=H["cand"])
     _no_reference(mine)
@@ -354,14 +356,23 @@ def test_reference_tasks_autocheck(client):
     subs = client.get(f"/api/tasks/{ids['number']}/submissions", headers=H["emp"]).json()
     assert subs["task"]["reference"] == {"value": 1234.5, "tolerance": 0.5}
     assert sorted(i["auto_ok"] for i in subs["items"]) == [False, True]
+    hidden = [i for i in client.get(f"/api/tasks/{ids['text']}/submissions", headers=H["emp"]).json()["items"] if i["hidden"]]
+    assert len(hidden) == 1 and hidden[0]["auto_ok"] is None and hidden[0]["auto_feedback"] is None  # скрытый — без результата
     st = {t["id"]: t for t in client.get("/api/tasks/mine", headers=H["emp"]).json()}
     assert (st[ids["number"]]["auto_checked"], st[ids["number"]]["auto_passed"], st[ids["number"]]["reviewed"]) == (2, 1, 0)
     assert (st[ids["regex"]]["auto_checked"], st[ids["regex"]]["auto_passed"]) == (1, 1)  # таймаут — не проверено
+    timed_out = next(i for i in client.get(f"/api/tasks/{ids['regex']}/submissions", headers=H["emp"]).json()["items"] if i["auto_ok"] is None)
+    r = client.post(f"/api/tasks/submissions/{timed_out['id']}/review", json={"review": "strong"}, headers=H["emp"])
+    assert r.json()["review"] == "strong" and r.json()["auto_ok"] is None  # не сработавшую автопроверку оценивает работодатель
 
     # сигнал: последняя автопроверка; ручная оценка работодателя главнее
     with SessionLocal() as db:
-        sig = tasks.task_signal(db, IDS["cand"])
-    assert sig["source"] == "auto" and sig["auto_ok"] is True and sig["review"] is None and sig["review_text"] == "верный ответ"
+        busy_sig = tasks.task_signal(db, db.scalar(select(Candidate.id).where(Candidate.public_id == "B-0001")))
+    assert busy_sig["source"] == "auto" and busy_sig["auto_ok"] is True  # неверный ответ позже верного в сигнал не идёт
+    # выгрузка своих данных (152-ФЗ): своё решение и результат — да, эталон — нет
+    ex = client.get("/api/candidate/me/export", headers=H["cand"])
+    assert ex.status_code == 200 and any(s.get("auto_ok") is True for s in ex.json()["task_submissions"])
+    assert SECRET not in ex.text and "reference" not in ex.text and "1234.5" not in ex.text
     wrong = next(i for i in client.get(f"/api/tasks/{ids['choice']}/submissions", headers=H["emp"]).json()["items"] if i["candidate"])
     r = client.post(f"/api/tasks/submissions/{wrong['id']}/review", json={"review": "ok", "comment": "Тоже допустимо"}, headers=H["emp"]).json()
     assert r["review"] == "ok" and r["auto_ok"] is False  # переоценка не стирает автопроверку

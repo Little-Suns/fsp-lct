@@ -10,22 +10,27 @@
   regex  — полное совпадение с шаблоном без учёта регистра.
 Эталон (reference) хранится на сервере и не уходит кандидату — ни в задании, ни в обратной связи: кандидат видит
 только «совпало / не совпало». Варианты (options) — публичная часть задания. Попытка одна (уникальный индекс
-решения), перебором эталон не подобрать.
+решения): одним аккаунтом эталон не перебрать (обход новыми аккаунтами — в table.md).
 """
 
 import math
+import re
 import unicodedata
 
 import regex
 
 ANSWER_TYPES = ("open", "text", "number", "choice", "multi", "regex")
-TITLES = {"open": "открытый ответ", "text": "текст", "number": "число", "choice": "один вариант", "multi": "несколько вариантов",
-          "regex": "шаблон"}
 OPTIONS_MAX, OPTION_LEN, ANSWERS_MAX, ANSWER_LEN, PATTERN_LEN = 10, 200, 10, 500, 300
-# ponytail: шаблон работодателя проверяется движком regex с таймаутом — катастрофический возврат (ReDoS)
-# обрывается, решение уходит на ручную оценку; отдельный процесс-песочница, если понадобится жёстче
+# ponytail: шаблон работодателя проверяется движком regex с таймаутом (concurrent — GIL отпускается) — катастрофический
+# возврат (ReDoS) обрывается, решение уходит на ручную оценку. Компиляция таймаута не знает, а вложенные счётчики
+# ((a{20}){20}){20}… раздуваются при компиляции — поэтому счётчиков не больше REPEATS_MAX и каждый ≤ REPEAT_MAX.
+# Отдельный процесс-песочница с лимитом памяти, если понадобится жёстче.
 REGEX_TIMEOUT = 0.05
+REPEATS_MAX, REPEAT_MAX = 3, 100
 _EDGE = " .,;:!?\"'«»`“”„()[]"
+_NUMBER = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?", re.ASCII)
+_COUNTED = re.compile(r"(?<!\\)\{([^}]*)\}")
+_BOUNDS = re.compile(r"(\d{1,3})?(,(\d{1,3})?)?", re.ASCII)
 
 
 def norm(s: str) -> str:
@@ -34,12 +39,24 @@ def norm(s: str) -> str:
 
 
 def parse_number(s: str) -> float | None:
-    s = s.strip().replace(" ", "").replace(" ", "").replace(",", ".")
-    try:
-        x = float(s)
-    except ValueError:
+    """Число из ответа: ASCII-цифры, точка или запятая, пробелы между разрядами; без «1_000» и нецифровых систем."""
+    s = "".join(s.split()).replace(",", ".")
+    if not _NUMBER.fullmatch(s):
         return None
+    x = float(s)
     return x if math.isfinite(x) else None
+
+
+def _safe_pattern(pattern: str) -> bool:
+    """Счётчики {m,n}: не больше REPEATS_MAX, границы ≤ REPEAT_MAX; другие конструкции в фигурных скобках (нечёткий поиск) — нет."""
+    counted = _COUNTED.findall(pattern)
+    if len(counted) > REPEATS_MAX:
+        return False
+    for body in counted:
+        m = _BOUNDS.fullmatch(body)
+        if not m or not (m.group(1) or m.group(3)) or any(int(x) > REPEAT_MAX for x in (m.group(1), m.group(3)) if x):
+            return False
+    return True
 
 
 def build(answer_type: str, options: list[str] | None, ref: dict | None) -> tuple[list[str] | None, dict | None]:
@@ -76,6 +93,8 @@ def build(answer_type: str, options: list[str] | None, ref: dict | None) -> tupl
     pattern = ref.get("pattern")
     if not isinstance(pattern, str) or not pattern.strip() or len(pattern) > PATTERN_LEN:
         raise ValueError(f"Эталон: шаблон до {PATTERN_LEN} символов")
+    if not _safe_pattern(pattern):
+        raise ValueError(f"Шаблон: не больше {REPEATS_MAX} счётчиков {{m,n}}, границы до {REPEAT_MAX}")
     try:
         regex.compile(pattern)
     except regex.error as e:
@@ -112,7 +131,8 @@ def check(answer_type: str, options: list[str] | None, ref: dict | None, answer:
         x = parse_number(answer)
         return x is not None and abs(x - ref["value"]) <= ref["tolerance"] + 1e-9 * max(1.0, abs(ref["value"]))
     try:
-        return regex.fullmatch(ref["pattern"], answer.strip(), flags=regex.IGNORECASE, timeout=REGEX_TIMEOUT) is not None
+        return regex.fullmatch(ref["pattern"], answer.strip(), flags=regex.IGNORECASE, timeout=REGEX_TIMEOUT,
+                              concurrent=True) is not None
     except TimeoutError:
         return None
 
@@ -138,7 +158,11 @@ if __name__ == "__main__":
     assert check("multi", o, r, "", [0, 2]) and not check("multi", o, r, "", [0]) and answer_text("multi", o, "", [2, 0]) == "a; c"
     r = build("regex", None, {"pattern": r"(a|aa)+"})[1]
     assert check("regex", None, r, "AAA", None) and check("regex", None, r, "a" * 5000 + "!", None) is None  # ReDoS — на ручную оценку
-    for bad in [("choice", ["a", "b"], {"correct": [0, 1]}), ("choice", ["a", "A"], {"correct": [0]}), ("number", None, {"value": True}),
+    assert parse_number("1 234,5") == 1234.5 and parse_number("-.5e1") == -5 and parse_number("1_000") is None and parse_number("١٢") is None
+    assert build("regex", None, {"pattern": r"\d{3}-\d{2,}\{x\}"})
+    for bad in [("regex", None, {"pattern": "((((a{20}){20}){20}){20})"}), ("regex", None, {"pattern": "a{101}"}),
+                ("regex", None, {"pattern": "(?:ab){e<=1}"}), ("regex", None, {"pattern": "a{,}"}),
+                ("choice", ["a", "b"], {"correct": [0, 1]}), ("choice", ["a", "A"], {"correct": [0]}), ("number", None, {"value": True}),
                 ("regex", None, {"pattern": "("}), ("text", ["a"], {"answers": ["x"]}), ("magic", None, None)]:
         try:
             build(*bad)

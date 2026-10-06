@@ -28,7 +28,6 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 REVIEWS = {"strong": "сильное решение", "ok": "нормально", "weak": "слабо"}
 REVIEW_SCORE = {"strong": 3, "ok": 2, "weak": 1}
-AUTO_TEXT = {True: "верный ответ", False: "неверный ответ"}
 
 
 def _now() -> datetime:
@@ -38,12 +37,14 @@ def _now() -> datetime:
 def task_signal(db: Session, candidate_id: int) -> dict | None:
     """Последнее оценённое решение кандидата — сигнал для карточки у работодателя. В ранжирование не идёт.
 
-    Оценка — работодателя (source=employer) или автопроверка по эталону (source=auto); ручная оценка главнее автопроверки.
+    Оценка — работодателя (source=employer) или верный ответ по эталону (source=auto); ручная оценка главнее автопроверки.
+    Неверный автоответ в сигнал не идёт: одна неудачная попытка не вытесняет прежнюю оценку у всех работодателей —
+    её видит только компания-автор в списке решений.
     """
     at = func.coalesce(TaskSubmission.reviewed_at, TaskSubmission.created_at)
     s = db.scalar(
         select(TaskSubmission)
-        .where(TaskSubmission.candidate_id == candidate_id, or_(TaskSubmission.review.is_not(None), TaskSubmission.auto_ok.is_not(None)))
+        .where(TaskSubmission.candidate_id == candidate_id, or_(TaskSubmission.review.is_not(None), TaskSubmission.auto_ok.is_(True)))
         .options(selectinload(TaskSubmission.task).selectinload(Task.company))
         .order_by(at.desc(), TaskSubmission.id.desc())
     )
@@ -51,7 +52,7 @@ def task_signal(db: Session, candidate_id: int) -> dict | None:
         return None
     by_employer = s.review is not None
     return {"days_ago": max(0, (_now() - (s.reviewed_at if by_employer else s.created_at)).days), "source": "employer" if by_employer else "auto",
-            "review": s.review, "review_text": REVIEWS[s.review] if by_employer else AUTO_TEXT[s.auto_ok], "auto_ok": s.auto_ok,
+            "review": s.review, "review_text": REVIEWS[s.review] if by_employer else "верный ответ", "auto_ok": s.auto_ok,
             "company_verified": s.task.company.verified, **company_trust(db, s.task.company)}
 
 
@@ -184,7 +185,7 @@ def _submission_row(s: TaskSubmission, co: Company) -> dict:
         "answer": s.answer if shown else None,
         "review": s.review,
         "review_comment": s.review_comment,
-        **_auto(s.task, s),
+        **_auto(s.task, s if shown else None),
         "created_at": s.created_at,
         "reviewed_at": s.reviewed_at,
         "candidate": matching.card(s.candidate) if shown else None,  # анонимно: контакты — только через приглашение или отклик

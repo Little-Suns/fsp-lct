@@ -2092,7 +2092,7 @@ function refFields(f) {
   if (f.answer_type === 'number') return `<div class="grid g2"><label class="field"><span>Эталон — число</span><input class="input num" id="tx-value" inputmode="decimal" value="${esc(f.value)}"></label>
     <label class="field"><span>Допуск ±</span><input class="input num" id="tx-tol" inputmode="decimal" value="${esc(f.tol)}" placeholder="0"></label></div>${hint}`;
   if (f.answer_type === 'regex') return `<label class="field"><span>Шаблон (регулярное выражение, полное совпадение, без учёта регистра)</span><input class="input" id="tx-pattern" value="${esc(f.pattern)}" placeholder="\\d{3}-\\d{2}"></label>${hint}`;
-  return `<label class="field"><span>Варианты — по одному на строку, верные отметьте «*» в начале</span><textarea class="input" id="tx-opts" style="min-height:100px" placeholder="Read Committed&#10;Repeatable Read&#10;*Serializable">${esc(f.opts)}</textarea></label>${hint}`;
+  return `<label class="field"><span>Варианты — по одному на строку, верные отметьте «*» в начале (сама звёздочка в вариант не входит)</span><textarea class="input" id="tx-opts" style="min-height:100px" placeholder="Read Committed&#10;Repeatable Read&#10;*Serializable">${esc(f.opts)}</textarea></label>${hint}`;
 }
 
 // эталон из полей формы; ошибки формата ловит и сервер (422)
