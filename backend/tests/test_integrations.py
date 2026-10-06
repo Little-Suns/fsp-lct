@@ -5,6 +5,7 @@
 """
 
 import os
+import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -15,11 +16,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app import deps
+from app.catalog import CONSENT_VERSION
 from app.db import Base, SessionLocal, engine
+from app.deps import hash_secret, issue_token
 from app.integrations import codeforces, common, ctftime, hackathons
-from app.integrations.consent import set_external_consent
+from app.integrations.consent import lock_candidate, set_external_consent
 from app.integrations.scoring import combine, place_weight, rating_weight
-from app.models import Achievement, Candidate, ExternalAccount, User
+from app.models import Achievement, AuditLog, Candidate, ConsentEvent, ExternalAccount, User
 from app.routers import achievements
 
 app = FastAPI()
@@ -36,17 +39,20 @@ def schema():
     Base.metadata.create_all(engine)
 
 
-def make_candidate(consent=True, fsp_id=None, synthetic=False) -> tuple[dict, str, int]:
+def make_candidate(consent=True, fsp_id=None, synthetic=False, version=CONSENT_VERSION) -> tuple[dict, str, int]:
+    """(заголовки, почта входа User.email, candidate.id). Candidate.email намеренно другой."""
     tag = uuid.uuid4().hex[:8]
     with SessionLocal() as db:
-        user = User(email=f"u{tag}@example.ru", role="candidate", token=f"t{tag}", fsp_id=fsp_id)
+        user = User(email=f"u{tag}@example.ru", role="candidate", fsp_id=fsp_id)
         db.add(user)
         db.flush()
         cand = Candidate(public_id=f"A-{tag[:6]}", user_id=user.id, name="Тест", email=f"Cand.{tag}@Example.ru",
-                         spec="Backend", grade_claimed="Middle", min_salary=200000, city="Москва", consent_external=consent, is_synthetic=synthetic)
+                         spec="Backend", grade_claimed="Middle", min_salary=200000, city="Москва", consent_external=consent, is_synthetic=synthetic,
+                         consent_152=True, consent_version=version, consent_external_version=version if consent else None)
         db.add(cand)
         db.commit()
-        return {"Authorization": f"Bearer t{tag}"}, cand.email, cand.id
+        tok = issue_token(db, user)
+        return {"Authorization": f"Bearer {tok}"}, user.email, cand.id
 
 
 def fake_api(routes: dict):
@@ -96,17 +102,26 @@ def test_cf_verify_code_missing_then_success(monkeypatch):
     link = client.post("/api/achievements/codeforces/link", json={"handle": "dorlov"}, headers=h).json()
     code = link["code"]
     assert code.startswith("FSP-") and len(code) == 8 and code in link["instructions"]
+    code = client.post("/api/achievements/codeforces/link", json={"handle": "dorlov"}, headers=h).json()["code"]
+    assert code != link["code"]  # каждый link — новый код
+    with SessionLocal() as db:  # в БД только sha256, срок 24 ч
+        acc = db.query(ExternalAccount).filter_by(candidate_id=cid, provider="codeforces").one()
+        assert acc.verify_code == hash_secret(code) and acc.verify_expires_at > datetime.now(UTC) + timedelta(hours=23)
+    assert "code" not in client.get("/api/achievements", headers=h).json()["codeforces"]
 
     fake, _ = fake_api(cf_routes("ITMO University"))
     monkeypatch.setattr(common, "get_json", fake)
     r = client.post("/api/achievements/codeforces/verify", headers=h)
-    assert r.status_code == 400 and code in r.json()["detail"] and "ITMO" in r.json()["detail"]
+    assert r.status_code == 400 and "ITMO" in r.json()["detail"] and code not in r.json()["detail"]
 
-    fake, calls = fake_api(cf_routes(f"ООО Рога {code.lower()}"))  # регистр не важен
+    fake, calls = fake_api(cf_routes(f"ООО Рога fsp-zzzz {code.lower()}"))  # регистр не важен, лишние токены не мешают
     monkeypatch.setattr(common, "get_json", fake)
     body = client.post("/api/achievements/codeforces/verify", headers=h).json()
     cf = body["codeforces"]
-    assert cf["verified"] and cf["handle"] == "Dorlov" and cf["rating"] == 1912
+    assert cf["verified"] and cf["handle"] == "Dorlov" and cf["rating"] == 1912 and "code" not in cf
+    with SessionLocal() as db:
+        acc = db.query(ExternalAccount).filter_by(candidate_id=cid, provider="codeforces").one()
+        assert acc.verify_code == "" and acc.verify_expires_at is None
     kinds = sorted(a["title"] for a in cf["achievements"])
     assert len(kinds) == 2  # рейтинг + Div.2 12-е место; 450-е место не «заметное»
     contest = next(a for a in cf["achievements"] if a["place"] == 12)
@@ -183,19 +198,30 @@ def test_import_csv_matching_and_idempotency(monkeypatch):
     monkeypatch.setenv("ORGANIZER_TOKEN", "org-secret")
     h, email, cid = make_candidate()
     _, _, cid2 = make_candidate(fsp_id=f"FSP-{uuid.uuid4().hex[:6]}")
+    _, nc_email, _ = make_candidate(consent=False)
+    with SessionLocal() as db:
+        # кандидат вписал в анкету чужую почту из протокола — по Candidate.email не сопоставляем
+        db.get(Candidate, cid2).email = "winner@lct.example"
+        db.commit()
     with SessionLocal() as db:
         fsp_id = db.get(User, db.get(Candidate, cid2).user_id).fsp_id
-    csv_text = f"﻿email;fsp_id;team;place;role\n{email.upper()};;Сигма;1;backend\n;{fsp_id};Сигма;1;ML\nnobody@x.ru;;Альфа;7;\n"
+    csv_text = f"﻿email;fsp_id;team;place;role\n{email.upper()};;Сигма;1;backend\n;{fsp_id};Сигма;1;ML\nnobody@x.ru;;Альфа;7;\nwinner@lct.example;;Альфа;1;\n{nc_email};;Бета;2;\n"
     form = {"source": "hackathon", "external_id": "lct-2025", "title": "Лидеры цифровой трансформации 2025",
             "level": "national", "date": "2025-09-20", "participants": "300", "tags": "ML, Python"}
     org = {"Authorization": "Bearer org-secret"}
 
     assert client.post("/api/achievements/import", data=form, files={"file": ("p.csv", csv_text)}, headers=h).status_code == 403
     r1 = client.post("/api/achievements/import", data=form, files={"file": ("p.csv", csv_text)}, headers=org).json()
-    assert r1["matched"] == 2 and r1["created"] == 2 and r1["unmatched"] == [
-        {"row": 3, "email": "nobody@x.ru", "fsp_id": None, "reason": "кандидат не найден"}]
+    assert r1["matched"] == 2 and r1["created"] == 2 and r1["no_consent"] == 1 and r1["unmatched"] == [
+        {"row": 3, "email": "nobody@x.ru", "fsp_id": None, "reason": "кандидат не найден"},
+        {"row": 4, "email": "winner@lct.example", "fsp_id": None, "reason": "кандидат не найден"},
+        {"row": 5, "email": nc_email, "fsp_id": None, "reason": "нет согласия на внешние данные"}]
     r2 = client.post("/api/achievements/import", data=form, files={"file": ("p.csv", csv_text)}, headers=org).json()
     assert r2["created"] == 0 and r2["updated"] == 2 and r2["event_id"] == r1["event_id"]
+    with SessionLocal() as db:
+        logs = db.query(AuditLog).filter_by(action="protocol_imported").all()
+        assert [lg.detail for lg in logs if lg.detail["event_id"] == r1["event_id"]] == [
+            {"event_id": r1["event_id"], "matched": 2, "unmatched_count": 3}] * 2
     with SessionLocal() as db:
         assert db.query(Achievement).filter_by(candidate_id=cid, event_id=r1["event_id"]).count() == 1
 
@@ -209,6 +235,18 @@ def test_import_csv_matching_and_idempotency(monkeypatch):
         "event": {"source": "fsp", "external_id": "cup-2025-final", "title": "Финал Кубка России ФСП 2025", "level": "national"},
         "rows": [{"email": email, "place": 5, "team": "Сигма"}]})
     assert rj.json()["matched"] == 1
+
+    # организатор-пользователь с ролью admin (токен хранится хэшем) — тоже может, actor попадает в журнал
+    with SessionLocal() as db:
+        admin = User(email=f"admin{uuid.uuid4().hex[:6]}@example.ru", role="admin")
+        db.add(admin)
+        db.commit()
+        adm = {"Authorization": f"Bearer {issue_token(db, admin)}"}
+        admin_id = admin.id
+    ra = client.post("/api/achievements/import", headers=adm, json={"event": {"source": "fsp", "external_id": "adm-1", "title": "T"}, "rows": []})
+    assert ra.status_code == 200
+    with SessionLocal() as db:
+        assert db.query(AuditLog).filter_by(action="protocol_imported", actor_user_id=admin_id).count() == 1
     bad = client.post("/api/achievements/import", headers=org, json={"event": {"source": "x", "external_id": "1", "title": "t"}, "rows": []})
     assert bad.status_code == 422 and "source" in bad.json()["detail"]
 
@@ -277,22 +315,32 @@ def test_ctftime_sync_deadline(monkeypatch):
 
 def test_consent_function_and_verify_race(monkeypatch):
     # set_external_consent без commit: вызывающий решает
-    _, _, cid = make_candidate()
+    _, email, cid = make_candidate()
+    for src in ("fsp", "hackathon"):
+        with SessionLocal() as db:
+            hackathons.import_protocol(db, {"source": src, "external_id": f"c-{cid}", "title": "T"}, [{"email": email, "place": 1}])
     with SessionLocal() as db:
         cand = db.get(Candidate, cid)
         db.add(ExternalAccount(candidate_id=cid, provider="ctftime", handle="1", verify_code=""))
         db.flush()
+        assert db.query(Achievement).filter_by(candidate_id=cid).count() == 2
         set_external_consent(db, cand, False)
         db.commit()
         assert not cand.consent_external and not db.query(ExternalAccount).filter_by(candidate_id=cid).count()
+        assert not db.query(Achievement).filter_by(candidate_id=cid).count()  # все внешние источники
+        ce = db.query(ConsentEvent).filter_by(candidate_id=cid).one()
+        assert ce.purpose == "external" and ce.granted is False and ce.version == CONSENT_VERSION
+        log = db.query(AuditLog).filter_by(action="consent_changed", subject_candidate_id=cid).one()
+        assert log.actor_user_id == cand.user_id and log.detail == {"consent": "external", "value": False}
 
     # гонка: проверка «чужой владелец» пропущена, уникальный индекс всё равно не даёт второго владельца → 409
     _, _, owner = make_candidate()
     h2, _, rival = make_candidate()
     with SessionLocal() as db:
         db.add_all([
-            ExternalAccount(candidate_id=owner, provider="codeforces", handle="Racer", verify_code="FSP-AAAA", verified_at=datetime.now(UTC)),
-            ExternalAccount(candidate_id=rival, provider="codeforces", handle="racer", verify_code="FSP-BBBB"),
+            ExternalAccount(candidate_id=owner, provider="codeforces", handle="Racer", verify_code="", verified_at=datetime.now(UTC)),
+            ExternalAccount(candidate_id=rival, provider="codeforces", handle="racer", verify_code=hash_secret("FSP-BBBB"),
+                            verify_expires_at=datetime.now(UTC) + timedelta(hours=1)),
         ])
         db.commit()
     monkeypatch.setattr(achievements, "_cf_owned_by_other", lambda *a: None)
@@ -300,6 +348,183 @@ def test_consent_function_and_verify_race(monkeypatch):
     monkeypatch.setattr(common, "get_json", fake)
     r = client.post("/api/achievements/codeforces/verify", headers=h2)
     assert r.status_code == 409 and "подтверждён другим" in r.json()["detail"]
+
+
+def test_code_expiry_and_stale_consent_version(monkeypatch):
+    h, _, cid = make_candidate()
+    client.post("/api/achievements/codeforces/link", json={"handle": "expired"}, headers=h)
+    with SessionLocal() as db:
+        db.query(ExternalAccount).filter_by(candidate_id=cid).one().verify_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        db.commit()
+    r = client.post("/api/achievements/codeforces/verify", headers=h)
+    assert r.status_code == 400 and r.json()["detail"] == "Код истёк — запросите новый"
+
+    # согласие дано на старую редакцию текста → не действует ни для привязки, ни для импорта
+    h_old, email_old, _ = make_candidate(version="2020-01")
+    assert client.post("/api/achievements/codeforces/link", json={"handle": "old_ver"}, headers=h_old).status_code == 403
+    with SessionLocal() as db:
+        rep = hackathons.import_protocol(db, {"source": "fsp", "external_id": "ver", "title": "T"}, [{"email": email_old, "place": 1}])
+    assert rep["matched"] == 0 and rep["no_consent"] == 1
+
+
+def _revoke(cid: int):
+    with SessionLocal() as db:
+        set_external_consent(db, db.get(Candidate, cid), False)
+        db.commit()
+
+
+def test_consent_revoked_during_fetch(monkeypatch):
+    # CF refresh: отзыв пришёл, пока шли запросы к CF → 409, ничего не записано
+    h, _, cid = make_candidate()
+    old = datetime.now(UTC) - timedelta(days=2)
+    with SessionLocal() as db:
+        db.add(ExternalAccount(candidate_id=cid, provider="codeforces", handle="revoker", verify_code="", verified_at=old, fetched_at=old, rating=1500))
+        db.commit()
+    routes = cf_routes("x")
+    info = routes["user.info"]
+    routes["user.info"] = lambda _: (_revoke(cid), info)[1]
+    fake, _ = fake_api(routes)
+    monkeypatch.setattr(common, "get_json", fake)
+    r = client.post("/api/achievements/codeforces/refresh", headers=h)
+    assert r.status_code == 409 and "отозвано" in r.json()["detail"]
+    with SessionLocal() as db:
+        assert not db.query(Achievement).filter_by(candidate_id=cid).count()
+        assert not db.query(ExternalAccount).filter_by(candidate_id=cid).count()
+
+    # CTFtime link: то же — привязка не создаётся
+    h2, _, cid2 = make_candidate()
+    fake, _ = fake_api({"teams/": lambda _: (_revoke(cid2), {"id": 77, "name": "X"})[1], "results/": {}, "events/": {}})
+    monkeypatch.setattr(common, "get_json", fake)
+    assert client.post("/api/achievements/ctftime/link", json={"team_id": 77}, headers=h2).status_code == 409
+    with SessionLocal() as db:
+        assert not db.query(ExternalAccount).filter_by(candidate_id=cid2).count()
+
+
+def test_revoke_waits_for_lock():
+    # set_external_consent ждёт FOR UPDATE, взятый импортом/синхронизацией, и выполняется после их commit
+    _, _, cid = make_candidate()
+    done = threading.Event()
+    with SessionLocal() as a:
+        lock_candidate(a, cid)
+        t = threading.Thread(target=lambda: (_revoke(cid), done.set()))
+        t.start()
+        assert not done.wait(0.3)  # заблокирован
+        a.commit()
+    assert done.wait(5)
+    t.join()
+
+
+def test_consent_version_set_and_cleared():
+    h, _, cid = make_candidate(consent=False)
+    client.post("/api/achievements/consent", json={"value": True}, headers=h)
+    with SessionLocal() as db:
+        c = db.get(Candidate, cid)
+        assert c.consent_external and c.consent_external_version == CONSENT_VERSION
+    client.post("/api/achievements/consent", json={"value": False}, headers=h)
+    with SessionLocal() as db:
+        c = db.get(Candidate, cid)
+        assert not c.consent_external and c.consent_external_version is None
+        assert [e.granted for e in db.query(ConsentEvent).filter_by(candidate_id=cid).order_by(ConsentEvent.id)] == [True, False]
+
+
+def test_link_rechecks_consent_under_lock(monkeypatch):
+    # первая проверка (без блокировки) прошла, под FOR UPDATE согласие уже отозвано → привязка не создаётся
+    h, _, cid = make_candidate()
+    answers = iter([True, False])
+    monkeypatch.setattr(achievements, "consent_ok", lambda c, p: next(answers))
+    r = client.post("/api/achievements/codeforces/link", json={"handle": "locked_out"}, headers=h)
+    assert r.status_code == 409
+    with SessionLocal() as db:
+        assert not db.query(ExternalAccount).filter_by(candidate_id=cid).count()
+
+
+def test_binding_changed_during_fetch(monkeypatch):
+    # CF verify: пока шёл запрос, кандидат запросил новый код → 409, подтверждение не записано
+    h, _, cid = make_candidate()
+    code = client.post("/api/achievements/codeforces/link", json={"handle": "relinker"}, headers=h).json()["code"]
+
+    def relink(db_id):
+        with SessionLocal() as db:
+            db.query(ExternalAccount).filter_by(candidate_id=db_id).one().verify_code = hash_secret("FSP-NEW1")
+            db.commit()
+
+    routes = cf_routes(code)
+    info = routes["user.info"]
+    routes["user.info"] = lambda _: (relink(cid), info)[1]
+    fake, _ = fake_api(routes)
+    monkeypatch.setattr(common, "get_json", fake)
+    r = client.post("/api/achievements/codeforces/verify", headers=h)
+    assert r.status_code == 409 and "Привязка изменилась" in r.json()["detail"]
+    with SessionLocal() as db:
+        assert db.query(ExternalAccount).filter_by(candidate_id=cid).one().verified_at is None
+
+    # CTFtime refresh: за время запроса команда перепривязана → 409, достижения не пишутся
+    h2, _, cid2 = make_candidate()
+    old = datetime.now(UTC) - timedelta(days=2)
+    with SessionLocal() as db:
+        db.add(ExternalAccount(candidate_id=cid2, provider="ctftime", handle="77", verify_code="", fetched_at=old, data={"team_id": 77}))
+        db.commit()
+
+    def reteam():
+        with SessionLocal() as db:
+            acc = db.query(ExternalAccount).filter_by(candidate_id=cid2).one()
+            acc.handle, acc.data = "88", {"team_id": 88}
+            db.commit()
+
+    fake, _ = fake_api({"teams/": lambda _: (reteam(), {"id": 77, "name": "X"})[1], "results/": {}, "events/": {}})
+    monkeypatch.setattr(common, "get_json", fake)
+    r = client.post("/api/achievements/ctftime/refresh", headers=h2)
+    assert r.status_code == 409 and "Привязка изменилась" in r.json()["detail"]
+    with SessionLocal() as db:
+        assert not db.query(Achievement).filter_by(candidate_id=cid2).count()
+
+
+def test_verify_attempts_limit(monkeypatch):
+    h, _, _ = make_candidate()
+    client.post("/api/achievements/codeforces/link", json={"handle": "guesser"}, headers=h)
+    fake, calls = fake_api(cf_routes("нет кода"))
+    monkeypatch.setattr(common, "get_json", fake)
+    codes = [client.post("/api/achievements/codeforces/verify", headers=h).status_code for _ in range(6)]
+    assert codes == [400] * 5 + [429]
+    assert len(calls) == 5  # шестая проверка во внешний API не ходит
+    r = client.post("/api/achievements/codeforces/verify", headers=h)
+    assert r.json()["detail"] == "Слишком много проверок — получите новый код"
+    client.post("/api/achievements/codeforces/link", json={"handle": "guesser"}, headers=h)  # новый код — счётчик с нуля
+    assert client.post("/api/achievements/codeforces/verify", headers=h).status_code == 400
+
+
+def test_external_consent_requires_processing():
+    h, _, cid = make_candidate(consent=False)
+    with SessionLocal() as db:
+        db.get(Candidate, cid).consent_152 = False
+        db.commit()
+    r = client.post("/api/achievements/consent", json={"value": True}, headers=h)
+    assert r.status_code == 403 and "согласие на обработку" in r.json()["detail"]
+    with SessionLocal() as db:
+        c = db.get(Candidate, cid)
+        assert not c.consent_external and c.consent_external_version is None
+        assert not db.query(ConsentEvent).filter_by(candidate_id=cid).count()
+
+
+def test_relink_before_attempt_charge(monkeypatch):
+    # новый код выдан между чтением аккаунта и списанием попытки → 409, попытка нового кода не списана
+    h, _, cid = make_candidate()
+    client.post("/api/achievements/codeforces/link", json={"handle": "switcher"}, headers=h)
+
+    def relink(*_):
+        with SessionLocal() as db:
+            acc = db.query(ExternalAccount).filter_by(candidate_id=cid).one()
+            acc.verify_code, acc.verify_attempts = hash_secret("FSP-NEW2"), 0
+            db.commit()
+
+    monkeypatch.setattr(achievements, "_cf_owned_by_other", relink)
+    fake, calls = fake_api(cf_routes("FSP-NEW2"))
+    monkeypatch.setattr(common, "get_json", fake)
+    r = client.post("/api/achievements/codeforces/verify", headers=h)
+    assert r.status_code == 409 and r.json()["detail"] == "Привязка изменилась — повторите" and calls == []
+    with SessionLocal() as db:
+        acc = db.query(ExternalAccount).filter_by(candidate_id=cid).one()
+        assert acc.verify_attempts == 0 and acc.verified_at is None
 
 
 def test_import_limits(monkeypatch):

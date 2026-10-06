@@ -117,3 +117,9 @@ def grade_from_theta(theta: float, se: float) -> str:
         if theta - se >= GRADE_TH[name]:
             g = name
     return g
+
+
+# 152-ФЗ: версия текста согласия; при изменении текста согласие запрашивается заново
+CONSENT_VERSION = "2026-10"
+UNVERIFIED_QUOTA = 3  # неподтверждённая компания работает, но с урезанной квотой и плашкой для кандидата
+APPLICATIONS_PER_WEEK = 10  # мягкий лимит откликов кандидата (Horton: меньше перегрузки работодателей)

@@ -50,8 +50,9 @@ def competency_estimates(responses_by_comp: dict[str, list], names: list[str], t
     return out
 
 
-def next_item(theta: float, bank, seen_ids: set, seen_families: set, rng: random.Random, top: int = TOP_K):
-    """Следующее задание: контент-баланс по компетенциям → максимум информации Фишера → случайное из top лучших семейств."""
+def next_item(theta: float, bank, seen_ids: set, seen_families: set, rng: random.Random, top: int = TOP_K, focus: dict | None = None):
+    """Следующее задание: контент-баланс по компетенциям → максимум информации Фишера → случайное из top лучших семейств.
+    focus — веса компетенций из вакансии (1.0–1.5): мягкий множитель информации, влияет только на выбор, не на оценку."""
     pool = [it for it in bank if not it.pilot and it.id not in seen_ids and it.family not in seen_families]
     if not pool:
         return None
@@ -64,7 +65,7 @@ def next_item(theta: float, bank, seen_ids: set, seen_families: set, rng: random
         if seen_comp[it.competency] <= least + slack:
             by_family.setdefault(it.family, []).append(it)
     clones = [rng.choice(v) for v in by_family.values()]  # один случайный клон на семейство
-    clones.sort(key=lambda it: -info(theta, it.a, it.b))
+    clones.sort(key=lambda it: -info(theta, it.a, it.b) * (focus or {}).get(it.competency, 1.0))
     return rng.choice(clones[:top])
 
 
@@ -100,6 +101,18 @@ def suspicion_flags(theta: float, responses, timings) -> list[str]:
     if sum(1 for ms, lim in timings if ms is not None and ms < TOO_FAST_SHARE * lim * 1000) >= TOO_FAST_MIN:
         flags.append("too_fast")
     return flags
+
+
+def grade_anchor(grade: str) -> float:
+    """Точка на шкале θ для грейда: его порог (у Intern порога нет — берём середину между −∞ и Junior)."""
+    return catalog.GRADE_TH[grade] if grade != "Intern" else catalog.GRADE_TH["Junior"] - 0.7
+
+
+def start_prior(target_grade: str | None, rating: float | None) -> float:
+    """Старт выбора заданий: порог заявленного грейда (информация максимальна там, где решается «подтвердил или нет»),
+    при подтверждённом CF — среднее с CF-оценкой. В итоговую оценку не входит."""
+    base = grade_anchor(target_grade) if target_grade in catalog.GRADES else 0.0
+    return (base + cf_prior(rating)) / 2 if rating is not None else base
 
 
 def cf_theta(rating: float) -> float:

@@ -17,7 +17,9 @@ import random
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import catalog
 from app.models import Item
+from app.services import irt
 
 TIME_LIMIT = {"choice": 240, "mark": 300, "review": 360}
 CLONES = {"Backend": 8}  # остальным специализациям — CLONES_DEFAULT
@@ -380,14 +382,16 @@ def _(rng):
 
 @family("be_cc_race", "Backend", "Конкурентность", "mark", 2.3, 0.6)
 def _(rng):
-    what, fn = rng.choice([("токен", "get_token"), ("сессию", "get_session"), ("ключ", "get_key")])
+    new, old, revoked, fn = rng.choice([("новый токен", "старый", "отозванный токен", "get_token"),
+                                        ("новую сессию", "старую", "отозванную сессию", "get_session"),
+                                        ("новый ключ", "старый", "отозванный ключ", "get_key")])
     lines = ["_cache: dict[str, str] = {}", ""]
     if rng.random() < 0.5:
         lines += ["", "# выдача отзывает предыдущее значение"]
     lines += [f"async def {fn}(client_id: str) -> str:", "    if client_id not in _cache:", "        _cache[client_id] = await auth.issue(client_id)"]
     key = len(lines)
     lines.append("    return _cache[client_id]")
-    return {"scene_title": "Гонка", "story": f"Сервис авторизации при выдаче новый {what} отзывает старый. Под нагрузкой часть запросов получает отозванный {what}.",
+    return {"scene_title": "Гонка", "story": f"Сервис авторизации, выдавая {new}, отзывает {old}. Под нагрузкой часть запросов получает {revoked}.",
             "prompt": "Нажмите на строку, где возникает гонка.", "panel": {"type": "code", "lang": "python", "lines": lines}, "key": [key - 1, key]}
 
 
@@ -677,3 +681,62 @@ def seed_items(db: Session) -> int:
     db.add_all(Item(**row) for row in bank)
     db.commit()
     return len(bank)
+
+
+# ============================== план теста под вакансию ==============================
+# навык → компетенции, которые его проверяют (берутся те, что есть у специализации)
+SKILL_COMP = {
+    "PostgreSQL": ["Базы данных и транзакции", "SQL"], "MySQL": ["Базы данных и транзакции", "SQL"], "SQL": ["Базы данных и транзакции", "SQL"],
+    "MongoDB": ["Базы данных и транзакции", "Моделирование данных"], "ClickHouse": ["Базы данных и транзакции", "SQL", "Моделирование данных"],
+    "Redis": ["Базы данных и транзакции", "Проектирование API"],
+    "Kafka": ["Конкурентность", "Пайплайны"], "RabbitMQ": ["Конкурентность"], "asyncio": ["Конкурентность"],
+    "FastAPI": ["Проектирование API"], "Django": ["Проектирование API"], "gRPC": ["Проектирование API", "Сеть и офлайн"],
+    "Kubernetes": ["Kubernetes", "Диагностика инцидентов", "MLOps", "План отката"], "Docker": ["CI/CD", "Kubernetes", "MLOps", "Диагностика инцидентов"],
+    "Terraform": ["CI/CD", "План отката"], "Prometheus": ["Наблюдаемость", "Диагностика инцидентов"], "Linux": ["Сети", "Диагностика инцидентов"],
+    "Python": ["Ревью кода", "Feature engineering", "Автотесты"], "Go": ["Ревью кода", "Конкурентность"], "Java": ["Ревью кода"], "Kotlin": ["Ревью кода", "Жизненный цикл приложения"],
+    "C#": ["Ревью кода"], "Node.js": ["Ревью кода", "Проектирование API"], "TypeScript": ["Ревью кода", "Архитектура клиента"], "JavaScript": ["Ревью кода", "Отладка UI"],
+    "React": ["Архитектура клиента", "Производительность"], "Vue": ["Архитектура клиента"], "Angular": ["Архитектура клиента"],
+    "Swift": ["Ревью кода", "Жизненный цикл приложения"], "Flutter": ["Жизненный цикл приложения", "Производительность"],
+    "Spark": ["Пайплайны", "Алгоритмы"], "Airflow": ["Пайплайны", "Качество данных"],
+    "PyTorch": ["Валидация моделей", "MLOps"], "scikit-learn": ["Валидация моделей", "Feature engineering"], "LLM": ["Постановка задачи", "Валидация моделей"],
+    "Computer Vision": ["Валидация моделей", "Feature engineering"], "Selenium": ["Автотесты", "Регресс"], "Pentest": ["Веб-уязвимости", "Реагирование"],
+}
+MUST_W, NICE_W, MAX_W = 0.25, 0.1, 1.5
+SHARE_OF_LIMIT = 0.75  # ponytail: время ≈ 75 % лимита на сцену; заменить медианой реальных прохождений
+
+
+def plan_for_need(spec: str, must: list[str], nice: list[str], grade: str) -> dict:
+    """Как система собирает тест под вакансию: веса компетенций из навыков, сложность вокруг порога грейда, семейства банка.
+    Веса уходят в QuestSession.focus и только сдвигают выбор заданий; грейд считается по всем компетенциям одинаково."""
+    if spec not in catalog.COMPETENCIES:
+        raise ValueError(f"Неизвестная специализация: {spec}")
+    grade = grade if grade in catalog.GRADES else "Middle"
+    names = catalog.COMPETENCIES[spec]
+    w, why = {n: 1.0 for n in names}, {n: [] for n in names}
+    for skills, add in ((must or [], MUST_W), (nice or [], NICE_W)):
+        for sk in skills:
+            for c in SKILL_COMP.get(sk, []):
+                if c in w and sk not in why[c]:
+                    w[c] = min(MAX_W, w[c] + add)
+                    why[c].append(sk)
+    c0 = irt.grade_anchor(grade)
+    lo, hi = round(c0 - 1.0, 2), round(c0 + 1.0, 2)
+    fams = [f for f in FAMILIES if f["spec"] == spec and not f["pilot"]]
+    chosen = [f for f in fams if lo <= f["b"] <= hi] or sorted(fams, key=lambda f: abs(f["b"] - c0))[:6]
+    chosen.sort(key=lambda f: (-w[f["competency"]], abs(f["b"] - c0)))
+    families = []
+    for f in chosen:
+        sample = f["render"](random.Random(f"{f['family']}:preview"))  # отдельный сид: в банке такого клона нет
+        families.append({"family": f["family"], "competency": f["competency"], "kind": f["kind"], "b": f["b"],
+                         "scene_title": sample["scene_title"], "sample_prompt": f"{sample['story']} {sample['prompt']}"})
+    items_total = min(irt.MAX_ITEMS, len(fams))
+    avg_limit = sum(TIME_LIMIT[f["kind"]] for f in chosen) / max(len(chosen), 1)
+    return {
+        "spec": spec, "grade": grade,
+        "competencies": sorted(({"n": n, "weight": round(w[n], 2), "why": why[n]} for n in names), key=lambda c: -c["weight"]),
+        "difficulty": {"b_from": lo, "b_to": hi},
+        "families": families,
+        "items_total": items_total,
+        "minutes": round(items_total * avg_limit * SHARE_OF_LIMIT / 60),
+        "focus": {n: round(w[n], 2) for n in names},
+    }

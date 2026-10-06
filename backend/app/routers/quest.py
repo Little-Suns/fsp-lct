@@ -9,21 +9,27 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from functools import lru_cache
+
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import catalog
+from app import catalog, config
 from app.db import get_db
-from app.deps import current_candidate
-from app.models import Candidate, ExternalAccount, Item, QuestSession
+from app.deps import current_candidate, current_company
+from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession
 from app.services import irt
-from app.services.items import STORY
+from app.services.items import STORY, plan_for_need
+from app.services.parsing import parse_need
 
 router = APIRouter(prefix="/api/quest", tags=["quest"])
 
 PILOT_AT = 3  # пилотное задание выдаётся после трёх рабочих
 TIMEOUT_GRACE_S = 30  # запас на сеть; позже — ответ засчитывается как неверный
 PERCENTILE_MIN_N = 10  # меньше кандидатов в категории → перцентиль по специализации
+PLAN_TEXT_MAX, PREVIEW_TEXT_MAX = 5000, 2000
+VERDICT = {"confirmed": "Заявленный грейд подтверждён", "below": "Ниже заявленного грейда", "above": "Выше заявленного грейда"}
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 
 # компетенция → навыки, которые она подтверждает (канон catalog.SKILLS)
@@ -47,6 +53,13 @@ TRACK_SKILLS = {
 
 class StartIn(BaseModel):
     story: bool = True
+    target_grade: str | None = None  # грейд, на который проходит тест; по умолчанию — заявленный в профиле
+    invitation_id: int | None = None  # тест по приглашению: выбор заданий смещается к компетенциям вакансии
+
+
+class PlanIn(BaseModel):
+    text: str | None = None
+    need_id: int | None = None
 
 
 class AnswerIn(BaseModel):
@@ -72,12 +85,16 @@ def _bank(db: Session, spec: str) -> dict[int, Item]:
     return {it.id: it for it in db.scalars(select(Item).where(Item.spec == spec))}
 
 
-def _active(db: Session, cand: Candidate) -> QuestSession | None:
-    return db.scalar(select(QuestSession).where(QuestSession.candidate_id == cand.id, QuestSession.finished_at.is_(None)).order_by(QuestSession.id.desc()))
+def _active(db: Session, cand: Candidate, lock: bool = False) -> QuestSession | None:
+    """Незавершённая сессия (по индексу uq_quest_active — не больше одной). lock — SELECT … FOR UPDATE до конца транзакции."""
+    q = select(QuestSession).where(QuestSession.candidate_id == cand.id, QuestSession.finished_at.is_(None))
+    if lock:
+        q = q.with_for_update().execution_options(populate_existing=True)
+    return db.scalar(q)
 
 
-def _active_or_404(db: Session, cand: Candidate) -> QuestSession:
-    sess = _active(db, cand)
+def _active_or_404(db: Session, cand: Candidate, lock: bool = False) -> QuestSession:
+    sess = _active(db, cand, lock)
     if not sess:
         raise HTTPException(404, "Нет активной сессии теста: начните тест")
     return sess
@@ -121,7 +138,7 @@ def _serve(sess: QuestSession, bank: dict[int, Item]) -> Item | None:
     if n_op == PILOT_AT and not any(a["pilot"] for a in sess.answers):
         item = irt.pick_pilot(items, seen, fams, rng)
     if item is None and not irt.should_stop(n_op, sess.se):
-        item = irt.next_item(sess.theta, items, seen, fams, rng)
+        item = irt.next_item(sess.theta, items, seen, fams, rng, focus=sess.focus)
     if item:
         sess.answers = [*sess.answers, {"item_id": item.id, "pilot": item.pilot, "served_at": _now().isoformat(),
                                         "response": None, "correct": None, "ms": None, "server_ms": None, "comment": None}]
@@ -141,7 +158,7 @@ def _state(sess: QuestSession, bank: dict[int, Item], spec: str) -> dict:
     n_fam = len({it.family for it in bank.values() if not it.pilot})
     total = min(irt.MAX_ITEMS, n_fam) + (1 if any(it.pilot for it in bank.values()) else 0)
     out = {"session_id": sess.id, "quest_title": STORY.get(spec, ("Тест",))[0],
-           "story": sess.story, "done": pend is None, "progress": {"n": len(sess.answers), "total": max(total, len(sess.answers))},
+           "story": sess.story, "target_grade": sess.target_grade, "focus": sess.focus, "done": pend is None, "progress": {"n": len(sess.answers), "total": max(total, len(sess.answers))},
            "item": None, "time_limit_s": None, "remaining_s": None}
     if pend and pend["item_id"] in bank:
         item = bank[pend["item_id"]]
@@ -159,14 +176,33 @@ def start(body: StartIn, cand: Candidate = Depends(current_candidate), db: Sessi
     bank = _bank(db, cand.spec)
     if not bank:
         raise HTTPException(503, "Банк заданий пуст: запустите seed")
+    target = body.target_grade or (cand.grade_claimed if cand.grade_claimed in catalog.GRADES else None)
+    if target not in catalog.GRADES:
+        raise HTTPException(422, f"target_grade — одно из: {', '.join(catalog.GRADES)}")
+    focus = None
+    if body.invitation_id is not None:
+        inv = db.get(Invitation, body.invitation_id)
+        if not inv or inv.candidate_id != cand.id:
+            raise HTTPException(404, "Приглашение не найдено")
+        if inv.need:
+            focus = plan_for_need(cand.spec, inv.need.must, inv.need.nice, inv.need.grade)["focus"]
     sess = _active(db, cand)
     resumed = sess is not None
     if not sess:
-        prior = irt.cf_prior(_cf_rating(db, cand))
-        sess = QuestSession(candidate_id=cand.id, story=body.story, prior_mean=prior, theta=prior, se=1.0, answers=[], flags=[])
+        # старт выбора — у порога заявленного грейда (+ CF); итоговая оценка — с нейтральным априором, см. finish
+        prior = irt.start_prior(target, _cf_rating(db, cand))
+        sess = QuestSession(candidate_id=cand.id, story=body.story, prior_mean=prior, theta=prior, se=1.0, answers=[], flags=[],
+                            target_grade=target, focus=focus)
         db.add(sess)
-        db.flush()
-        _serve(sess, bank)
+        try:
+            db.flush()
+        except IntegrityError:  # параллельный старт успел создать сессию (uq_quest_active) — продолжаем её
+            db.rollback()
+            sess, resumed = _active(db, cand), True
+            if not sess:
+                raise HTTPException(409, "Не удалось начать тест, повторите") from None
+        else:
+            _serve(sess, bank)
     sess.story = body.story
     db.commit()
     return {**_state(sess, bank, cand.spec), "resumed": resumed, "cooldown": _cooldown(cand)}
@@ -180,7 +216,7 @@ def current(cand: Candidate = Depends(current_candidate), db: Session = Depends(
 
 @router.post("/answer")
 def answer(body: AnswerIn, cand: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
-    sess = _active_or_404(db, cand)
+    sess = _active_or_404(db, cand, lock=True)  # проверки «текущее задание / не завершена» — под блокировкой
     pend = _pending(sess)
     if not pend:
         raise HTTPException(409, "Все задания пройдены: завершите тест")
@@ -231,6 +267,16 @@ def _skills(cand: Candidate, comps: list[dict], grade: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _target(sess: QuestSession | None, cand: Candidate) -> dict | None:
+    """Итог относительно грейда, на который проходили тест: подтверждён / ниже / выше."""
+    if not sess or not sess.target_grade or not sess.grade:
+        return None
+    got = sess.grade
+    d = catalog.GRADES.index(got) - catalog.GRADES.index(sess.target_grade)
+    verdict = "confirmed" if d == 0 else "below" if d < 0 else "above"
+    return {"grade": sess.target_grade, "result_grade": got, "verdict": verdict, "label": VERDICT[verdict]}
+
+
 def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
     grades = catalog.GRADES
     gi = grades.index(cand.grade)
@@ -259,7 +305,8 @@ def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
             "allowed_at": cd["until"],
             "review_required": bool(nxt) and gi + 1 >= grades.index(catalog.REVIEW_REQUIRED_FROM) and not cand.review_passed,
         },
-        "flags": (sess.flags if sess else []) or [],
+        "flags": (sess.flags if sess else None) or [],
+        "target": _target(sess, cand),
         "tested_at": _utc(cand.tested_at).isoformat() if cand.tested_at else None,
         "review_passed": cand.review_passed,
     }
@@ -267,7 +314,13 @@ def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
 
 @router.post("/finish")
 def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
-    sess = _active_or_404(db, cand)
+    # порядок блокировок: кандидат → сессия; параллельный finish дождётся и получит 409
+    cand = db.scalar(select(Candidate).where(Candidate.id == cand.id).with_for_update().execution_options(populate_existing=True))
+    sess = _active(db, cand, lock=True)
+    if not sess:
+        if db.scalar(select(QuestSession.id).where(QuestSession.candidate_id == cand.id).limit(1)):
+            raise HTTPException(409, "Тест уже завершён: начните новый")
+        raise HTTPException(404, "Нет активной сессии теста: начните тест")
     if _pending(sess):
         raise HTTPException(409, "Тест ещё не завершён: ответьте на текущее задание")
     bank = _bank(db, cand.spec)
@@ -302,6 +355,9 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     senior_plus = catalog.GRADES.index(cand.grade) >= catalog.GRADES.index(catalog.REVIEW_REQUIRED_FROM)
     if (senior_plus and not cand.review_passed) or {"inconsistent", "too_fast"} & set(flags):
         flags.append("review_required")  # ponytail: только флаг; асинхронный «разбор решения» (3–4 вопроса LLM) — отдельный сервис
+    # грейд попытки: присвоенный (с гистерезисом), а если не применён — измеренный самой попыткой
+    sess.grade = cand.grade if applied else catalog.grade_from_theta(theta, se)
+    sess.applied = applied
     sess.theta, sess.se, sess.flags, sess.finished_at = theta, se, flags, now
     db.commit()
     return {**_result(cand, sess, db), "applied": applied, "note": note, "attempt": {"theta": round(theta, 2), "se": round(se, 2)}}
@@ -313,3 +369,73 @@ def result(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
         raise HTTPException(404, "Тест ещё не пройден")
     sess = db.scalar(select(QuestSession).where(QuestSession.candidate_id == cand.id, QuestSession.finished_at.is_not(None)).order_by(QuestSession.id.desc()))
     return _result(cand, sess, db)
+
+
+@router.get("/history")
+def history(cand: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
+    """История попыток. Ответы и ключи не отдаются; θ незаконченной попытки — тоже (он выдал бы правильность)."""
+    out = []
+    for s in db.scalars(select(QuestSession).where(QuestSession.candidate_id == cand.id).order_by(QuestSession.id.desc())):
+        done = s.finished_at is not None
+        out.append({
+            "session_id": s.id,
+            "started_at": _utc(s.started_at).isoformat() if s.started_at else None,
+            "finished_at": _utc(s.finished_at).isoformat() if done else None,
+            "target_grade": s.target_grade,
+            "story": s.story,
+            "focus": bool(s.focus),
+            "theta": round(s.theta, 2) if done else None,
+            "se": round(s.se, 2) if done else None,
+            "grade": s.grade if done else None,
+            "applied": s.applied if done else None,
+            "flags": s.flags or [],
+            "items": sum(1 for a in s.answers if a["response"] is not None),
+        })
+    return out
+
+
+def _plan(need: dict) -> dict:
+    try:
+        plan = plan_for_need(need["spec"], need["must"], need["nice"], need["grade"])
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    keep = ("spec", "track", "grade", "must", "nice", "parsed_by", "hints")
+    return {"need": {k: need[k] for k in keep if k in need}, "plan": plan}
+
+
+def _clean_text(text: str | None, limit: int) -> str:
+    text = " ".join((text or "").split())
+    if not text:
+        raise HTTPException(422, "Нужен текст вакансии")
+    if len(text) > limit:
+        raise HTTPException(422, f"Текст длиннее {limit} символов")
+    return text
+
+
+@router.post("/plan")
+def plan(body: PlanIn, comp: Company = Depends(current_company), db: Session = Depends(get_db)):
+    """План теста под потребность работодателя: по тексту или по своей сохранённой потребности."""
+    if body.need_id is not None:
+        need = db.get(Need, body.need_id)
+        if not need or need.company_id != comp.id:
+            raise HTTPException(404, "Потребность не найдена")
+        return _plan({"spec": need.spec, "track": need.track, "grade": need.grade, "must": need.must, "nice": need.nice, "parsed_by": need.parsed_by})
+    return _plan(parse_need(_clean_text(body.text, PLAN_TEXT_MAX)))
+
+
+class PreviewIn(BaseModel):
+    text: str
+
+
+@router.post("/plan/preview")
+def plan_preview(body: PreviewIn):
+    """Публичный предпросмотр для демо (только DEMO=1): текст вакансии → как будет собран тест. Ничего не сохраняет, без LLM."""
+    if not config.DEMO:
+        raise HTTPException(404)
+    return _preview(_clean_text(body.text, PREVIEW_TEXT_MAX))
+
+
+@lru_cache(maxsize=256)
+def _preview(text: str) -> dict:
+    # ponytail: кэш в памяти процесса; общий кэш (Redis) — если воркеров станет несколько
+    return _plan(parse_need(text, use_llm=False))

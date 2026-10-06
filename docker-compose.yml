@@ -18,8 +18,15 @@ services:
       db: { condition: service_healthy }
     environment:
       DATABASE_URL: postgresql+psycopg://fsp:fsp@db:5432/fsp
-      # стенд для жюри: демо-вход и код почты в ответе; на публичном стенде — DEMO=0
-      DEMO: ${DEMO:-1}
+      # демо для жюри: DEMO=1 docker compose up (вход за персонажей, код почты в ответе); по умолчанию выключено
+      DEMO: ${DEMO:-0}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@fsp-career.local}
+      # перец для HMAC кодов входа; задайте постоянный на стенде, иначе коды сгорают при рестарте
+      SECRET_KEY: ${SECRET_KEY:-}
       # локальная модель на хосте (ollama serve); недоступна → подбор на правилах
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:32b-instruct}

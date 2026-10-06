@@ -15,8 +15,21 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=7.1.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["slow: засев синтетики, несколько секунд (пропустить: -m 'not slow')"]
+
+[tool.coverage.run]
+source = ["app", "seed"]
+omit = ["tests/*"]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true
+show_missing = true

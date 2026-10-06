@@ -1,6 +1,12 @@
 # Результаты прогона валидации (python -m app.services.validation)
 backend/var/
 
+# e2e фронта (Playwright): зависимости, артефакты прогона, отчёт покрытия
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+frontend/coverage/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

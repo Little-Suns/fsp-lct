@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fsp
+          POSTGRES_PASSWORD: fsp
+          POSTGRES_DB: fsp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fsp" --health-interval 2s --health-retries 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: Тесты и покрытие ≥ 80 % (каждый набор в своей базе)
+        run: ./test.sh
+      - name: Отчёт покрытия
+        if: always()
+        run: |
+          uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY" || true
+          uv run coverage html -d htmlcov || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/htmlcov
+          if-no-files-found: ignore
+      - name: Самопроверки модулей
+        run: |
+          uv run python -m app.integrations.scoring
+          uv run python -m app.services.parsing
+          uv run python -m app.services.lottery
+          uv run python -m app.services.irt
+          uv run python -m seed.gold
+
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fsp
+          POSTGRES_PASSWORD: fsp
+          POSTGRES_DB: fsp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fsp" --health-interval 2s --health-retries 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Синтаксис JS в index.html
+        run: |
+          node -e "const s=require('fs').readFileSync('index.html','utf8');const m=[...s.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(x=>x[1]).join('\n');require('fs').writeFileSync('/tmp/app.js',m)"
+          node --check /tmp/app.js
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Зависимости бэкенда (сервер для e2e)
+        working-directory: backend
+        run: uv sync --frozen
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: E2E (Playwright, база fsp_e2e) и покрытие JS ≥ 80 %
+        run: npm test
+      - name: Сводка покрытия
+        if: always()
+        run: cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore

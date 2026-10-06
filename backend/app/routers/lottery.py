@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.catalog import FORMATS, GRADES, SPECS, TRACKS
+from app.catalog import FORMATS
 from app.db import get_db
 from app.deps import current_company
 from app.models import Company, Lottery, Need
@@ -18,12 +18,14 @@ router = APIRouter(prefix="/api/lottery", tags=["lottery"])
 
 
 class Threshold(BaseModel):
-    spec: str
-    track: str | None = None
-    grade_min: str
+    """База — потребность (services.lottery.effective_threshold); поля здесь могут только ужесточить её."""
+
+    spec: str | None = None  # = need.spec
+    track: str | None = None  # = need.track
+    grade_min: str | None = None  # ≥ грейд потребности − 1
     theta_min: float | None = None  # θ − SE ≥ theta_min
-    must_skills: list[str] = []  # ⊂ skills_confirmed
-    fork_to: int = Field(gt=0)  # min_salary ≤ fork_to
+    must_skills: list[str] = []  # ⊂ skills_confirmed; need.must добавляются всегда
+    fork_to: int | None = Field(default=None, gt=0)  # min_salary ≤ fork_to ≤ need.salary_to
     formats: list[str] | None = None
     require_free: bool = True  # нагрузка < CANDIDATE_CAP
 
@@ -43,18 +45,15 @@ def _own(db: Session, company: Company, lottery_id: int) -> Lottery:
 
 @router.post("/")
 def create(body: LotteryIn, company: Company = Depends(current_company), db: Session = Depends(get_db)):
+    """Доступно и неподтверждённой компании: лотерея квоту не тратит, приглашения выбранным — по обычным правилам квоты."""
     th = body.threshold
-    if th.spec not in SPECS or th.grade_min not in GRADES:
-        raise HTTPException(422, "Неизвестная специализация или грейд")
-    if th.track and th.track not in TRACKS[th.spec]:
-        raise HTTPException(422, "Трек не из этой специализации")
     if th.formats and not set(th.formats) <= set(FORMATS):
         raise HTTPException(422, f"formats ⊂ {FORMATS}")
     need = db.get(Need, body.need_id)
     if not need or need.company_id != company.id:
         raise HTTPException(404, "Потребность не найдена")
     try:
-        lot = svc.create(db, company, th.model_dump(), body.draw_count, body.need_id)
+        lot = svc.create(db, company, svc.effective_threshold(th.model_dump(), need), body.draw_count, body.need_id)
     except svc.LotteryExists as e:
         raise HTTPException(409, str(e)) from e
     except ValueError as e:
@@ -74,7 +73,7 @@ def draw(lottery_id: int, company: Company = Depends(current_company), db: Sessi
 
 @router.get("/{lottery_id}")
 def state(lottery_id: int, company: Company = Depends(current_company), db: Session = Depends(get_db)):
-    return svc.public_state(_own(db, company, lottery_id))
+    return svc.public_state(db, _own(db, company, lottery_id))
 
 
 @router.get("/{lottery_id}/verify")

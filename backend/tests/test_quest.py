@@ -1,25 +1,40 @@
-"""Тест-квест: сессия с симулированным кандидатом, ключ не утекает, кулдаун пересдачи."""
+"""Тест-квест: сессия с симулированным кандидатом, ключ не утекает, кулдаун, тест на заявленный грейд,
+история попыток, план теста под вакансию и фокус по приглашению."""
 
 import json
 import os
 import random
 import secrets
+import threading
 from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_quest")
 os.environ.setdefault("DEMO", "1")
+os.environ.setdefault("LLM_BASE_URL", "")  # разбор вакансии — правилами, без модели
 
 import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import delete, select  # noqa: E402
+from sqlalchemy.exc import IntegrityError  # noqa: E402
 
 from app import catalog  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
-from app.models import Candidate, ExternalAccount, Item, QuestSession, User  # noqa: E402
+from app.deps import issue_token  # noqa: E402
+from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession, User  # noqa: E402
 from app.routers import quest  # noqa: E402
 from app.services import irt  # noqa: E402
-from app.services.items import seed_items  # noqa: E402
+from app.services.items import generate_bank, plan_for_need, seed_items  # noqa: E402
+
+NEED_TEXT = "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. Уровень — мидл, до 300 на руки. Гибрид, Москва."
+MK = dict(spec="Backend", track="Python", grade_claimed="Middle", min_salary=200000, formats=[], city="Москва")
+
+app = FastAPI()
+app.include_router(quest.router)
+
+
+def _client(token: str | None = None) -> TestClient:
+    return TestClient(app, headers={"Authorization": f"Bearer {token}"} if token else {})
 
 
 @pytest.fixture(scope="module")
@@ -30,42 +45,44 @@ def env():
         seed_items(db)
         assert seed_items(db) == 0  # повторный сид ничего не добавляет
         items = {it.id: it for it in db.scalars(select(Item).where(Item.spec == "Backend"))}
-        user = User(email=f"q-{tag}@example.ru", role="candidate", token=secrets.token_urlsafe(24))
-        db.add(user)
+        users = [User(email=f"{r}-{tag}@example.ru", role=role) for r, role in (("q", "candidate"), ("qcf", "candidate"), ("emp", "employer"), ("emp2", "employer"))]
+        db.add_all(users)
         db.flush()
-        mk = dict(spec="Backend", track="Python", grade_claimed="Middle", min_salary=200000, formats=[], city="Москва")
-        cand = Candidate(public_id=f"Q-{tag}", user_id=user.id, name="Тест", email=user.email, **mk)
-        user_cf = User(email=f"qcf-{tag}@example.ru", role="candidate", token=secrets.token_urlsafe(24))
-        db.add(user_cf)
-        db.flush()
-        cand_cf = Candidate(public_id=f"C-{tag}", user_id=user_cf.id, name="CF", email=user_cf.email, **mk)
+        cand = Candidate(public_id=f"Q-{tag}", user_id=users[0].id, name="Тест", email=users[0].email, **MK)
+        cand_cf = Candidate(public_id=f"C-{tag}", user_id=users[1].id, name="CF", email=users[1].email, **MK)
         rng = random.Random(1)
-        peers = [Candidate(public_id=f"S{tag}{i:02d}", name="x", email="x@x", theta=rng.gauss(0, 1), se=0.3, grade="Middle", is_synthetic=True, **mk) for i in range(15)]
-        db.add_all([cand, cand_cf, *peers])
+        peers = [Candidate(public_id=f"S{tag}{i:02d}", name="x", email="x@x", theta=rng.gauss(0, 1), se=0.3, grade="Middle", is_synthetic=True, **MK) for i in range(15)]
+        comps = [Company(user_id=u.id, inn=f"77{secrets.randbelow(10**8):08d}", name=f"Компания {i}", recruiter_name="HR", recruiter_email=u.email) for i, u in enumerate(users[2:])]
+        db.add_all([cand, cand_cf, *peers, *comps])
         db.flush()
         db.add(ExternalAccount(candidate_id=cand_cf.id, provider="codeforces", handle=f"cf{tag}", verify_code="x", verified_at=datetime.now(UTC), rating=2600))
+        need = Need(company_id=comps[0].id, text=NEED_TEXT, spec="Backend", track="Python", grade="Middle", must=["Python", "PostgreSQL", "Kafka"], nice=["Kubernetes"])
+        db.add(need)
+        db.flush()
+        inv = Invitation(company_id=comps[0].id, candidate_id=cand_cf.id, need_id=need.id, role="Backend", salary_from=240000, salary_to=300000,
+                         format="Гибрид", expires_at=datetime.now(UTC) + timedelta(days=7))
+        db.add(inv)
         db.commit()
-        ids, uids, token = [cand.id, cand_cf.id, *(p.id for p in peers)], [user.id, user_cf.id], user.token
-        token_cf = user_cf.token
-    app = FastAPI()
-    app.include_router(quest.router)
-    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
-    client_cf = TestClient(app, headers={"Authorization": f"Bearer {token_cf}"})
-    yield client, items, ids[0], client_cf, ids[1]
+        tokens = [issue_token(db, u) for u in users]
+        ctx = {"items": items, "cand_id": cand.id, "cf_id": cand_cf.id, "need_id": need.id, "inv_id": inv.id,
+               "client": _client(tokens[0]), "client_cf": _client(tokens[1]), "emp": _client(tokens[2]), "emp2": _client(tokens[3])}
+        ids, uids, comp_ids = [cand.id, cand_cf.id, *(p.id for p in peers)], [u.id for u in users], [c.id for c in comps]
+    yield ctx
     with SessionLocal() as db:
         db.execute(delete(Candidate).where(Candidate.id.in_(ids)))
+        db.execute(delete(Company).where(Company.id.in_(comp_ids)))
         db.execute(delete(User).where(User.id.in_(uids)))
         db.commit()
 
 
-def _no_leak(resp: dict):
+def _no_leak(resp):
     s = json.dumps(resp, ensure_ascii=False)
-    assert '"key"' not in s and '"correct"' not in s and '"theta"' not in json.dumps(resp.get("item") or {}), s[:300]
+    assert '"key"' not in s and '"correct"' not in s and '"answers"' not in s, s[:300]
 
 
-def _run(client, items, ok) -> dict:
+def _run(client, items, ok, start: dict | None = None) -> dict:
     """Пройти сессию; ok(item) → отвечать ли верно."""
-    r = client.post("/api/quest/start", json={"story": False})
+    r = client.post("/api/quest/start", json=start or {"story": False})
     assert r.status_code == 200, r.text
     r = r.json()
     _no_leak(r)
@@ -74,57 +91,60 @@ def _run(client, items, ok) -> dict:
     while not r["done"]:
         it = r["item"]
         item = items[it["id"]]
-        key = item.payload["key"]
-        key = key[0] if isinstance(key, list) else key
+        keys = item.payload["key"] if isinstance(item.payload["key"], list) else [item.payload["key"]]
         if ok(item):
-            resp = key
+            resp = keys[0]
         elif item.kind == "choice":
-            resp = (key + 1) % len(it["options"])
+            resp = (keys[0] + 1) % len(it["options"])
         else:
-            bad = item.payload["key"] if isinstance(item.payload["key"], list) else [key]
-            resp = next(i for i in range(1, len(it["panel"]["lines"]) + 1) if i not in bad)
+            resp = next(i for i in range(1, len(it["panel"]["lines"]) + 1) if i not in keys)
         r = client.post("/api/quest/answer", json={"item_id": it["id"], "response": resp, "ms": 60000, "comment": "повтор без ключа идемпотентности"})
         assert r.status_code == 200, r.text
         r = r.json()
         _no_leak(r)
     fin = client.post("/api/quest/finish")
     assert fin.status_code == 200, fin.text
+    _no_leak(fin.json())
     return r | {"result": fin.json()}
 
 
 def test_quest_flow(env):
-    client, items, cand_id, _, _ = env
+    client, items, cand_id = env["client"], env["items"], env["cand_id"]
     rng = random.Random(42)
+    assert client.post("/api/quest/start", json={"target_grade": "Guru"}).status_code == 422
 
-    # 1) первое прохождение: кандидат с θ = 1.0
+    # 1) первое прохождение на заявленный грейд (Middle по умолчанию): кандидат с θ = 1.0
     first = _run(client, items, lambda it: rng.random() < irt.prob(1.0, it.a, it.b))
     res = first["result"]
-    _no_leak(res)
-    assert 6 <= first["progress"]["n"] <= irt.MAX_ITEMS + 1
-    assert res["applied"] and res["category"] == {"spec": "Backend", "track": "Python", "grade": res["category"]["grade"]}
-    assert res["category"]["grade"] in catalog.GRADES
+    assert 6 <= first["progress"]["n"] <= irt.MAX_ITEMS + 1 and first["target_grade"] == "Middle"
+    assert res["applied"] and res["category"]["spec"] == "Backend" and res["category"]["grade"] in catalog.GRADES
+    t = res["target"]
+    assert t["grade"] == "Middle" and t["result_grade"] == res["category"]["grade"]
+    assert t["verdict"] == {-1: "below", 0: "confirmed", 1: "above"}[(catalog.GRADES.index(t["result_grade"]) > 2) - (catalog.GRADES.index(t["result_grade"]) < 2)]
     assert 0 <= res["percentile"] <= 100 and res["percentile_scope"] == "category"
     assert [c["n"] for c in res["competencies"]] == catalog.COMPETENCIES["Backend"]
-    assert all(c["se"] > 0 for c in res["competencies"])
     assert "too_fast" in res["flags"] and "review_required" in res["flags"]  # TestClient отвечает мгновенно
     assert res["upgrade"]["allowed_at"] and res["minutes"] is not None
     got = client.get("/api/quest/result").json()
-    assert got["category"] == res["category"] and got["theta"] == res["theta"]
+    assert got["category"] == res["category"] and got["theta"] == res["theta"] and got["target"] == t
     with SessionLocal() as db:
         c = db.get(Candidate, cand_id)
         assert c.tested_at and c.percentile is not None and c.grade == res["category"]["grade"]
         assert (c.next_upgrade_at - datetime.now(UTC)).days in (89, 90)
         first_upgrade_at, grade1, theta1 = c.next_upgrade_at, c.grade, c.theta
 
-    # 2) пересдача в кулдаун, всё верно: результат выше — не применяется
-    start = client.post("/api/quest/start", json={"story": True}).json()
-    assert start["cooldown"]["active"] and "только понизить" in start["cooldown"]["note"]
+    # 2) пересдача в кулдаун на Senior, всё верно: старт у порога Senior; результат выше — не применяется
+    start = client.post("/api/quest/start", json={"story": True, "target_grade": "Senior"}).json()
+    assert start["cooldown"]["active"] and "только понизить" in start["cooldown"]["note"] and start["target_grade"] == "Senior"
+    with SessionLocal() as db:
+        assert db.get(QuestSession, start["session_id"]).prior_mean == catalog.GRADE_TH["Senior"]
     up = _run(client, items, lambda it: True)["result"]
     assert not up["applied"] and up["attempt"]["theta"] > theta1 and up["category"]["grade"] == grade1 and up["note"]
+    assert up["target"]["verdict"] in ("confirmed", "above")
 
     # 3) пересдача в кулдаун, всё неверно: понижение сразу, срок повышения не сдвигается
     down = _run(client, items, lambda it: False)["result"]
-    assert down["applied"] and down["theta"] < theta1
+    assert down["applied"] and down["theta"] < theta1 and down["target"]["verdict"] == "below"
     assert catalog.GRADES.index(down["category"]["grade"]) <= catalog.GRADES.index(grade1)
     with SessionLocal() as db:
         assert db.get(Candidate, cand_id).next_upgrade_at == first_upgrade_at
@@ -145,31 +165,144 @@ def test_quest_flow(env):
     with SessionLocal() as db:
         assert (db.get(Candidate, cand_id).next_upgrade_at - datetime.now(UTC)).days in (89, 90)
 
-
-def test_cf_does_not_change_grade(env):
-    """Одинаковые ответы → одинаковые θ и грейд, хотя у второго кандидата CF 2600 (prior только для подбора заданий)."""
-    client, items, cand_id, client_cf, cf_id = env
-    rng = random.Random(7)
-    started = client_cf.post("/api/quest/start", json={}).json()
+    # 6) история: 5 попыток, новые сверху, без ответов и ключей; применённость видна
+    hist = client.get("/api/quest/history").json()
+    _no_leak(hist)
+    assert len(hist) == 5 and hist[0]["session_id"] > hist[-1]["session_id"]
+    assert [h["applied"] for h in hist] == [True, True, True, False, True]
+    assert [h["target_grade"] for h in hist][3] == "Senior" and all(h["items"] >= 6 and h["grade"] in catalog.GRADES for h in hist)
     with SessionLocal() as db:
-        assert db.get(QuestSession, started["session_id"]).prior_mean > 0  # CF сдвинул старт
+        rows = db.scalars(select(QuestSession).where(QuestSession.candidate_id == cand_id).order_by(QuestSession.id.desc())).all()
+        assert [r.applied for r in rows] == [h["applied"] for h in hist] and [r.grade for r in rows] == [h["grade"] for h in hist]
+        assert rows[0].grade == up2["category"]["grade"]
+
+
+def test_cf_and_focus_do_not_change_grade(env):
+    """Одинаковые ответы → одинаковые θ, грейд и компетенции, хотя у первого кандидата CF 2600 и фокус из приглашения
+    (оба влияют только на выбор заданий)."""
+    client_cf, items, cf_id = env["client_cf"], env["items"], env["cf_id"]
+    assert env["client"].post("/api/quest/start", json={"invitation_id": env["inv_id"]}).status_code == 404  # чужое приглашение
+    rng = random.Random(7)
+    started = client_cf.post("/api/quest/start", json={"invitation_id": env["inv_id"]}).json()
+    assert started["focus"]["Базы данных и транзакции"] > 1.0 and started["focus"]["Конкурентность"] > 1.0
+    assert all(1.0 <= w <= 1.5 for w in started["focus"].values())
+    with SessionLocal() as db:
+        s = db.get(QuestSession, started["session_id"])
+        assert s.prior_mean > catalog.GRADE_TH["Middle"]  # CF сдвинул старт выше порога Middle
     a = _run(client_cf, items, lambda it: rng.random() < irt.prob(0.3, it.a, it.b))["result"]
     with SessionLocal() as db:
         src = db.scalar(select(QuestSession).where(QuestSession.candidate_id == cf_id).order_by(QuestSession.id.desc()))
-        twin = Candidate(public_id=f"T-{secrets.token_hex(4)}", name="T", email="t@t", spec="Backend", track="Python", grade_claimed="Middle", min_salary=1, formats=[], city="Москва")
-        tw_user = User(email=f"tw-{secrets.token_hex(4)}@example.ru", role="candidate", token=secrets.token_urlsafe(24))
+        tw_user = User(email=f"tw-{secrets.token_hex(4)}@example.ru", role="candidate")
         db.add(tw_user)
         db.flush()
-        twin.user_id = tw_user.id
+        twin = Candidate(public_id=f"T-{secrets.token_hex(4)}", user_id=tw_user.id, name="T", email="t@t", **MK)
         db.add(twin)
         db.flush()
-        db.add(QuestSession(candidate_id=twin.id, answers=src.answers, theta=0.0, se=1.0, flags=[]))
+        db.add(QuestSession(candidate_id=twin.id, answers=src.answers, theta=0.0, se=1.0, flags=[], target_grade="Middle"))
         db.commit()
-        twin_id, tw_uid, tw_token = twin.id, tw_user.id, tw_user.token
-    app = client_cf.app
-    b = TestClient(app, headers={"Authorization": f"Bearer {tw_token}"}).post("/api/quest/finish").json()
+        twin_id, tw_uid, tw_token = twin.id, tw_user.id, issue_token(db, tw_user)
+    b = _client(tw_token).post("/api/quest/finish").json()
     with SessionLocal() as db:
         db.execute(delete(Candidate).where(Candidate.id == twin_id))
         db.execute(delete(User).where(User.id == tw_uid))
         db.commit()
     assert (a["theta"], a["se"], a["category"]["grade"], a["competencies"]) == (b["theta"], b["se"], b["category"]["grade"], b["competencies"])
+
+
+def test_focus_steers_selection():
+    """Фокус — мягкий множитель информации: при равном контент-балансе выигрывает компетенция вакансии."""
+    bank = [type("I", (), dict(id=i, pilot=False, **{k: r[k] for k in ("family", "competency", "a", "b")}))
+            for i, r in enumerate(x for x in generate_bank() if x["spec"] == "Backend")]
+    plain = irt.next_item(1.4, bank, set(), set(), random.Random(0), top=1)
+    focus = {plain.competency: 1.0, "Базы данных и транзакции": 1.5}
+    steered = irt.next_item(1.4, bank, set(), set(), random.Random(0), top=1, focus=focus)
+    assert plain.competency != "Базы данных и транзакции" and steered.competency == "Базы данных и транзакции"
+
+
+def test_plan_for_need(env):
+    p = plan_for_need("Backend", ["Python", "PostgreSQL", "Kafka"], ["Kubernetes"], "Middle")
+    w = {c["n"]: c for c in p["competencies"]}
+    assert w["Базы данных и транзакции"]["weight"] == 1.25 and "PostgreSQL" in w["Базы данных и транзакции"]["why"]
+    assert w["Конкурентность"]["weight"] == 1.25 and w["Диагностика инцидентов"]["why"] == ["Kubernetes"] and w["Алгоритмы"]["weight"] == 1.0
+    assert p["difficulty"] == {"b_from": -0.5, "b_to": 1.5} and all(-0.5 <= f["b"] <= 1.5 for f in p["families"])
+    assert p["families"][0]["competency"] in ("Базы данных и транзакции", "Конкурентность", "Ревью кода")
+    assert p["items_total"] == irt.MAX_ITEMS and 30 <= p["minutes"] <= 60
+    assert plan_for_need("DevOps / SRE", ["Kubernetes", "Terraform"], [], "Senior")["competencies"][0]["n"] in ("Kubernetes", "План отката")
+
+    # публичный предпросмотр по тексту (для жюри) — без авторизации
+    r = _client().post("/api/quest/plan/preview", json={"text": NEED_TEXT})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    _no_leak(body)
+    assert body["need"]["spec"] == "Backend" and body["need"]["grade"] == "Middle" and "Kafka" in body["need"]["must"]
+    assert body["plan"]["focus"]["Конкурентность"] == 1.25 and all("options" not in f for f in body["plan"]["families"])
+    assert _client().post("/api/quest/plan/preview", json={"text": " "}).status_code == 422
+
+    # план для работодателя: по своей потребности и по тексту; чужая потребность — 404; без входа — 401
+    assert env["emp"].post("/api/quest/plan", json={"need_id": env["need_id"]}).json()["plan"] == plan_for_need("Backend", ["Python", "PostgreSQL", "Kafka"], ["Kubernetes"], "Middle")
+    assert env["emp"].post("/api/quest/plan", json={"text": NEED_TEXT}).status_code == 200
+    assert env["emp2"].post("/api/quest/plan", json={"need_id": env["need_id"]}).status_code == 404
+    assert _client().post("/api/quest/plan", json={"text": NEED_TEXT}).status_code == 401
+    assert env["client"].post("/api/quest/plan", json={"text": NEED_TEXT}).status_code == 403  # кандидат — не работодатель
+
+
+def _parallel(*calls):
+    """Запустить вызовы одновременно, вернуть коды ответов по возрастанию."""
+    out, gate = [], threading.Barrier(len(calls))
+
+    def run(fn):
+        gate.wait()
+        out.append(fn().status_code)
+
+    ts = [threading.Thread(target=run, args=(fn,)) for fn in calls]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    return sorted(out)
+
+
+def test_races(env, monkeypatch):
+    client, cand_id = env["client"], env["cand_id"]
+    first = client.post("/api/quest/start", json={}).json()
+
+    # одна незавершённая сессия на кандидата — на уровне БД
+    with SessionLocal() as db:
+        db.add(QuestSession(candidate_id=cand_id, answers=[], flags=[]))
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+    # параллельный старт: проверка «есть ли активная» проскочила, вставка упёрлась в индекс → продолжаем существующую
+    real, calls = quest._active, []
+    monkeypatch.setattr(quest, "_active", lambda db, cand, lock=False: None if not calls.append(1) and len(calls) == 1 else real(db, cand, lock))
+    second = client.post("/api/quest/start", json={})
+    monkeypatch.setattr(quest, "_active", real)
+    assert second.status_code == 200 and second.json()["session_id"] == first["session_id"] and second.json()["resumed"]
+
+    # два одинаковых ответа одновременно: засчитывается один, второй — 409
+    it = first["item"]
+    body = {"item_id": it["id"], "response": 0 if it["kind"] == "choice" else 1}
+    assert _parallel(lambda: client.post("/api/quest/answer", json=body), lambda: client.post("/api/quest/answer", json=body)) == [200, 409]
+    with SessionLocal() as db:
+        s = db.get(QuestSession, first["session_id"])
+        assert sum(1 for a in s.answers if a["item_id"] == it["id"]) == 1
+
+    # довести до конца; параллельный finish — один 200, второй 409; повторный — тоже 409
+    r = client.get("/api/quest/current").json()
+    while not r["done"]:
+        it = r["item"]
+        r = client.post("/api/quest/answer", json={"item_id": it["id"], "response": 0 if it["kind"] == "choice" else 1}).json()
+    assert _parallel(lambda: client.post("/api/quest/finish"), lambda: client.post("/api/quest/finish")) == [200, 409]
+    assert client.post("/api/quest/finish").status_code == 409
+    assert client.get("/api/quest/current").status_code == 404
+
+
+def test_preview_limits(monkeypatch):
+    anon = _client()
+    quest._preview.cache_clear()
+    assert anon.post("/api/quest/plan/preview", json={"text": NEED_TEXT}).status_code == 200
+    assert anon.post("/api/quest/plan/preview", json={"text": "  " + NEED_TEXT.replace(" ", "   ")}).json()["need"]["parsed_by"] == "rules"
+    assert quest._preview.cache_info().hits == 1  # нормализованный текст — из кэша
+    assert anon.post("/api/quest/plan/preview", json={"text": "x" * (quest.PREVIEW_TEXT_MAX + 1)}).status_code == 422
+    monkeypatch.setattr(quest.config, "DEMO", False)
+    assert anon.post("/api/quest/plan/preview", json={"text": NEED_TEXT}).status_code == 404

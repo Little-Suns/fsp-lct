@@ -78,7 +78,7 @@ def _pools(db: Session, needs: list[Need]) -> dict[int, list[Candidate]]:
     cache: dict[tuple, list[Candidate]] = {}
     out = {}
     for n in needs:
-        key = (n.spec, n.grade)
+        key = (n.spec, n.grade, n.salary_to, n.city)  # грейд +1 в eligible() зависит от вилки и города
         if key not in cache:
             cache[key] = matching.eligible(db, n)
         inn = n.company.inn if n.company else None

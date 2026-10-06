@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import numpy as np
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app import catalog
@@ -238,7 +238,8 @@ def _relevance(c: Candidate, need: Need) -> dict:
     stack = sum(1 for s in need.must if s in confirmed | claimed) / len(need.must) if need.must else 1.0
     theta = _theta_score(c, need.grade)
     ach = achievement_signal(c)
-    grade_pen = LOWER_GRADE_PEN if c.grade != need.grade else 1.0
+    # грейд выше — без штрафа (эталон считает +1 релевантным; дороговизну учтёт вероятность принятия)
+    grade_pen = LOWER_GRADE_PEN if catalog.GRADES.index(c.grade) < catalog.GRADES.index(need.grade) else 1.0
     track_pen = TRACK_PEN if need.track and c.track != need.track else 1.0
     match = (W_THETA * theta + W_COVER * cover + W_ACH * ach) * grade_pen * track_pen
     return {"theta": theta, "coverage": cover, "achievement": ach, "stack": stack, "grade_penalty": grade_pen, "track_penalty": track_pen, "match": match}
@@ -383,16 +384,60 @@ def score_candidates(db: Session, need: Need, cands: list[Candidate], *, variant
     return out[:limit]
 
 
+def consent_ok(c: Candidate, purpose: str) -> bool:
+    """Действующее согласие на цель: флаг И версия текста этой цели = catalog.CONSENT_VERSION.
+    publish и external — производные: без действующего согласия на обработку они не действуют.
+    Новая редакция → кандидат пропадает из выдачи, пока не подтвердит заново (каждую цель отдельно)."""
+    v = catalog.CONSENT_VERSION
+    processing = bool(c.consent_152) and c.consent_version == v
+    if purpose == "processing":
+        return processing
+    if purpose == "publish":
+        return processing and bool(c.consent_publish) and c.consent_publish_version == v
+    if purpose == "external":
+        return processing and bool(c.consent_external) and c.consent_external_version == v
+    raise ValueError(purpose)
+
+
+def published():
+    """SQL-условие к consent_ok(c, "publish")."""
+    v = catalog.CONSENT_VERSION
+    return and_(Candidate.consent_152.is_(True), Candidate.consent_version == v, Candidate.consent_publish.is_(True), Candidate.consent_publish_version == v)
+
+
+def visible(c: Candidate, company: Company | None = None) -> bool:
+    """Кандидат виден работодателям: открыт, тест пройден, действующие согласия на обработку и публикацию, не скрыт от компании."""
+    return (
+        c.status == "open"
+        and c.theta is not None
+        and c.grade is not None
+        and consent_ok(c, "publish")  # включает действующее согласие на обработку
+        and not (company and company.inn in (c.hidden_from or []))
+    )
+
+
 def eligible(db: Session, need: Need, company: Company | None = None) -> list[Candidate]:
-    """Фильтр категории: специализация, грейд потребности или на один ниже, открыт, тест пройден, не скрыт от компании."""
+    """Фильтр категории: специализация; грейд потребности, на один ниже (со штрафом) или на один выше, если минимум
+    кандидата помещается в верх вилки (нет верха — в медиану рынка); плюс visible()."""
     gi = catalog.GRADES.index(need.grade)
-    grades = catalog.GRADES[max(0, gi - 1) : gi + 1]
+    grades = catalog.GRADES[max(0, gi - 1) : gi + 2]
+    upper = catalog.GRADES[gi + 1] if gi + 1 < len(catalog.GRADES) else None
+    ceiling = need.salary_to or catalog.market(need.spec, need.grade, need.city)["p50"]
     q = (
         select(Candidate)
-        .where(Candidate.spec == need.spec, Candidate.status == "open", Candidate.grade.in_(grades), Candidate.theta.is_not(None))
+        .where(Candidate.spec == need.spec, Candidate.status == "open", Candidate.grade.in_(grades), Candidate.theta.is_not(None), published())
         .options(selectinload(Candidate.achievements), selectinload(Candidate.accounts))
     )
-    return [c for c in db.scalars(q) if not (company and company.inn in (c.hidden_from or []))]
+    return [c for c in db.scalars(q) if visible(c, company) and not (c.grade == upper and c.min_salary > ceiling)]
+
+
+def strength(c: Candidate, skills: list[str] | None = None) -> float:
+    """Сила подтверждённого профиля для поиска по банку: θ − 0,5·SE + 0,5·достижения (+ покрытие навыков, если заданы)."""
+    s = (c.theta or 0) - 0.5 * (c.se or 0) + 0.5 * achievement_signal(c)
+    if skills:
+        confirmed, claimed = set(c.skills_confirmed or []), set(c.skills_claimed or [])
+        s += sum(_credit(k, confirmed, claimed) for k in skills) / len(skills)
+    return s
 
 
 def rank(db: Session, need: Need, *, variant: str = "full", limit: int = 50, company: Company | None = None) -> list[Ranked]:

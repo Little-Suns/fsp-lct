@@ -1,0 +1,330 @@
+// Новый кандидат: вход по коду с согласиями 152-ФЗ, профиль и PDF-резюме, тест на заявленный грейд до вердикта,
+// достижения (внешние API замоканы), настройки приватности, выгрузка данных и удаление аккаунта.
+const fs = require('fs');
+const { test, expect, open, toast, api } = require('./fixtures');
+const { tinyPdf, uniq } = require('./helpers');
+
+// вход по почте: код в демо приходит в ответе и подставляется в поле
+async function signup(page, email, { c152 = true, publish = false } = {}) {
+  await open(page, '/c/signup');
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(toast(page)).toHaveText('Укажите почту');
+  await page.getByLabel('Почта').fill(email);
+  if (c152) await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
+  if (publish) await page.getByLabel(/Показывать мою обезличенную карточку/).check();
+  await page.getByLabel('Присылать приглашения в Telegram').uncheck();
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(toast(page)).toHaveText('Код отправлен на ' + email);
+  await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
+  await expect(page.getByText('Демо-режим: письма не отправляются')).toBeVisible();
+  // повторный код раньше чем через 60 с — 429 с понятным текстом, прежний код остаётся в силе
+  const again = api(page, 'POST', '/api/auth/email');
+  await page.getByRole('button', { name: 'Отправить код ещё раз' }).click();
+  expect((await again).status()).toBe(429);
+  await expect(toast(page)).toContainText('Код уже отправлен — новый можно запросить через');
+  await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Профиль' })).toBeVisible();
+}
+
+async function fillProfile(page) {
+  await page.getByLabel('Имя и фамилия').fill('Ева Тестова');
+  await page.getByLabel('Telegram').fill('@eva_e2e');
+  await page.getByLabel('Минимальная зарплата на руки').fill('150000');
+  await page.getByLabel('Город').fill('Казань');
+}
+
+test('вход: некорректная почта — текст сервера', async ({ page }) => {
+  await open(page, '/c/signup');
+  await page.getByLabel('Почта').fill('not-an-email');
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(toast(page)).toHaveText('Некорректная почта');
+  await open(page, '/e/signup');
+  await page.getByLabel('Рабочая почта').fill('hr.example.ru');
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(toast(page)).toHaveText('Некорректная почта');
+});
+
+test('без согласия на обработку ПДн профиль не сохраняется', async ({ page }) => {
+  await signup(page, `noconsent-${uniq()}@example.ru`, { c152: false });
+  await fillProfile(page);
+  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  await expect(toast(page)).toContainText('Нужно согласие на обработку персональных данных');
+  // экраны кабинета без профиля предлагают его заполнить
+  for (const r of ['/c/home', '/c/vacancies', '/c/applications', '/c/tasks', '/c/settings', '/c/vacancy/1', '/c/task/1']) {
+    await open(page, r);
+    await expect(page.getByRole('heading', { name: 'Профиль ещё не создан' })).toBeVisible();
+  }
+  await open(page, '/c/result');
+  await expect(page.getByRole('heading', { name: 'Тест ещё не пройден' })).toBeVisible();
+});
+
+test('кандидат: регистрация → профиль и PDF → тест на грейд → вердикт и история → настройки → выгрузка → удаление', async ({ page }) => {
+  test.setTimeout(180_000);
+  const email = `eva-${uniq()}@example.ru`;
+  await signup(page, email);
+
+  // профиль: проверки формы, резюме PDF, поля
+  await expect(page.getByText('Сохраните профиль, чтобы подключить ФСП')).toBeVisible();
+  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  await expect(toast(page)).toHaveText('Укажите имя');
+  await page.getByLabel('Имя и фамилия').fill('Ева Тестова');
+  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  await expect(toast(page)).toHaveText('Укажите минимальную зарплату');
+
+  const cv = api(page, 'POST', '/api/candidate/cv');
+  await page.locator('#cv-file').setInputFiles({ name: 'eva_cv.pdf', mimeType: 'application/pdf',
+    buffer: tinyPdf('Python developer, 4 years of experience. Django, PostgreSQL, Docker, Kafka.') });
+  expect((await cv).status()).toBe(200);
+  await expect(toast(page)).toHaveText('Резюме разобрано: проверьте поля');
+  await expect(page.getByText('eva_cv.pdf')).toBeVisible();
+  await expect(page.getByText(/Распознано: .*Python/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Заменить' })).toBeVisible();
+  // не PDF — понятная ошибка
+  await page.locator('#cv-file').setInputFiles({ name: 'cv.txt', mimeType: 'application/pdf', buffer: Buffer.from('hello') });
+  await expect(toast(page)).toHaveText('Нужен PDF-файл');
+
+  await fillProfile(page);
+  await page.getByLabel('Специализация').selectOption('Frontend');
+  await expect(page.getByLabel('Стек-трек')).not.toHaveValue('Python');
+  await page.getByLabel('Специализация').selectOption('Backend');
+  await page.getByLabel('Стек-трек').selectOption('Python');
+  await page.getByRole('button', { name: 'Junior', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Junior', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  // форматы: снять оба по умолчанию — ошибка, затем выбрать
+  await page.locator('.chips').getByRole('button', { name: 'Гибрид' }).click();
+  await page.locator('.chips').getByRole('button', { name: 'Удалённо' }).click();
+  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  await expect(toast(page)).toHaveText('Выберите хотя бы один формат');
+  await page.locator('.chips').getByRole('button', { name: 'Удалённо' }).click();
+  await expect(page.locator('.chips').getByRole('button', { name: 'Удалённо' })).toHaveClass(/on/);
+  const saved = api(page, 'POST', '/api/candidate/profile');
+  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  const prof = await (await saved).json();
+  expect(prof).toMatchObject({ name: 'Ева Тестова', spec: 'Backend', track: 'Python', min: 150000, consent_152: true, consent_publish: false });
+  await expect(toast(page)).toHaveText('Профиль сохранён');
+
+  // тест-квест: вводная, выбор грейда, сюжет
+  await expect(page.getByRole('heading', { name: 'Ночь, пейджер, падает приём платежей' })).toBeVisible();
+  await page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Middle' }).click();
+  await expect(page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Middle' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('switch', { name: /Сюжет включён/ }).click();
+  await expect(page.getByRole('switch', { name: /Сюжет выключен/ })).toHaveAttribute('aria-checked', 'false');
+  await page.getByRole('switch', { name: /Сюжет выключен/ }).click();
+  const start = api(page, 'POST', '/api/quest/start');
+  await page.getByRole('button', { name: 'Начать смену' }).click();
+  expect((await start).request().postDataJSON()).toMatchObject({ story: true, target_grade: 'Middle' });
+
+  // все задания до конца: выбор ответа или строка в коде (+ комментарий к ревью)
+  const finish = page.getByRole('button', { name: 'Посмотреть категорию' });
+  let answered = 0;
+  for (; answered < 60 && !(await finish.isVisible()); answered++) {
+    const next = page.getByRole('button', { name: 'Дальше' });
+    await expect(next).toBeDisabled();
+    const opts = page.locator('.opt');
+    if (await opts.count()) await opts.nth(answered % (await opts.count())).click();
+    else {
+      await page.locator('.code button[data-act=mark]').nth(1).click();
+      await expect(page.getByText('Отмечена строка 2.')).toBeVisible();
+      if (await page.locator('#rv-comment').count()) await page.locator('#rv-comment').fill('Гонка: нет блокировки строки при повторе.');
+    }
+    if (answered === 0) {  // таймер сцены идёт
+      const t = await page.locator('#timer span').textContent();
+      await expect(page.locator('#timer span')).not.toHaveText(t, { timeout: 3000 });
+    }
+    if (answered === 1) {  // сюжет можно выключить посреди теста — задание то же, без истории
+      await page.getByRole('switch', { name: 'сюжет' }).click();
+      await expect(page.locator('.crumbs b')).toHaveText(/^Задание \d+$/);
+      if (await opts.count()) await opts.first().click(); else await page.locator('.code button[data-act=mark]').nth(1).click();
+    }
+    await expect(next).toBeEnabled();
+    const crumb = await page.locator('.crumbs b').textContent();
+    await next.click();
+    await expect(async () => {
+      expect(await finish.isVisible() || (await page.locator('.crumbs b').textContent()) !== crumb).toBe(true);
+    }).toPass();
+  }
+  expect(answered).toBeGreaterThan(3);
+  await expect(page.getByRole('heading', { name: 'Тест закончен' })).toBeVisible();
+  const fin = api(page, 'POST', '/api/quest/finish');
+  await finish.click();
+  const res = await (await fin).json();
+  expect(res.target.grade).toBe('Middle');
+  await expect(page.getByText('Ваша категория')).toBeVisible();
+  // повторный finish (двойной клик, гонка) — сервер отвечает 409: тост и экран результата без падения
+  await page.route('**/api/quest/finish', r => r.fulfill({ status: 409, json: { detail: 'Тест уже завершён: начните новый' } }));
+  await page.evaluate(() => ACT.finish());
+  await expect(toast(page)).toHaveText('Тест уже завершён: начните новый');
+  await page.unroute('**/api/quest/finish');
+
+  // результат: категория, вердикт по заявленному грейду, история
+  await expect(page.getByText('Ваша категория')).toBeVisible();
+  await expect(page.locator('.cat').first()).toContainText('Backend');
+  await expect(page.getByText(`Тест на Middle, результат попытки — ${res.target.result_grade}.`)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Компетенции' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'История тестов' })).toBeVisible();
+  await expect(page.locator('table.tbl tbody tr')).toHaveCount(1);
+  await expect(page.locator('table.tbl tbody tr').first()).toContainText('Middle');
+  await page.getByRole('button', { name: 'PDF-профиль' }).click();
+  await expect(toast(page)).toHaveText('PDF-профиль пока не формируется');
+  await page.getByRole('button', { name: 'Пройти тест ещё раз' }).click();
+  await expect(page.getByRole('heading', { name: 'История тестов' })).toBeVisible();
+  await expect(page.locator('table.tbl tbody tr').first()).toContainText(/категория обновлена|не применён/);
+
+  // кабинет: карточка не опубликована → предупреждение; статус и уведомления
+  await page.locator('.roles').getByRole('button', { name: 'Кандидат' }).click();
+  await expect(page.getByText('Карточка не опубликована')).toBeVisible();
+  await expect(page.getByText('Приглашений пока нет')).toBeVisible();
+  await page.getByRole('button', { name: 'Не ищу' }).click();
+  await expect(page.getByText('Профиль скрыт из подборок')).toBeVisible();
+  await page.getByRole('button', { name: 'Открыт к предложениям' }).click();
+  await expect(page.getByText('Ничего делать не нужно')).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Telegram' })).toHaveAttribute('aria-checked', 'false');
+  await page.getByRole('switch', { name: 'Telegram' }).click();
+  await expect(page.getByRole('switch', { name: 'Telegram' })).toHaveAttribute('aria-checked', 'true');
+
+  // достижения: согласие на внешние профили, Codeforces и CTFtime (живые API подменены)
+  await open(page, '/c/profile');
+  await expect(page.getByRole('heading', { name: 'Достижения' })).toBeVisible();
+  await expect(page.getByPlaceholder('хэндл')).toBeDisabled();
+  await page.getByRole('switch', { name: /внешних профилей/ }).click();
+  await expect(page.getByPlaceholder('хэндл')).toBeEnabled();
+  await page.getByPlaceholder('хэндл').fill('eva_e2e');
+  await page.getByRole('button', { name: 'Подключить' }).first().click();
+  await expect(toast(page)).toContainText('Хэндл сохранён');
+  await expect(page.getByText(/Codeforces · eva_e2e, не подтверждён/)).toBeVisible();
+  // код подтверждения — только в ответе link: показан один раз со сроком; «Получить новый код» выдаёт другой
+  const code1 = await page.locator('code', { hasText: /\S/ }).first().textContent();
+  await expect(page.getByText(/Код действует до/)).toBeVisible();
+  await expect(page.getByText('Код показывается один раз — сохраните его.')).toBeVisible();
+  const relink = api(page, 'POST', '/api/achievements/codeforces/link');
+  await page.getByRole('button', { name: 'Получить новый код' }).click();
+  const code2 = (await (await relink).json()).code;
+  expect(code2).not.toBe(code1);
+  await expect(page.locator('code', { hasText: code2 })).toBeVisible();
+  // после ухода с экрана код уже не показывается: в GET /api/achievements его нет
+  await open(page, '/c/settings');
+  await open(page, '/c/profile');
+  await expect(page.getByText('Код подтверждения показывается один раз, сразу после запроса.')).toBeVisible();
+  // истёкший код — 400 с текстом сервера
+  await page.route('**/api/achievements/codeforces/verify', r => r.fulfill({ status: 400, json: { detail: 'Код истёк — запросите новый' } }));
+  await page.getByRole('button', { name: 'Проверить' }).click();
+  await expect(toast(page)).toHaveText('Код истёк — запросите новый');
+  await page.unroute('**/api/achievements/codeforces/verify');
+  // ответ = настоящий GET /api/achievements с подменёнными полями (вместо похода в Codeforces / CTFtime)
+  const fake = async (route, patch) => {
+    const real = await page.request.get('/api/achievements', { headers: { authorization: route.request().headers().authorization } });
+    await route.fulfill({ json: patch(await real.json()) });
+  };
+  await page.route('**/api/achievements/codeforces/verify', r => fake(r, a => ({ ...a,
+    codeforces: { ...a.codeforces, verified: true, rating: 1820, rank: 'expert', achievements: [{ title: 'Codeforces Round 999', place: 41, verified: true, date: '2026-09-01' }] } })));
+  await page.getByRole('button', { name: 'Проверить' }).click();
+  await expect(toast(page)).toContainText('Владение подтверждено');
+  await expect(page.getByText('рейтинг 1820 (expert)')).toBeVisible();
+  await expect(page.locator('aside .chip', { hasText: 'CF 1820' })).toBeVisible();
+  await page.getByRole('button', { name: 'Подключить' }).first().click();
+  await expect(toast(page)).toHaveText('Укажите ID команды CTFtime');
+  await page.route('**/api/achievements/ctftime/link', r => fake(r, a => ({ ...a,
+    ctftime: { team: 'E2E Crew', team_id: 4242, rating: 33.5, role: 'web', achievements: [{ title: 'E2E CTF 2026', place: 7, team: 'E2E Crew', verified: false }] } })));
+  await page.getByPlaceholder('ID команды').fill('4242');
+  await page.getByPlaceholder('роль: web, pwn…').fill('web');
+  await page.getByRole('button', { name: 'Подключить' }).first().click();
+  await expect(toast(page)).toHaveText('Команда CTFtime привязана');
+  await expect(page.getByText('CTFtime · E2E Crew, рейтинг 33,5 · web')).toBeVisible();
+  await page.getByRole('button', { name: 'Подключить' }).click();  // Kaggle — ещё не подключается
+  await expect(toast(page)).toHaveText('Kaggle — для ML/DS треков');
+  await page.unrouteAll();
+
+  // настройки: публикация карточки, отзыв и возврат согласий, скрытие от компаний
+  await open(page, '/c/settings');
+  await expect(page.getByRole('heading', { name: 'Согласия' })).toBeVisible();
+  await expect(page.getByText(email)).toBeVisible();
+  const pub = page.getByRole('switch', { name: /Публикация обезличенной карточки/ });
+  await expect(pub).toHaveAttribute('aria-checked', 'false');
+  await pub.click();
+  await expect(toast(page)).toHaveText('Карточка опубликована: работодатели вас видят');
+  await expect(pub).toHaveAttribute('aria-checked', 'true');
+  await pub.click();
+  await expect(toast(page)).toHaveText('Карточка скрыта от работодателей');
+
+  const ext = page.getByRole('switch', { name: /Данные внешних профилей/ });
+  await ext.click();
+  const dlg = page.getByRole('alertdialog', { name: 'Подтверждение' });
+  await expect(dlg).toContainText('Привязки Codeforces и CTFtime');
+  await dlg.getByRole('button', { name: 'Отмена' }).click();
+  await expect(dlg).toBeHidden();
+  await ext.click();
+  await dlg.getByRole('button', { name: 'Отозвать' }).click();
+  await expect(ext).toHaveAttribute('aria-checked', 'false');
+  await ext.click();
+  await expect(ext).toHaveAttribute('aria-checked', 'true');
+
+  const c152 = page.getByRole('switch', { name: /Обработка персональных данных/ });
+  await c152.click();
+  await expect(dlg).toContainText('Профиль будет скрыт и снят с публикации');
+  await dlg.getByRole('button', { name: 'Отозвать' }).click();
+  await expect(toast(page)).toHaveText('Согласие отозвано: профиль скрыт');
+  await expect(page.getByText('Не дано: профиль скрыт')).toBeVisible();
+  await expect(pub).toBeDisabled();
+  // журнал согласий по каждой цели: дата и версия последнего события
+  await expect(page.locator('[data-consent=processing]')).toContainText(/Журнал: отозвано .*версия \S+/);
+  await expect(page.locator('[data-consent=publish]')).toContainText(/Журнал: (отозвано|дано)/);
+  // отзыв обработки гасит и внешние данные — восстанавливаются они только отдельным согласием
+  await expect(page.locator('[data-consent=external]')).toContainText(/Журнал: отозвано/);
+  await expect(ext).toHaveAttribute('aria-checked', 'false');
+  // после отзыва ПДн менять нельзя: плашка, заблокированные формы, восстановить можно из плашки
+  const banner = page.locator('.alert.bad', { hasText: 'Согласие на обработку отозвано: восстановите его или удалите аккаунт' });
+  await expect(banner).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Изменить список' })).toBeDisabled();
+  await open(page, '/c/home');
+  await expect(banner).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Telegram' })).toBeDisabled();
+  await open(page, '/c/profile');
+  await expect(banner).toBeVisible();
+  await expect(page.getByLabel('Имя и фамилия')).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Сохранить и перейти к тесту' })).toBeDisabled();
+  await open(page, '/c/settings');
+  // без согласия на обработку ПДн откликнуться нельзя: ошибка прямо в форме отклика
+  await open(page, '/c/vacancies');
+  await page.locator('#app button.cand').first().click();
+  await page.getByRole('button', { name: 'Откликнуться' }).click();
+  await expect(page.locator('.alert.bad', { hasText: 'Нужно согласие на обработку персональных данных' })).toBeVisible();
+  await open(page, '/c/settings');
+  await c152.click();
+  await expect(toast(page)).toHaveText('Согласие дано');
+  await expect(page.getByText(/Дано .*версия текста/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Изменить список' }).click();
+  await page.getByLabel('ИНН через запятую').fill('7700000001, 7700000002');
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(page.getByText('Сейчас скрыт от: 7700000001, 7700000002')).toBeVisible();
+  await page.getByRole('button', { name: 'Изменить список' }).click();
+  await page.getByRole('button', { name: 'Отмена' }).click();
+  await expect(page.getByLabel('ИНН через запятую')).toHaveCount(0);
+
+  // выгрузка своих данных: JSON-файл
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать мои данные' }).click();
+  const file = await dl;
+  expect(file.suggestedFilename()).toMatch(/^fsp-career-.+\.json$/);
+  const data = JSON.parse(fs.readFileSync(await file.path(), 'utf8'));
+  expect(JSON.stringify(data)).toContain('Ева Тестова');
+  expect(JSON.stringify(data)).toContain(email);
+  expect(data).toHaveProperty('account');
+  expect(Array.isArray(data.consents) && data.consents.length).toBeTruthy();
+  expect(data).toHaveProperty('audit');
+  await expect(toast(page)).toHaveText('Файл с вашими данными сформирован');
+
+  // удаление аккаунта через инлайн-диалог
+  await page.getByRole('button', { name: 'Удалить аккаунт' }).click();
+  await expect(dlg).toContainText('Удалить аккаунт навсегда?');
+  await dlg.getByRole('button', { name: 'Отмена' }).click();
+  await page.getByRole('button', { name: 'Удалить аккаунт' }).click();
+  const del = api(page, 'DELETE', '/api/candidate/me');
+  await dlg.getByRole('button', { name: 'Удалить навсегда' }).click();
+  expect((await del).status()).toBe(200);
+  await expect(toast(page)).toHaveText('Аккаунт удалён');
+  await expect(page).toHaveURL(/#\/$/);
+  await expect(page.locator('#logout')).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('fsp.tok.c'))).toBeNull();
+});

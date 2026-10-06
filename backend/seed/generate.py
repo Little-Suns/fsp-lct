@@ -21,7 +21,8 @@ from sqlalchemy import func, select
 from app import catalog as C
 from app.db import Base, SessionLocal, engine
 from app.integrations.scoring import place_weight
-from app.models import Achievement, Candidate, Company, Event, ExternalAccount, Invitation, Need, User
+from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Need, Task,
+                        TaskSubmission, User, Vacancy)
 
 NOW = datetime.now(UTC)
 WEEK_START = (NOW - timedelta(days=NOW.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -55,6 +56,7 @@ EXTRA = {  # специализация → дополнительные нав�
     "QA": ["Selenium", "Python", "SQL", "Docker", "Java", "JavaScript", "PostgreSQL"],
     "Security": ["Linux", "Docker", "Python", "Go", "Kubernetes", "PostgreSQL"],
 }
+POPULAR = {"PostgreSQL": 5, "SQL": 3, "Docker": 3, "TypeScript": 3, "Kafka": 2.5, "Redis": 2.5, "Linux": 2}
 TRACK_EXTRA = {"Python": ["asyncio", "FastAPI", "Django"], "Node.js": ["JavaScript"], "Android": ["Java"]}
 
 # 41 регион: Москва 38 %, Санкт-Петербург 14 %, остальное — регионы с убывающими весами
@@ -192,6 +194,11 @@ class Gen:
     def sample(self, seq, k):
         return [seq[i] for i in self.rng.choice(len(seq), size=min(k, len(seq)), replace=False)]
 
+    def skills(self, seq, k):
+        """Выборка навыков с учётом популярности (PostgreSQL у бэкендеров встречается чаще gRPC)."""
+        w = np.array([POPULAR.get(x, 1.0) for x in seq])
+        return [seq[i] for i in self.rng.choice(len(seq), size=min(k, len(seq)), replace=False, p=w / w.sum())]
+
     def public_id(self) -> str:
         while True:
             pid = f"{chr(65 + self.rng.integers(26))}-{self.rng.integers(10000):04d}"
@@ -266,7 +273,7 @@ class Gen:
         pool = [s for s in EXTRA[spec] + TRACK_EXTRA.get(track, []) if s not in CORE[track]]
         pool = list(dict.fromkeys(pool))
         k = min(len(pool), int(1 + gi + r.poisson(1)))
-        skills_true = CORE[track] + self.sample(pool, k)
+        skills_true = CORE[track] + self.skills(pool, k)
         confirmed = CORE[track] + [s for s in skills_true[len(CORE[track]):] if r.random() < 0.65]
         claimed = list(skills_true)
         grade_claimed = grade_true
@@ -283,7 +290,9 @@ class Gen:
         tested = NOW - DAY * float(r.uniform(1, 300))
         name, email, tg = self.person()
         return Candidate(
-            public_id=self.public_id(), name=name, email=email, tg=tg, consent_152=True,
+            public_id=self.public_id(), name=name, email=email, tg=tg, **consent(tested - DAY * float(r.uniform(0, 3))),
+            consent_publish=bool(r.random() < 0.95),
+            consent_external=bool(r.random() < 0.4),  # у кого будут достижения/CF — станет True в achievements()/CF
             spec=spec, track=track, grade_claimed=grade_claimed, min_salary=min_salary, formats=formats, city=city,
             status="open" if r.random() < 0.9 else "off",
             cv_filename="resume.pdf", cv_text=self.cv(spec, track, grade_claimed, years, city, formats, claimed),
@@ -305,6 +314,7 @@ class Gen:
             place = (int(self.rng.integers(1, 4)) if perf > 2.4 else int(self.rng.integers(4, max(5, n // 10))) if perf > 1.6
                      else int(self.rng.integers(n // 10, n // 2)) if perf > 0.6 else None)
             title = ev.title + (f", {place} место" if place and place <= 3 else ", финалист" if place else ", участник")
+            cand.consent_external = True  # внешние данные — только с отдельным согласием
             cand.achievements.append(Achievement(
                 event=ev, source=ev.source, title=title, place=place, team=f"Команда «{self.pick(CO_A)}»",
                 role=self.pick(["backend", "frontend", "ML", "капитан", "аналитик", "mobile"]),
@@ -325,12 +335,17 @@ class Gen:
         return Company(**{**fields, **kw})
 
     def need(self, company: Company, kind: str, city: str) -> Need:
+        st = self.struct(company, kind, city)
+        return Need(company=company, kind=kind, text=st.pop("text"), **st, is_synthetic=True)
+
+    def struct(self, company: Company, kind: str, city: str) -> dict:
+        """Структура потребности/вакансии + текст из шаблона с шумом."""
         r = self.rng
         spec = self.pick(list(SPEC_P), p=list(SPEC_P.values()))
         track = self.pick(C.TRACKS[spec], p=TRACK_P.get(spec))
         grade = self.pick(C.GRADES[1:], p=[.2, .45, .28, .07])
         extras = [s for s in dict.fromkeys(EXTRA[spec] + TRACK_EXTRA.get(track, [])) if s not in CORE[track]]
-        must = CORE[track][:2] + self.sample(extras, int(r.integers(1, 3)))
+        must = CORE[track][:2] + self.skills(extras, int(r.integers(1, 3)))
         nice = self.sample([s for s in extras if s not in must], int(r.integers(1, 3)))
         if kind == "adjacent":
             spec = self.pick(list(ADJACENT))
@@ -348,9 +363,12 @@ class Gen:
             spec=spec, company=company.name, must=", ".join(self.noisy(s) for s in must),
             nice=", ".join(self.noisy(s) for s in nice), from_k=frm // 1000, to_k=to // 1000,
             fmt=fmt, fmt_l=fmt.lower(), city=city)
-        return Need(company=company, kind=kind, text=self.typos(text, 0.03), spec=spec, track=track, grade=grade, must=must,
-                    nice=nice, salary_from=frm, salary_to=to, format=fmt, city=None if fmt == "Удалённо" else city,
-                    is_synthetic=True)
+        return dict(text=self.typos(text, 0.03), spec=spec, track=track, grade=grade, must=must, nice=nice,
+                    salary_from=frm, salary_to=to, format=fmt, city=None if fmt == "Удалённо" else city)
+
+
+def consent(at: datetime) -> dict:
+    return {"consent_152": True, "consent_152_at": at, "consent_version": C.CONSENT_VERSION}
 
 
 def invitation(company, cand, need, status, sent_at, *, role=None, frm=None, to=None, fmt=None, reason=None,
@@ -383,6 +401,7 @@ CANDS = [
     ("E-1187", 90, 1.44, 0.15, ["Python", "PostgreSQL", "Kafka", "Kubernetes", "Go"], ("Победитель чемпионата России ФСП 2024", "champ-2024-prod", 1),
      2105, 320000, ["Гибрид"], "Москва", 3),
 ]
+COHORT = 30
 PERSONA_LOAD = {"B-2318": 4, "D-3390": 2, "E-1187": 1}  # открытые приглашения от других компаний, как в макете
 LADOGA_NEED = {
     "text": "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. "
@@ -398,7 +417,7 @@ def persona(g: Gen, pid, pct, theta, se, skills, months, *, claimed=None, name=N
     g.ids.add(pid)
     n, e, tg = g.person(name)
     tested = kw.pop("tested_at", NOW - DAY * 30 * months)
-    c = Candidate(public_id=pid, name=n, email=e, tg=tg, consent_152=True, spec="Backend", track="Python",
+    c = Candidate(public_id=pid, name=n, email=e, tg=tg, **consent(tested - DAY), consent_publish=True, spec="Backend", track="Python",
                   grade_claimed="Middle", grade=C.grade_from_theta(theta, se), theta=theta, se=se, percentile=pct,
                   competencies=kw.pop("competencies", None) or g.comps("Backend", theta, se),
                   skills_confirmed=skills, skills_claimed=claimed or skills, tested_at=tested,
@@ -431,18 +450,19 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
     cup = ev["cup-2025-prod"]
     orlov.achievements.append(Achievement(event=cup, source="fsp", title=cup.title, place=12, team="Команда «Сапсан»",
                                           role="backend", weight=place_weight(12, cup.participants, cup.level), verified=True))
-    orlov.accounts.append(ExternalAccount(provider="codeforces", handle="dorlov", verify_code="FSP-7Q2K", verified_at=NOW - DAY * 60,
+    orlov.accounts.append(ExternalAccount(provider="codeforces", handle="dorlov", verify_code="", verified_at=NOW - DAY * 60,
                                           rating=1912, rank="Candidate Master", fetched_at=NOW - DAY))
     g.handles.add("dorlov")
     personas = {"A-1042": orlov}
     for pid, pct, th, se, skills, fsp, cf, sal, fmts, city, months in CANDS:
-        c = persona(g, pid, pct, th, se, skills, months, min_salary=sal, formats=fmts, city=city, consent_external=cf is not None)
+        c = persona(g, pid, pct, th, se, skills, months, min_salary=sal, formats=fmts, city=city,
+                    consent_external=cf is not None or fsp is not None)
         if fsp:
             title, eid, place = fsp
             c.achievements.append(Achievement(event=ev[eid], source="fsp", title=title, place=place, role="backend",
                                               weight=place_weight(place, ev[eid].participants, ev[eid].level), verified=True))
         if cf:
-            c.accounts.append(ExternalAccount(provider="codeforces", handle=g.handle(c.name), verify_code=f"FSP-{pid[-4:]}",
+            c.accounts.append(ExternalAccount(provider="codeforces", handle=g.handle(c.name), verify_code="",
                                               verified_at=NOW - DAY * 90, rating=cf, rank=cf_rank(cf), fetched_at=NOW - DAY))
         personas[pid] = c
     # воронка «Ладога Пэй» из макета
@@ -455,7 +475,17 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
     personas["F-0911"].email = "a.smirnova@example.ru"
 
     # ── синтетические кандидаты ──
-    cands = [g.candidate() for _ in range(n_cand)]
+    cands = [g.candidate() for _ in range(n_cand - COHORT)]
+    # когорта вокруг демо-потребности «Ладога Пэй»: Backend · Python, Москва, Kafka + PostgreSQL — чтобы у подбора и
+    # лотереи на демо был живой пул (в общей массе Kafka, подтверждённая тестом, редкость)
+    for _ in range(COHORT):
+        c = g.candidate(spec="Backend", track="Python", grade_true=g.pick(["Middle", "Senior"], p=[.75, .25]),
+                        inflated=False, city="Москва")
+        for sk in ("PostgreSQL", "Kafka"):
+            for lst in (c.truth["skills_true"], c.skills_confirmed, c.skills_claimed):
+                if sk not in lst:
+                    lst.append(sk)
+        cands.append(c)
     by_spec: dict[str, list[Candidate]] = {}
     for c in cands:
         by_spec.setdefault(c.spec, []).append(c)
@@ -474,7 +504,7 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
     ratings = np.clip(1550 + 330 * (0.6 * z + 0.8 * r.normal(0, 1, len(cf_c))), 800, 3300).round()
     for c, rt in zip(cf_c, ratings):
         c.consent_external = True
-        c.accounts.append(ExternalAccount(provider="codeforces", handle=g.handle(c.name), verify_code=f"FSP-{c.public_id[-4:]}",
+        c.accounts.append(ExternalAccount(provider="codeforces", handle=g.handle(c.name), verify_code="",
                                           verified_at=NOW - DAY * float(r.uniform(5, 300)), rating=float(rt),
                                           rank=cf_rank(rt), fetched_at=NOW - DAY * float(r.uniform(0, 7))))
 
@@ -597,10 +627,172 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
         if load[id(c)] < 2:
             add(invitation(nd.company, c, nd, g.pick(["sent", "seen"], p=[.6, .4]), NOW - DAY * float(r.uniform(0, 6.5))))
 
-    db.add_all([ladoga, kiprey, *companies, lad_need, kip_need, *needs, *personas.values(), *cands, *invs])
+    more = extras(db, g, ladoga, kiprey, lad_need, companies, hq, orlov, cands)
+    for c in [*personas.values(), *cands]:  # версия текста — своя у каждой цели согласия
+        c.consent_publish_version = C.CONSENT_VERSION if c.consent_publish else None
+        c.consent_external_version = C.CONSENT_VERSION if c.consent_external else None
+        for a in c.accounts:
+            a.verify_attempts = 0
+    db.add_all([ladoga, kiprey, *companies, lad_need, kip_need, *needs, *personas.values(), *cands, *invs, *more["all"]])
+    db.flush()  # ConsentEvent.candidate_id без FK/relationship — нужны id
+    events = []
+    for c in [*personas.values(), *cands]:
+        at, v = c.consent_152_at, C.CONSENT_VERSION
+        events += [ConsentEvent(candidate_id=c.id, purpose="processing", granted=True, version=v, at=at),
+                   ConsentEvent(candidate_id=c.id, purpose="publish", granted=c.consent_publish, version=v, at=at)]
+        if c.consent_external:
+            events.append(ConsentEvent(candidate_id=c.id, purpose="external", granted=True, version=v, at=at + DAY * 0.01))
+    db.add_all(events)
     db.commit()
-    return {"cands": cands, "personas": personas, "needs": needs, "kinds": kinds, "invs": invs, "load": load,
+    return {**more, "cands": cands, "personas": personas, "needs": needs, "kinds": kinds, "invs": invs, "load": load,
             "companies": companies, "cf": (cf_c, ratings, alg), "ladoga": ladoga}
+
+
+DEMO_VACANCIES = [  # (компания, title, spec, track, grade, must, nice, from, to, format, city, описание)
+    ("ladoga", "Backend-разработчик (Python), команда платежей", "Backend", "Python", "Middle", ["Python", "PostgreSQL", "Kafka"],
+     ["Kubernetes"], 240000, 300000, "Гибрид", "Москва",
+     "Команда платежей «Ладога Пэй» отвечает за приём платежей: 3 тыс. RPS в пике, 40 млн операций в месяц.\n\n"
+     "Задачи: развивать сервис авторизации платежей, переводить синхронные интеграции с банками на очереди Kafka, "
+     "разбирать инциденты (дубли, зависшие статусы) и закрывать их причину, а не симптом.\n\n"
+     "Стек: Python 3.12, asyncio, PostgreSQL 16 (партиционирование), Kafka, Kubernetes, Grafana.\n"
+     "Команда: 6 человек, релизы ежедневно, дежурства раз в шесть недель, оплачиваются отдельно.\n\n"
+     "Отбор: вместо первого созвона — разбор инцидента с дублями платежей (~45 минут), затем техническое интервью "
+     "с тимлидом и встреча с командой. Решение — за неделю."),
+    ("ladoga", "Frontend-разработчик (React), личный кабинет мерчанта", "Frontend", "React", "Middle", ["React", "TypeScript"],
+     ["JavaScript", "Node.js"], 220000, 280000, "Гибрид", "Москва",
+     "Личный кабинет, в котором 18 тыс. магазинов смотрят платежи, возвраты и выплаты.\n\n"
+     "Задачи: таблицы на сотни тысяч строк без тормозов, фильтры и выгрузки, дизайн-система, доступность (WCAG AA).\n\n"
+     "Стек: React 19, TypeScript, TanStack Query, Vite, Playwright.\n"
+     "Отбор: задача на производительность таблицы (~40 минут) и интервью с командой."),
+    ("ladoga", "ML-инженер, антифрод", "ML / DS", "Classic ML", "Senior", ["Python", "scikit-learn", "SQL"],
+     ["ClickHouse", "Airflow"], 360000, 460000, "Гибрид", "Москва",
+     "Антифрод для карточных и СБП-платежей: решение за 50 мс, ложные срабатывания стоят денег магазинам.\n\n"
+     "Задачи: модели скоринга транзакций, мониторинг дрейфа данных, A/B-проверка правил, разбор спорных случаев с аналитиками.\n\n"
+     "Стек: Python, CatBoost/scikit-learn, ClickHouse, Airflow, онлайн-фичи в Redis.\n"
+     "Отбор: разбор деградации модели после релиза (подход, ~30 минут) и интервью."),
+    ("kiprey", "Python-разработчик, сервис маршрутизации", "Backend", "Python", "Middle", ["Python", "PostgreSQL"], ["Redis"],
+     190000, 225000, "Удалённо", None,
+     "Маршрутизация доставок для 300 B2B-клиентов: строим маршруты, считаем окна доставки, интегрируемся с перевозчиками.\n\n"
+     "Задачи: API расчёта маршрутов, интеграции с перевозчиками (REST, SOAP, файлы), кэширование и устойчивость к их сбоям.\n\n"
+     "Стек: Python, FastAPI, PostgreSQL + PostGIS, Redis, RabbitMQ.\n"
+     "Полностью удалённо, команда в трёх часовых поясах, созвоны только по делу."),
+    ("kiprey", "DevOps-инженер (Kubernetes)", "DevOps / SRE", "Kubernetes", "Middle", ["Kubernetes", "Docker", "Linux"],
+     ["Prometheus", "Terraform"], 230000, 290000, "Удалённо", None,
+     "Платформа для 40 сервисов: два кластера Kubernetes, CI/CD, наблюдаемость.\n\n"
+     "Задачи: миграции без простоя, план отката для каждого релиза, алерты, по которым можно действовать, а не шум.\n\n"
+     "Стек: Kubernetes, Helm, Argo CD, Terraform, Prometheus, Grafana, Loki.\n"
+     "Отбор: план отката неудачной миграции (подход, ~30 минут) и интервью."),
+]
+SHOWCASE = [  # (компания|None=синтетическая, title, spec, competency, kind, minutes, text)
+    ("ladoga", "Идемпотентность платёжного API", "Backend", "Проектирование API", "approach", 30,
+     "Клиент повторяет POST /payments при таймауте, и иногда списание проходит дважды. Предложите, как сделать "
+     "создание платежа идемпотентным: ключ, хранение, поведение при гонке двух повторов, срок жизни ключа."),
+    ("kiprey", "Кэш маршрутов при пиковой нагрузке", "Backend", "Конкурентность", "solve", 45,
+     "Расчёт маршрута занимает 2 с, в пик 200 одинаковых запросов в секунду. Напишите обёртку кэша, при которой "
+     "одновременные одинаковые запросы ждут один расчёт (без «эффекта толпы»)."),
+    (None, "Тормозит таблица на 10 000 строк", "Frontend", "Производительность", "solve", 40,
+     "Таблица платежей перерисовывается целиком при вводе в фильтр. Найдите причину в приложенном компоненте и исправьте."),
+    (None, "Модель скоринга деградировала после релиза", "ML / DS", "Дрейф данных", "approach", 30,
+     "После релиза мобильного приложения доля одобрений упала на 7 п. п. Опишите, как найти причину и что проверить первым."),
+    (None, "План отката миграции БД", "DevOps / SRE", "План отката", "approach", 30,
+     "Миграция добавляет NOT NULL колонку в таблицу на 200 млн строк. Опишите выкладку и откат без простоя."),
+    (None, "Приёмка релиза мобильного банка", "QA", "Приёмка релиза", "solve", 40,
+     "Даны список изменений и отчёт автотестов. Составьте чек-лист приёмки и решите: выпускать или нет."),
+    (None, "Дубли в витрине заказов", "Data Eng / Analytics", "Качество данных", "solve", 45,
+     "В витрине заказов 0,3 % дублей после перезапуска DAG. Найдите причину и сделайте загрузку идемпотентной."),
+    (None, "Ревью эндпоинта выгрузки счетов", "Security", "Веб-уязвимости", "solve", 30,
+     "Посмотрите обработчик GET /invoices/{id}/pdf и найдите уязвимости. Предложите исправление."),
+]
+NEED_TASKS = [
+    ("Разбор инцидента с дублями платежей", "Диагностика инцидентов", "solve", 45,
+     "Ночью часть платежей списалась дважды. Даны логи сервиса, график ретраев и схема таблиц. Найдите причину, "
+     "предложите исправление и как не допустить повтора. Заменяет первый созвон."),
+    ("Подход: перенос истории платежей в отдельное хранилище", "Базы данных и транзакции", "approach", 30,
+     "Таблица платежей выросла до 2 ТБ, отчёты тормозят основную базу. Опишите план переноса истории без простоя."),
+]
+REVIEW_TEXT = {"strong": ["Чёткий план и аргументы, видно опыт.", "Нашёл корневую причину, решение аккуратное."],
+               "ok": ["Решение рабочее, но пропущены крайние случаи.", "Направление верное, детали поверхностные."],
+               "weak": ["Не учтены гонки и повторы.", "Ответ общий, без конкретики по задаче."]}
+
+
+def extras(db, g: Gen, ladoga, kiprey, lad_need, companies, hq, orlov, cands) -> dict:
+    """Вакансии, отклики, задания и решения; неподтверждённая демо-компания «Новый Стартап»."""
+    r = g.rng
+    demo = {"ladoga": ladoga, "kiprey": kiprey}
+    vacancies = [Vacancy(company=demo[co], title=t, spec=sp, track=tr, grade=gr, must=mu, nice=ni, salary_from=f, salary_to=to,
+                         format=fm, city=ci, description=d)
+                 for co, t, sp, tr, gr, mu, ni, f, to, fm, ci, d in DEMO_VACANCIES]
+    for i in range(120):
+        co = companies[i % len(companies)]
+        st = g.struct(co, "normal", hq[id(co)])
+        text = st.pop("text")
+        vacancies.append(Vacancy(company=co, title=f"{SPEC_TITLE[st['spec']]} ({st['track']}), {st['grade']}",
+                                 description=f"{text}\n\nКоманда {g.pick(TEAMS)}, {int(r.integers(4, 15))} человек.",
+                                 status="open" if r.random() < 0.9 else "closed", is_synthetic=True, **st))
+
+    # отклики: кандидаты с открытым профилем и согласием на показ откликаются на вакансии своей специализации
+    pool: dict[str, list[Candidate]] = {}
+    for c in cands:
+        if c.status == "open" and c.consent_publish:
+            pool.setdefault(c.spec, []).append(c)
+    apps, seen_pairs = [], set()
+    for _ in range(350):
+        v = g.pick(vacancies[len(DEMO_VACANCIES):])
+        c = g.pick(pool.get(v.spec) or cands)
+        if (id(v), id(c)) in seen_pairs:
+            continue
+        seen_pairs.add((id(v), id(c)))
+        st = g.pick(["sent", "seen", "accepted", "declined"], p=[.3, .25, .2, .25])
+        at = NOW - DAY * float(r.uniform(0, 40))
+        reason = None
+        if st == "declined":
+            reason = "salary" if c.min_salary > v.salary_to else g.pick(["stack", "format", "company"])
+        apps.append(Application(vacancy=v, candidate=c, status=st, decline_reason=reason, created_at=at, is_synthetic=True,
+                                note=g.pick([None, "Интересна предметная область", "Готов к задаче вместо созвона"]),
+                                seen_at=at + DAY * 0.5 if st != "sent" else None,
+                                responded_at=at + DAY * 2 if st in ("accepted", "declined") else None))
+    bp = [v for v in vacancies[len(DEMO_VACANCIES):] if v.spec == "Backend" and v.track == "Python" and v.status == "open"]
+    for v, st in zip(bp[:2], ("seen", "sent")):  # свои отклики Орлова на этой неделе
+        apps.append(Application(vacancy=v, candidate=orlov, status=st, note="Интересны высоконагруженные сервисы",
+                                created_at=NOW - DAY * 0.5, seen_at=NOW - DAY * 0.2 if st == "seen" else None))
+
+    # задания: витрина + два задания под потребность «Ладога Пэй»
+    tasks = [Task(company=demo[co] if co else g.pick(companies), title=t, spec=sp, competency=cmp, kind=k, minutes=m, text=x,
+                  public=True, is_synthetic=co is None) for co, t, sp, cmp, k, m, x in SHOWCASE]
+    db.add(lad_need)
+    db.flush()  # у Task нет relationship на Need — нужен need_id
+    tasks += [Task(company=ladoga, need_id=lad_need.id, title=t, spec="Backend", competency=cmp, kind=k, minutes=m, text=x, public=False)
+              for t, cmp, k, m, x in NEED_TASKS]
+    subs = []
+    for t in tasks[:len(SHOWCASE)]:
+        for c in g.sample(pool.get(t.spec, []), int(r.integers(10, 26))):
+            q = c.truth["theta_true"] + float(r.normal(0, 0.6))
+            rv = None if r.random() < 0.2 else "strong" if q > 1.6 else "ok" if q > 0.6 else "weak"
+            at = NOW - DAY * float(r.uniform(1, 60))
+            subs.append(TaskSubmission(task=t, candidate=c, is_synthetic=True, created_at=at,
+                                       answer=f"{'Решение' if t.kind == 'solve' else 'Подход'}: " + " ".join(
+                                           g.sample(CV_LINES, 2)).format(a=g.pick(c.skills_confirmed), b=g.pick(c.skills_confirmed), n=5),
+                                       review=rv, review_comment=g.pick(REVIEW_TEXT[rv]) if rv else None,
+                                       reviewed_at=at + DAY * 2 if rv else None))
+    subs.append(TaskSubmission(
+        task=tasks[0], candidate=orlov, review="strong", created_at=NOW - DAY * 4, reviewed_at=NOW - DAY * 2,
+        answer="Ключ идемпотентности от клиента (UUID) в заголовке; уникальный индекс (merchant_id, key) в PostgreSQL; "
+               "первый запрос вставляет запись в статусе processing в той же транзакции, повтор получает сохранённый ответ "
+               "или 409 при гонке; TTL ключа 24 ч; события в Kafka через outbox.",
+        review_comment="Чёткий план: уникальный индекс, поведение при гонке, outbox. Обсудим детали на интервью."))
+
+    # неподтверждённая демо-компания: работает с урезанной квотой, лотерея ей доступна
+    u_new = User(email="newco.hr@gmail.com", role="employer")
+    db.add(u_new)
+    db.flush()
+    newco = Company(user_id=u_new.id, inn=inn_make("773300112"), name="Новый Стартап", about="Edtech, MVP, 12 сотрудников",
+                    color="#0E7C66", site_domain=None, recruiter_name="Алина Мельникова", recruiter_email="newco.hr@gmail.com",
+                    recruiter_tg="@newco_hr", verified=False, quota_max=C.UNVERIFIED_QUOTA)
+    new_need = Need(company=newco, kind="normal", spec="Backend", track="Python", grade="Junior", must=["Python"], nice=["Django"],
+                    salary_from=120000, salary_to=160000, format="Удалённо",
+                    text="Ищем джуна на Python для MVP образовательной платформы: Django, PostgreSQL. 120–160 тыс., удалённо.")
+    return {"vacancies": vacancies, "apps": apps, "tasks": tasks, "subs": subs,
+            "all": [*vacancies, *apps, *tasks, *subs, newco, new_need]}
 
 
 def summary(db, res: dict, secs: float) -> None:
@@ -633,6 +825,21 @@ def summary(db, res: dict, secs: float) -> None:
     closed = [i for i in li if i.status in ("accepted", "declined", "expired")]
     print(f"«Ладога Пэй»: квота {sum(i.sent_at >= WEEK_START for i in li)} / {lad.quota_max} на этой неделе, "
           f"принято {sum(i.status == 'accepted' for i in closed) / len(closed):.0%} закрытых, ИНН {lad.inn}")
+    print(f"Согласие на показ карточки (consent_publish): {sum(c.consent_publish for c in cands) / n:.0%} синтетики")
+    print(f"Вакансии: {len(res['vacancies'])} (демо {sum(not v.is_synthetic for v in res['vacancies'])}) · отклики: "
+          f"{dict(Counter(a.status for a in res['apps']))} · задания: {len(res['tasks'])} "
+          f"(витрина {sum(t.public for t in res['tasks'])}) · решения: {dict(Counter(x.review for x in res['subs']))}")
+    leak = db.scalar(select(func.count(Candidate.id.distinct())).where(
+        ~Candidate.consent_external, Candidate.id.in_(select(Achievement.candidate_id).union(select(ExternalAccount.candidate_id)))))
+    assert leak == 0, f"внешние данные без согласия: {leak}"
+    assert not db.scalar(select(func.count()).select_from(Candidate).where(Candidate.consent_version != C.CONSENT_VERSION))
+    assert not db.scalar(select(func.count()).select_from(ExternalAccount).where(ExternalAccount.verify_code != ""))
+    cnt = lambda *w: db.scalar(select(func.count()).select_from(Candidate).where(*w))  # noqa: E731
+    assert not cnt(Candidate.consent_publish, Candidate.consent_publish_version.is_distinct_from(C.CONSENT_VERSION))
+    assert not cnt(Candidate.consent_external, Candidate.consent_external_version.is_distinct_from(C.CONSENT_VERSION))
+    ce = dict(db.execute(select(ConsentEvent.purpose, func.count()).group_by(ConsentEvent.purpose)).all())
+    print(f"Внешние данные без согласия: {leak} · consent_external: {sum(c.consent_external for c in cands) / n:.0%} · "
+          f"журнал согласий: {ce}")
     print(f"Событий: {db.scalar(select(func.count()).select_from(Event))}, достижений: {db.scalar(select(func.count()).select_from(Achievement))}")
 
 

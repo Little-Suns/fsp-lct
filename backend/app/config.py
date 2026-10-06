@@ -12,3 +12,14 @@ FRONTEND_DIR = os.environ.get("FRONTEND_DIR", os.path.join(os.path.dirname(__fil
 
 # Демо-режим (стенд для жюри): вход за демо-персонажей, код почты в ответе, ФСП ID без OAuth. По умолчанию выключен.
 DEMO = os.environ.get("DEMO", "0") == "1"
+
+# Письма с кодом входа. Без SMTP_HOST и вне DEMO вход по почте недоступен (503).
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "no-reply@fsp-career.local")
+SMTP_STARTTLS = os.environ.get("SMTP_STARTTLS", "1") == "1"
+
+# Серверный «перец» для HMAC кодов входа. Без него ключ случайный на процесс: коды сгорают при рестарте — для демо не страшно.
+SECRET_KEY = os.environ.get("SECRET_KEY") or __import__("secrets").token_hex(32)

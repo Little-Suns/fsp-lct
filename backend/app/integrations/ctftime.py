@@ -97,26 +97,33 @@ def team_places(team_id: int, by_year: dict[int, dict]) -> list[dict]:
     return sorted(out, key=lambda r: (r["place"] or 10**6) / max(r["participants"], 1))
 
 
-def sync(db: Session, acc: ExternalAccount) -> None:
-    """Подтянуть команду и результаты, пересобрать достижения source='ctftime'. Без commit."""
-    acc.data = acc.data or {}
-    team_id = int(acc.handle)  # handle = id команды
+def fetch(team_id: int) -> dict:
+    """Только HTTP, без записи в БД, с общим дедлайном SYNC_DEADLINE: команда + лучшие места с метаданными событий."""
     deadline = time.monotonic() + SYNC_DEADLINE
     info = team(team_id, deadline)
-    now = datetime.now(UTC)
+    year = datetime.now(UTC).year
     # ponytail: results/{год} — общий для всех ~1–2 МБ; кеш в памяти по году, если кандидатов станет много
-    places = team_places(team_id, {y: results(y, deadline) for y in (now.year, now.year - 1)})
+    places = team_places(team_id, {y: results(y, deadline) for y in (year, year - 1)})
+    top = [{**p, "meta": event(p["event_id"], deadline)} for p in places[:TOP_MAX]]
+    return {"team_id": team_id, "info": info, "events": len(places), "top": top}
+
+
+def apply(db: Session, acc: ExternalAccount, fetched: dict) -> None:
+    """Записать команду и пересобрать достижения source='ctftime'. Без HTTP и без commit."""
+    team_id, info = fetched["team_id"], fetched["info"]
+    now = datetime.now(UTC)
     # рейтинг CTFtime за последний год: место в мире есть не всегда, место в стране — почти всегда
     year, last = max((info.get("rating") or {}).items(), default=(None, {}))
     acc.rating = last.get("rating_points")
     acc.rank = (f"#{last['rating_place']} в мире, {year}" if last.get("rating_place")
                 else f"#{last['country_place']} в {info.get('country')}, {year}" if last.get("country_place") else None)
-    acc.data = {**acc.data, "team_id": team_id, "team": info.get("name"), "country": info.get("country"), "events": len(places)}
+    acc.data = {**(acc.data or {}), "team_id": team_id, "team": info.get("name"), "country": info.get("country"),
+                "events": fetched["events"]}
     acc.fetched_at = now
 
     keep: list[int] = []
-    for p in places[:TOP_MAX]:
-        meta = event(p["event_id"], deadline)
+    for p in fetched["top"]:
+        meta = p["meta"]
         level = level_by_weight(meta.get("weight"))
         # events/{id}.participants — число заявок, может быть меньше реальной таблицы
         participants = max(meta.get("participants") or 0, p["participants"])

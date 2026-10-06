@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.integrations import common
 from app.integrations.scoring import LEVEL, place_weight
 from app.models import Candidate, User
+from app.services.matching import consent_ok
 
 SOURCES = ("hackathon", "fsp", "ctftime")
 MAX_ROWS = 5000  # строк протокола за один импорт
@@ -43,25 +44,23 @@ def parse_csv(text: str) -> list[dict]:
 
 
 def find_candidate(db: Session, email: str | None, fsp_id: str | None) -> Candidate | None:
+    """Только по подтверждённым идентификаторам входа: User.email (код на почту) или User.fsp_id.
+
+    Candidate.email не используем — его кандидат редактирует сам и мог бы вписать чужую почту из протокола.
+    """
+    user = None
     if email:
-        e = email.strip().lower()
-        cand = db.scalar(select(Candidate).where(func.lower(Candidate.email) == e))
-        if cand:
-            return cand
-        user = db.scalar(select(User).where(func.lower(User.email) == e))
-        if user:
-            return db.scalar(select(Candidate).where(Candidate.user_id == user.id))
-    if fsp_id:
+        user = db.scalar(select(User).where(func.lower(User.email) == email.strip().lower()))
+    if not user and fsp_id:
         user = db.scalar(select(User).where(User.fsp_id == fsp_id.strip()))
-        if user:
-            return db.scalar(select(Candidate).where(Candidate.user_id == user.id))
-    return None
+    return db.scalar(select(Candidate).where(Candidate.user_id == user.id)) if user else None
 
 
 def import_protocol(db: Session, event: dict, rows: list[dict]) -> dict:
     """Импортировать протокол и закоммитить. ValueError — ошибка формата (текст для пользователя).
 
-    Возвращает {"event_id", "matched", "created", "updated", "unmatched": [{"row", "email", "fsp_id", "reason"}]}.
+    Строки кандидатов без действующего согласия (matching.consent_ok «external») не привязываются (попадают в unmatched, счётчик no_consent).
+    Возвращает {"event_id", "matched", "created", "updated", "no_consent", "unmatched": [{"row", "email", "fsp_id", "reason"}]}.
     """
     source = event.get("source") or "hackathon"
     if source not in SOURCES:
@@ -88,14 +87,27 @@ def import_protocol(db: Session, event: dict, rows: list[dict]) -> dict:
         db, source, str(event["external_id"])[:64], title=str(event["title"])[:255], level=level,
         date=date or None, participants=participants, url=event.get("url") or None, tags=tags,
     )
-    report = {"event_id": ev.id, "matched": 0, "created": 0, "updated": 0, "unmatched": []}
+    report = {"event_id": ev.id, "matched": 0, "created": 0, "updated": 0, "no_consent": 0, "unmatched": []}
+    parsed = []
     for i, row in enumerate(rows, start=1):
         email, fsp_id = (row.get("email") or "").strip(), str(row.get("fsp_id") or "").strip()
-        place = _int(row.get("place"), f"строка {i}, place")
-        cand = find_candidate(db, email, fsp_id)
+        parsed.append((i, row, email, fsp_id, _int(row.get("place"), f"строка {i}, place"), find_candidate(db, email, fsp_id)))
+    # FOR UPDATE на всех найденных кандидатов в порядке id (без взаимоблокировок между импортами) и перечитывание
+    # согласия: параллельный отзыв (set_external_consent тоже берёт FOR UPDATE) либо раньше — строка пропущена,
+    # либо ждёт нашего commit и затем удалит записанное.
+    ids = sorted({c.id for *_, c in parsed if c})
+    if ids:
+        db.scalars(select(Candidate).where(Candidate.id.in_(ids)).order_by(Candidate.id).with_for_update()
+                   .execution_options(populate_existing=True)).all()
+    for i, row, email, fsp_id, place, cand in parsed:
         if not cand:
             reason = "нет email и fsp_id" if not (email or fsp_id) else "кандидат не найден"
             report["unmatched"].append({"row": i, "email": email or None, "fsp_id": fsp_id or None, "reason": reason})
+            continue
+        if not consent_ok(cand, "external"):
+            report["no_consent"] += 1
+            report["unmatched"].append({"row": i, "email": email or None, "fsp_id": fsp_id or None,
+                                        "reason": "нет согласия на внешние данные"})
             continue
         _, created = common.upsert_achievement(
             db, cand, source, ev,

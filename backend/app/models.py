@@ -18,10 +18,8 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
     role: Mapped[str] = mapped_column(String(16))  # candidate | employer | admin
-    token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
-    otp: Mapped[str | None] = mapped_column(String(8))
-    otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    otp_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)  # sha256 токена, сам токен не храним
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     fsp_id: Mapped[str | None] = mapped_column(String(32), unique=True)
     created_at: Mapped[datetime] = _now()
 
@@ -35,7 +33,14 @@ class Candidate(Base):
     name: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(255))
     tg: Mapped[str | None] = mapped_column(String(64))
-    consent_152: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 152-ФЗ: согласия раздельные, с датой и версией текста; отзыв согласия на обработку → профиль скрыт, данные удаляются
+    consent_152: Mapped[bool] = mapped_column(Boolean, default=False)  # обработка ПДн
+    consent_152_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consent_version: Mapped[str | None] = mapped_column(String(16))  # версия текста согласия на обработку
+    # у каждой цели своя версия: повторное согласие на обработку не «оживляет» старые publish/external
+    consent_publish_version: Mapped[str | None] = mapped_column(String(16))
+    consent_external_version: Mapped[str | None] = mapped_column(String(16))
+    consent_publish: Mapped[bool] = mapped_column(Boolean, default=False)  # показывать обезличенную карточку работодателям
     consent_external: Mapped[bool] = mapped_column(Boolean, default=False)  # отдельное согласие на CF/CTFtime
     # профиль (catalog.SPECS / TRACKS / GRADES / FORMATS)
     spec: Mapped[str] = mapped_column(String(32))
@@ -86,7 +91,9 @@ class ExternalAccount(Base):
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"))
     provider: Mapped[str] = mapped_column(String(16))  # codeforces | ctftime | kaggle
     handle: Mapped[str] = mapped_column(String(64))  # для ctftime — id команды
-    verify_code: Mapped[str] = mapped_column(String(16))
+    verify_code: Mapped[str] = mapped_column(String(64))  # sha256 кода из профиля; сам код показывается кандидату один раз
+    verify_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verify_attempts: Mapped[int] = mapped_column(Integer, default=0)  # проверок на один код; лимит — в routers/achievements.py
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rating: Mapped[float | None] = mapped_column(Float)
     rank: Mapped[str | None] = mapped_column(String(64))
@@ -225,6 +232,8 @@ class Lottery(Base):
     seed_hash: Mapped[str] = mapped_column(String(64))
     # sha256 канонического JSON {threshold, pool_ids, draw_count, seed_hash}: фиксирует пул и условия до розыгрыша
     commitment: Mapped[str] = mapped_column(String(64))
+    # публичная часть оперирует псевдонимами sha256(salt + public_id): без соли не связать с кандидатом и другими лотереями
+    salt: Mapped[str | None] = mapped_column(String(64))
     seed: Mapped[str | None] = mapped_column(String(64))  # раскрывается при розыгрыше
     drawn_ids: Mapped[list[str] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = _now()
@@ -248,6 +257,9 @@ class Item(Base):
 
 class QuestSession(Base):
     __tablename__ = "quest_sessions"
+    __table_args__ = (
+        Index("uq_quest_active", "candidate_id", unique=True, postgresql_where=text("finished_at IS NULL")),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"))
     story: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -255,6 +267,139 @@ class QuestSession(Base):
     theta: Mapped[float] = mapped_column(Float, default=0.0)
     se: Mapped[float] = mapped_column(Float, default=1.0)
     prior_mean: Mapped[float] = mapped_column(Float, default=0.0)  # стартовая оценка (например, из рейтинга CF)
+    target_grade: Mapped[str | None] = mapped_column(String(16))  # заявленный грейд, на который проходит тест
+    focus: Mapped[dict | None] = mapped_column(JSON)  # веса компетенций из описания вакансии {competency: weight}
+    grade: Mapped[str | None] = mapped_column(String(16))  # грейд, измеренный этой попыткой
+    applied: Mapped[bool | None] = mapped_column(Boolean)  # попал ли результат в профиль (во время кулдауна — только понижение)
     flags: Mapped[list[str]] = mapped_column(JSON, default=list)  # подозрения: inconsistent, too_fast…
     started_at: Mapped[datetime] = _now()
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Vacancy(Base):
+    """Опубликованная вакансия — дополнительный сценарий: кандидат без приглашений может проявить инициативу."""
+
+    __tablename__ = "vacancies"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text, default="")
+    spec: Mapped[str] = mapped_column(String(32))
+    track: Mapped[str | None] = mapped_column(String(32))
+    grade: Mapped[str] = mapped_column(String(16))
+    must: Mapped[list[str]] = mapped_column(JSON, default=list)
+    nice: Mapped[list[str]] = mapped_column(JSON, default=list)
+    salary_from: Mapped[int] = mapped_column(Integer)  # вилка обязательна, как и в приглашении
+    salary_to: Mapped[int] = mapped_column(Integer)
+    format: Mapped[str] = mapped_column(String(16))
+    city: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(8), default="open")  # open | closed
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    company: Mapped[Company] = relationship()
+
+
+class Application(Base):
+    """Отклик кандидата. Статусы: sent → seen → accepted | declined. Контакты кандидата видны сразу — он откликнулся сам."""
+
+    __tablename__ = "applications"
+    __table_args__ = (UniqueConstraint("vacancy_id", "candidate_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vacancy_id: Mapped[int] = mapped_column(ForeignKey("vacancies.id", ondelete="CASCADE"))
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"))
+    note: Mapped[str | None] = mapped_column(String(300))  # коротко, не сопроводительное письмо
+    status: Mapped[str] = mapped_column(String(12), default="sent")
+    decline_reason: Mapped[str | None] = mapped_column(String(16))
+    contacts_revealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # раскрытие пишется в журнал один раз
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = _now()
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    vacancy: Mapped[Vacancy] = relationship()
+    candidate: Mapped[Candidate] = relationship()
+
+
+class Task(Base):
+    """Короткое задание от работодателя: решить или предложить подход. Витрина без уведомлений или вложение в приглашение."""
+
+    __tablename__ = "tasks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    need_id: Mapped[int | None] = mapped_column(ForeignKey("needs.id", ondelete="SET NULL"))
+    title: Mapped[str] = mapped_column(String(255))
+    text: Mapped[str] = mapped_column(Text)
+    spec: Mapped[str] = mapped_column(String(32))
+    competency: Mapped[str | None] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(8), default="approach")  # solve | approach
+    minutes: Mapped[int] = mapped_column(Integer, default=45)
+    public: Mapped[bool] = mapped_column(Boolean, default=True)  # на витрине для всех кандидатов специализации
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = _now()
+
+    company: Mapped[Company] = relationship()
+
+
+class TaskSubmission(Base):
+    """Решение задания. Оценка работодателя — свежий сигнал о кандидате; на грейд и место в выдаче не влияет."""
+
+    __tablename__ = "task_submissions"
+    __table_args__ = (UniqueConstraint("task_id", "candidate_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"))
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"))
+    invitation_id: Mapped[int | None] = mapped_column(ForeignKey("invitations.id", ondelete="SET NULL"))
+    answer: Mapped[str] = mapped_column(Text)
+    review: Mapped[str | None] = mapped_column(String(8))  # strong | ok | weak
+    review_comment: Mapped[str | None] = mapped_column(Text)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = _now()
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    task: Mapped[Task] = relationship()
+    candidate: Mapped[Candidate] = relationship()
+
+
+class AuditLog(Base):
+    """Журнал раскрытий и операций с ПДн (152-ФЗ): кто, что, о ком и когда. Только добавление."""
+
+    __tablename__ = "audit_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(Integer)  # без FK: запись переживает удаление аккаунта
+    action: Mapped[str] = mapped_column(String(32))  # contacts_revealed | data_exported | account_deleted | consent_changed
+    subject_candidate_id: Mapped[int | None] = mapped_column(Integer)
+    detail: Mapped[dict | None] = mapped_column(JSON)  # без самих ПДн: только идентификаторы и основания
+    at: Mapped[datetime] = _now()
+
+
+class ConsentEvent(Base):
+    """152-ФЗ: журнал согласий — каждая выдача и отзыв по каждой цели с версией текста. Только добавление."""
+
+    __tablename__ = "consent_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    candidate_id: Mapped[int | None] = mapped_column(Integer, index=True)  # без FK: доказательство переживает удаление
+    purpose: Mapped[str] = mapped_column(String(16))  # processing | publish | external
+    granted: Mapped[bool] = mapped_column(Boolean)
+    version: Mapped[str] = mapped_column(String(16))
+    at: Mapped[datetime] = _now()
+
+
+class LoginChallenge(Base):
+    """Ожидающий вход по коду. Пользователь создаётся только после проверки — чужую роль заранее не закрепить."""
+
+    __tablename__ = "login_challenges"
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
+    code_hash: Mapped[str] = mapped_column(String(64))  # HMAC-SHA256(перец, email + код): по дампу БД не перебрать
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RetiredPublicId(Base):
+    """public_id удалённых кандидатов: не выдаются повторно, иначе старая лотерея «узнает» другого человека."""
+
+    __tablename__ = "retired_public_ids"
+    public_id: Mapped[str] = mapped_column(String(16), primary_key=True)

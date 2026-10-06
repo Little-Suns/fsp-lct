@@ -2,8 +2,9 @@
 
 Конвенция «провайдер достижений» (без формального Protocol — модулей мало):
   * модуль провайдера пишет строки только через upsert_event / upsert_achievement с source=<провайдер>;
-  * живые API (codeforces, ctftime) экспортируют sync(db, account) — тянет данные и пересобирает
-    достижения кандидата; файловые (hackathon, fsp) идут через hackathons.import_protocol.
+  * живые API (codeforces, ctftime) экспортируют fetch(...) — только HTTP — и apply(db, account, данные) —
+    только запись; между ними вызывающий берёт FOR UPDATE на кандидата и перепроверяет согласие
+    (consent.lock_candidate). Файловые (hackathon, fsp) идут через hackathons.import_protocol.
   * вес достижения ∈ [0,1] считается только функциями scoring.py; сводный сигнал — scoring.combine.
 Реестр ФСП подключается как ещё один провайдер того же вида: событие + строки протокола.
 """

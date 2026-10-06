@@ -53,6 +53,7 @@ def db():
     eng.dispose()
 
 
+@pytest.mark.slow  # засев 150 кандидатов + прогон валидации
 def test_run_shape(db, tmp_path, monkeypatch):
     res = V.run(db, k=5, seed=1)
     assert {"generated_at", "k", "dataset", "quality", "market", "cheater", "stability"} <= res.keys()
@@ -77,7 +78,7 @@ def test_run_shape(db, tmp_path, monkeypatch):
     cl = TestClient(app)
     assert cl.get("/api/validation").status_code == 404
     assert cl.post("/api/validation/run?k=5&seed=1").status_code == 401
-    assert cl.post("/api/validation/run?k=5&seed=1", headers={"Authorization": "Bearer nope"}).status_code == 403
+    assert cl.post("/api/validation/run?k=5&seed=1", headers={"Authorization": "Bearer nope"}).status_code == 401  # неизвестный токен — не авторизован
     r = cl.post("/api/validation/run?k=5&seed=1", headers={"Authorization": "Bearer org-secret"})
     assert r.status_code == 200
     assert cl.get("/api/validation").json()["quality"] == r.json()["quality"]

@@ -240,6 +240,7 @@ button.chip:hover { border-color: var(--blue); }
 .timer { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; display: inline-flex; gap: 8px; align-items: center; }
 .timer.low { color: #FF6B7D; }
 .quest .switch { color: var(--on-dark-2); }
+.quest .seg { border-color: var(--dark-line); align-self: flex-start; } .quest .seg button { background: var(--dark-2); color: var(--on-dark); border-color: var(--dark-line); } .quest .seg button[aria-pressed="true"] { background: var(--blue); color: #fff; }
 .quest .switch i { background: var(--dark-line); }
 .quest-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; }
 .quest-body > div { padding: 26px; min-width: 0; }
@@ -264,6 +265,7 @@ button.chip:hover { border-color: var(--blue); }
 .code button .ln { color: #5D5E69; text-align: right; padding-right: 12px; user-select: none; }
 .code button:hover { background: #1A1B21; }
 .code button[aria-pressed="true"] { background: rgba(236,29,53,.18); box-shadow: inset 3px 0 0 var(--red); }
+.pre { white-space: pre-line; }
 .code button[disabled] { cursor: default; } .code button[disabled]:hover { background: none; }
 .code .kw { color: #A99BFF; } .code .st { color: #9FD8A8; } .code .cm { color: #6C6D78; }
 .quest-foot { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px 22px; border-top: 1px solid var(--dark-line); font-size: 12px; color: var(--on-dark-2); }
@@ -357,6 +359,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3h12M1 7h12M1 11h12" stroke="currentColor" stroke-width="1.5"/></svg>
       Экраны
     </button>
+    <button class="mapbtn" id="logout" data-act="logout" hidden>Выйти</button>
   </div>
 </header>
 
@@ -386,7 +389,15 @@ const NEED_TEXT = 'Ищем бэкендера на Python в команду п�
 const S = {
   story: true,
   quest: null, qAns: null, codeMark: null, qComment: '', qItem: null, qShownAt: 0, finish: null,
-  signup: { email: 'd.orlov@example.ru', otp: '', sent: false, c152: true, tg: true },
+  signup: { email: '', otp: '', sent: false, c152: false, publish: false, tg: true },
+  esignup: { email: '', otp: '', sent: false },
+  confirm: null,                     // ключ открытого инлайн-подтверждения (удаление аккаунта, отзыв согласий)
+  target: null,                      // грейд, на который проходится тест
+  questInvite: null,                 // тест по приглашению: invitation_id
+  vf: { spec: '', grade: '', format: '', city: '', q: '' },   // фильтры вакансий кандидата
+  sf: { spec: '', track: '', grade: '', skills: '', q: '', fsp: false, cf: false, hackathon: false, format: '', city: '', page: 1 },
+  vform: null, tform: null, applyNote: '', answer: '', hiddenEdit: false, needAdd: null, plan: null,
+  appDecline: null, reviewFor: null,
   pf: null, cv: null,
   declineFor: null, declineReason: null,
   need: { text: '', parsed: null },
@@ -417,7 +428,7 @@ async function api(method, path, body, role = roleOf(route())) {
   const msg = typeof det === 'string' ? det : Array.isArray(det) ? det.map(x => x.msg).join('; ') : det && det.errors ? det.errors.join(' ') : `Ошибка ${r.status}`;
   const err = Object.assign(new Error(msg), { status: r.status, detail: det });
   if (r.status === 401 && !path.startsWith('/api/auth/')) {
-    setTok(role, null);
+    clearSide(role);
     const to = role === 'e' ? '/e/signup' : '/c/signup';
     if (route() !== to) go(to);
   }
@@ -425,16 +436,37 @@ async function api(method, path, body, role = roleOf(route())) {
 }
 function fail(e) { toast(e && e.message ? e.message : 'Ошибка'); }
 
-async function demoLogin(role) {
+// сброс токена и данных одной роли: выход, 401, смена пользователя
+function clearSide(role) {
+  setTok(role, null);
+  if (role === 'c') { ME = null; ACH = null; Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
+  else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
+}
+// демо-персонажи (только при DEMO=1 на сервере): c — Орлов, e — «Ладога Пэй», newco — неподтверждённый «Новый Стартап»
+async function demoLogin(who) {
+  const role = who === 'c' ? 'c' : 'e';
+  clearSide(role);
+  if (who === 'newco') return emailLogin('e', 'newco.hr@gmail.com');
   const d = await api('POST', '/api/auth/demo/' + (role === 'e' ? 'employer' : 'candidate'), undefined, role);
   setTok(role, d.token);
-  if (role === 'c') { ME = null; ACH = null; S.quest = null; S.finish = null; S.pf = null; }
-  else { S.needId = null; S.needObj = null; S.lot = null; S.inviteForm = null; }
+}
+// вход по коду: в демо сервер возвращает код в ответе — подставляем его сами
+async function emailLogin(role, email) {
+  const r = await api('POST', '/api/auth/email', { email, role: role === 'e' ? 'employer' : 'candidate' }, role);
+  if (!r.otp) throw new Error('Код отправлен на почту: введите его в форме входа');
+  await verifyLogin(role, email, r.otp);
+}
+async function verifyLogin(role, email, otp) {
+  const r = await api('POST', '/api/auth/verify', { email, otp }, role);
+  const want = role === 'e' ? 'employer' : 'candidate';
+  if (r.role !== want) throw new Error(want === 'employer' ? 'Эта почта зарегистрирована как кандидат' : 'Эта почта зарегистрирована как работодатель');
+  clearSide(role);
+  setTok(role, r.token);
 }
 
 /* ===================== утилиты ===================== */
 const $app = document.getElementById('app');
-const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = s => (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.hidden = false;
@@ -450,6 +482,40 @@ const BADGE = { fsp: 'ФСП', hackathon: 'Хакатон', ctftime: 'CTF' };
 // бейджи достижений на анонимной карточке: ФСП / хакатон / CTF + рейтинг Codeforces
 const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] : [])).filter((b, i, arr) => BADGE[b.source] && arr.findIndex(x => x.source === b.source) === i).map(b => `<span class="chip ok" title="${esc(b.title)}">${BADGE[b.source]}</span>`).join('') + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
 
+// разделы кабинета: одна строка чипов под хлебными крошками
+const NAV = {
+  c: [['/c/home', 'Кабинет'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Задачи'], ['/c/result', 'Тест'], ['/c/settings', 'Настройки и приватность']],
+  e: [['/e/picks', 'Подборка'], ['/e/search', 'Поиск по банку'], ['/e/vacancies', 'Вакансии'], ['/e/tasks', 'Задания'], ['/e/pipeline', 'Приглашения']],
+};
+const NAV_OF = { '/c/invite': '/c/home', '/c/vacancy': '/c/vacancies', '/c/task': '/c/tasks', '/c/quest': '/c/result', '/e/vacancy': '/e/vacancies', '/e/task': '/e/tasks', '/e/need': '/e/picks', '/e/invite': '/e/pipeline' };
+function subnav(side) {
+  const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
+  return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}</button>`).join('')}</nav>`;
+}
+// плашка неподтверждённой компании (квота урезана, кандидаты видят предупреждение)
+const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/signup">Данные компании</button></span></div>` : '';
+// инлайн-подтверждение вместо confirm(): показывается, когда S.confirm === key
+const confirmBox = (key, text, ok) => S.confirm === key ? `<div class="panel stack" role="alertdialog" aria-label="Подтверждение" style="border-color:var(--red)">
+  <p class="small">${text}</p>
+  <div class="row"><button class="btn danger" data-act="confirm-yes" data-k="${key}">${ok}</button><button class="btn ghost" data-act="confirm-no">Отмена</button></div></div>` : '';
+// после отзыва согласия на обработку бэкенд запрещает менять ПДн (403): только восстановить согласие, выгрузить или удалить
+const withdrawn = () => !!(ME && (!ME.consent_152 || ME.needs_reconsent));
+const withdrawnAlert = () => ME && ME.consent_152 && ME.needs_reconsent ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Текст согласия обновился — подтвердите согласия.</b> Пока вы не подтвердите новую редакцию, профиль скрыт и редактировать данные нельзя. <button class="btn primary small" data-act="reconsent">Подтвердить согласия</button> <button class="btn ghost small" data-go="/c/settings">Настройки</button></span></div>` : withdrawn() ? `<div class="alert bad" style="margin-bottom:16px"><span>!</span><span><b>Согласие на обработку отозвано: восстановите его или удалите аккаунт.</b> Пока оно отозвано, профиль скрыт и редактировать данные нельзя. <button class="btn ghost small" data-act="consent-152">Восстановить согласие</button> <button class="btn ghost small" data-go="/c/settings">Настройки</button></span></div>` : '';
+// последнее событие журнала согласий по цели: {granted, at, version} | null
+const consentLog = k => { const e = ME && ME.consents && ME.consents[k]; return `<span class="small muted" data-consent="${k}">Журнал: ${e ? `${e.granted ? 'дано' : 'отозвано'} ${DATE(e.at)}, версия ${esc(e.version || '—')}` : 'событий нет'}</span>`; };
+const noProfile = title => `${crumbs([['Главная', '/'], [title]])}<div class="panel stack"><h2>Профиль ещё не создан</h2><p class="prose small">Заполните профиль и пройдите тест — после этого откроются вакансии, задачи и приглашения.</p><div class="row"><button class="btn primary" data-go="/c/profile">Заполнить профиль</button></div></div>`;
+const APP_ST = { sent: ['s-sent', 'отправлен'], seen: ['s-seen', 'просмотрен'], accepted: ['s-ok', 'приглашение на интервью'], declined: ['s-no', 'отказ'], withdrawn: ['s-exp', 'отозван'] };
+const appChip = st => `<span class="status ${(APP_ST[st] || APP_ST.sent)[0]}">${(APP_ST[st] || [0, esc(st)])[1]}</span>`;
+const REVIEW = { strong: ['ok', 'сильное решение'], ok: ['', 'нормально'], weak: ['warn', 'слабо'] };
+const reviewChip = r => r ? `<span class="chip ${REVIEW[r][0]}">${REVIEW[r][1]}</span>` : '<span class="chip dim">ждёт оценки</span>';
+// о компании — отдельные проверяемые факты, а не общее «подтверждена»: почта входа на домене сайта, контрольные цифры ИНН.
+// domain_confirmed / inn_checksum_valid приходят в приглашениях, вакансиях и задачах; verified — запасной вариант для старых ответов.
+const domainOk = co => co.domain_confirmed !== undefined ? !!co.domain_confirmed : !!co.verified;
+const coChip = co => (domainOk(co) ? '<span class="chip ok">почта на домене подтверждена</span>' : '<span class="chip warn">почта на домене не подтверждена</span>') +
+  (co.inn_checksum_valid === false ? ' <span class="chip warn">ИНН: контрольные цифры не сходятся</span>' : '');
+const domainWarn = co => domainOk(co) ? '' : '<div class="alert warn"><span>!</span><span><b>Почта на домене не подтверждена.</b> Рекрутер вошёл не с почты на домене сайта компании. Не передавайте паспортные и платёжные данные до собеседования.</span></div>';
+const qs = o => Object.entries(o).filter(([, v]) => v !== '' && v !== false && v != null).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
+
 function crumbs(items) {
   return `<div class="crumbs">${items.map((it, i) => i === items.length - 1 ? `<b>${it[0]}</b>` : `<button data-go="${it[1]}">${it[0]}</button><span>/</span>`).join('')}</div>`;
 }
@@ -459,8 +525,8 @@ function compRows(list, showTh = true) {
   const legend = `<div class="scale-legend"><span></span><div class="lg">${GRADE_TH.map(g => `<span style="left:${pos(g.t)}%">${g.g}</span>`).join('')}</div><span></span></div>`;
   return (showTh ? legend : '') + list.map(c => `
     <div class="comp">
-      <span>${c.n}</span>
-      <div class="scale" title="θ = ${c.t.toFixed(2)}, SE = ${c.se.toFixed(2)}">
+      <span>${esc(c.n)}</span>
+      <div class="scale" title="θ = ${Number(c.t).toFixed(2)}, SE = ${c.se.toFixed(2)}">
         <div class="track"></div>
         ${GRADE_TH.map(g => `<div class="tick" style="left:${pos(g.t)}%"></div>`).join('')}
         <div class="se" style="left:${pos(c.t - c.se)}%; width:${(c.se * 2 / 6 * 100).toFixed(1)}%"></div>
@@ -556,23 +622,28 @@ V['/c/signup'] = () => `
       <span class="label">Шаг 1 из 3</span>
       <h1>Создайте профиль</h1>
       <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений.</p>
-      <button class="btn ghost block" data-act="fspid" style="justify-content:flex-start;padding:14px 16px">
+      ${TOK.c ? '<div class="alert ok"><span>✓</span><span>Вы уже вошли. <button class="btn ghost small" data-go="/c/home">В кабинет</button></span></div>' : ''}
+      <button class="btn ghost block" data-act="noop" data-msg="Вход через ФСП ID (OIDC) подключится, когда ФСП выдаст доступ. Пока — по почте" style="justify-content:flex-start;padding:14px 16px">
         <img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px"> Войти через ФСП ID <span class="muted small" style="margin-left:auto">подтянем достижения</span>
       </button>
       <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
-      <label class="field"><span>Почта</span><input class="input" id="su-mail" type="email" value="${esc(S.signup.email)}"></label>
-      <label class="check"><input type="checkbox" id="su-152" ${S.signup.c152 ? 'checked' : ''}> Согласен на обработку персональных данных по 152-ФЗ. Работодатели не видят ФИО и контакты, пока я не приму приглашение.</label>
+      <label class="field"><span>Почта</span><input class="input" id="su-mail" type="email" autocomplete="email" placeholder="you@example.ru" value="${esc(S.signup.email)}"></label>
+      <label class="check"><input type="checkbox" id="su-152" ${S.signup.c152 ? 'checked' : ''}> Согласен на обработку персональных данных по 152-ФЗ (обязательно). Работодатели не видят ФИО и контакты, пока я не приму приглашение.</label>
+      <label class="check"><input type="checkbox" id="su-pub" ${S.signup.publish ? 'checked' : ''}> Показывать мою обезличенную карточку работодателям. Без этого согласия компании меня не найдут; включить можно позже в настройках.</label>
       <label class="check"><input type="checkbox" id="su-tg" ${S.signup.tg ? 'checked' : ''}> Присылать приглашения в Telegram</label>
       ${S.signup.sent ? `
-      <label class="field"><span>Код из письма</span><input class="input num" id="su-otp" inputmode="numeric" maxlength="6" value="${esc(S.signup.otp)}" style="max-width:200px"></label>
+      <label class="field"><span>Код из письма</span><input class="input num" id="su-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="${esc(S.signup.otp)}" style="max-width:200px"></label>
       ${S.signup.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
       <div class="row"><button class="btn primary" data-act="otp-verify">Войти</button><button class="btn ghost" data-act="otp-send">Отправить код ещё раз</button></div>`
       : '<button class="btn primary" data-act="otp-send">Получить код на почту</button>'}
+      <div class="divider"></div>
+      <button class="btn dark" data-act="demo" data-who="c">Демо: войти как Дмитрий Орлов (A-1042)</button>
+      <span class="hint">Демо-вход работает только на стенде жюри (DEMO=1)</span>
     </div>
     <div class="stack">
       <div class="panel tight stack-s">
         <span class="label">Что увидят компании</span>
-        <p class="small">Анонимную карточку: <b>Кандидат A-1042</b>, категорию, перцентиль, подтверждённые навыки, бейджи ФСП и Codeforces.</p>
+        <p class="small">Анонимную карточку: <b>Кандидат A-1042</b>, категорию, перцентиль, подтверждённые навыки, бейджи ФСП и Codeforces — только если вы согласились на публикацию.</p>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Чего не увидят</span>
@@ -602,11 +673,13 @@ function achPanel() {
   const cf = A.codeforces, ct = A.ctftime, ok = A.consent_external;
   const cfBlock = cf && cf.verified
     ? `<b>Codeforces</b> · ${esc(cf.handle)}, рейтинг <span class="num">${Math.round(cf.rating || 0)}</span>${cf.rank ? ` (${esc(cf.rank)})` : ''}
-       <br><span class="muted small">Владение подтверждено: код <code>${esc(cf.code)}</code> найден в профиле</span>${(cf.achievements || []).map(achRow).join('')}`
+       <br><span class="muted small">Владение подтверждено кодом в профиле Codeforces</span>${(cf.achievements || []).map(achRow).join('')}`
     : cf
       ? `<b>Codeforces</b> · ${esc(cf.handle)}, не подтверждён
-         <div class="stack-s" style="margin-top:8px"><span class="small">Укажите код <code>${esc(cf.code)}</code> в поле «Организация» профиля Codeforces, затем нажмите «Проверить».</span>
-         <div class="row"><input class="input" id="cf-h" value="${esc(cf.handle)}" style="max-width:200px"><button class="btn ghost small" data-act="cf-link">Сменить хэндл</button><button class="btn ghost small" data-act="cf-verify">Проверить</button></div></div>`
+         <div class="stack-s" style="margin-top:8px">${S.cfCode ? `<span class="small">Укажите код <code>${esc(S.cfCode.code)}</code> в поле «Организация» профиля Codeforces, затем нажмите «Проверить». Код действует до ${esc(new Date(S.cfCode.expires_at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }))}.</span>
+         <span class="hint">Код показывается один раз — сохраните его. Потеряли — получите новый, прежний перестанет действовать.</span>`
+         : '<span class="small">Код подтверждения показывается один раз, сразу после запроса. Получите новый код и впишите его в профиль Codeforces.</span>'}
+         <div class="row"><input class="input" id="cf-h" value="${esc(cf.handle)}" style="max-width:200px"><button class="btn ghost small" data-act="cf-link">Получить новый код</button><button class="btn ghost small" data-act="cf-verify">Проверить</button></div></div>`
       : `<b>Codeforces</b> · не подключён
          <div class="row" style="margin-top:8px"><input class="input" id="cf-h" placeholder="хэндл" style="max-width:200px" ${ok ? '' : 'disabled'}><button class="btn ghost small" data-act="cf-link" ${ok ? '' : 'disabled'}>Подключить</button></div>`;
   const ctBlock = ct
@@ -626,6 +699,7 @@ function achPanel() {
       <div><span class="dot"></span><div><b>Kaggle</b> · <button class="btn ghost small" data-act="noop" data-msg="Kaggle — для ML/DS треков">Подключить</button></div></div>
     </div>
     <button class="switch" role="switch" aria-checked="${ok}" data-act="consent-ext"><i></i> Согласие на обработку данных внешних профилей (Codeforces, CTFtime)</button>
+    ${confirmBox('revokeExt', 'Отозвать согласие? Привязки Codeforces и CTFtime и полученные из них достижения будут удалены.', 'Отозвать')}
     <span class="hint">Отзыв согласия удаляет привязки и полученные из них достижения. Достижения повышают позицию внутри категории${A.signal ? ` (сводный сигнал <span class="num">${DEC(A.signal)}</span>)` : ''}. Если их нет, штрафа нет.</span>
   </div>`;
 }
@@ -640,8 +714,9 @@ V['/c/profile'] = () => {
   const parsed = S.cv && S.cv.parsed;
   return `
   ${crumbs([['Главная', '/'], ['Регистрация', '/c/signup'], ['Профиль']])}
+  ${withdrawnAlert()}
   <div class="grid side fade">
-    <div class="stack">
+    <fieldset class="stack" ${withdrawn() ? 'disabled' : ''} style="border:0;padding:0;margin:0;min-width:0">
       <div class="panel stack">
         <div class="row sb"><h2>Профиль</h2><span class="label">Шаг 2 из 3</span></div>
         <div class="drop">
@@ -682,7 +757,7 @@ V['/c/profile'] = () => {
 
       ${achPanel()}
       <div class="row"><button class="btn primary" data-act="psave">Сохранить и перейти к тесту</button><button class="btn ghost" data-go="/c/home">Позже</button></div>
-    </div>
+    </fieldset>
     <aside class="panel tight stack-s">
       <span class="label">Превью карточки для работодателя</span>
       <div class="id" style="font-weight:600">Кандидат ${ME ? esc(ME.id) : '·-····'}</div>
@@ -708,10 +783,33 @@ V['/c/quest'] = () => `
         <dt style="color:var(--on-dark-2)">Без игровых очков</dt><dd>Нет жизней и рейтингов. Финал — экран категории.</dd>
         <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Повышение грейда — не чаще раза в 90 дней${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Повышение возможно с ${DATE(ME.next_upgrade_at)}: сейчас пересдача может только понизить результат` : ''}</dd>
       </dl>
+      <div class="field"><span style="color:var(--on-dark-2)">На какой грейд проходите тест</span>
+        <div class="seg" role="group" aria-label="Грейд теста">${((META && META.grades) || []).map(g => `<button data-act="target" data-v="${g}" aria-pressed="${g === (S.target || (ME && ME.grade_claimed))}">${g}</button>`).join('')}</div>
+        <span class="hint" style="color:var(--on-dark-2)">Задания стартуют у порога этого грейда. В итоге — вердикт: подтверждён, ниже или выше.</span>
+      </div>
+      ${S.questInvite ? '<div class="alert info"><span>→</span><span>Тест по приглашению: выбор заданий смещён к компетенциям вакансии, грейд считается по всем компетенциям одинаково.</span></div>' : ''}
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> Сюжет ${S.story ? 'включён' : 'выключен'}: задания и оценка одинаковые</button>
       <div class="row"><button class="btn primary" data-go="/c/quest/go">Начать смену</button><button class="btn dark" data-go="/c/profile">Назад</button></div>
     </div>
+  </div>
+  ${historyPanel()}`;
+
+// GET /api/quest/history: попытки без ответов и ключей
+function historyPanel() {
+  const H = D.history || [];
+  if (!H.length) return '';
+  return `<div class="panel" style="margin-top:16px">
+    <div class="row sb"><h3>История тестов</h3><span class="muted small">θ незаконченной попытки не показываем</span></div>
+    <div class="tbl-wrap" style="margin-top:12px"><table class="tbl">
+      <thead><tr><th>Начат</th><th>Цель</th><th>Результат</th><th class="num">θ ± SE</th><th class="num">Заданий</th><th>Статус</th></tr></thead>
+      <tbody>${H.map(h => `<tr>
+        <td>${DATE(h.started_at)}</td><td>${esc(h.target_grade || '—')}</td><td>${esc(h.grade || '—')}</td>
+        <td class="num">${h.theta != null ? `${DEC(h.theta)} ± ${DEC(h.se)}` : '—'}</td><td class="num">${h.items}</td>
+        <td class="small">${!h.finished_at ? '<span class="status s-sent">не завершён</span>' : h.applied ? '<span class="status s-ok">категория обновлена</span>' : '<span class="status s-exp">не применён</span>'}${h.focus ? '<div class="muted">по приглашению</div>' : ''}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
   </div>`;
+}
 
 // задание теста приходит с сервера: POST /api/quest/start (продолжает незаконченную сессию) → /answer → /finish
 function sceneView() {
@@ -773,6 +871,7 @@ V['/c/result'] = () => {
   const hack = ACH && ACH.hackathons.find(a => a.verified);
   return `
   ${crumbs([['Тест-квест', '/c/quest'], ['Результат']])}
+  ${subnav('c')}
   <div class="grid side fade">
     <div class="stack">
       <div class="panel frame stack" style="padding:clamp(22px,4vw,36px);overflow:hidden">
@@ -786,12 +885,13 @@ V['/c/result'] = () => {
         </div>
         <p class="prose small">${R.percentile != null ? `Вы сильнее ${R.percentile} % кандидатов ${R.percentile_scope === 'spec' ? 'специализации' : 'категории'}. ` : ''}${R.strong.length ? `Сильные стороны — ${esc(low(R.strong))}. Слабее — ${esc(low(R.weak))}.` : ''}</p>
       </div>
+      ${R.target ? `<div class="alert ${R.target.verdict === 'below' ? 'warn' : 'ok'}"><span>${R.target.verdict === 'below' ? '↓' : R.target.verdict === 'above' ? '↑' : '✓'}</span><span><b>${esc(R.target.label)}.</b> Тест на ${esc(R.target.grade)}, результат попытки — ${esc(R.target.result_grade)}.</span></div>` : ''}
       ${S.finish && S.finish.note ? `<div class="alert warn"><span>!</span><span>${esc(S.finish.note)} Результат попытки: θ = ${S.finish.attempt.theta.toFixed(2)} ± ${S.finish.attempt.se.toFixed(2)}.</span></div>` : ''}
       <div class="panel">
         <div class="row sb"><h3>Компетенции</h3><span class="muted small">точка — оценка θ, полоса — погрешность</span></div>
         <div style="margin-top:18px">${compRows(R.competencies)}</div>
       </div>
-      ${up.next_grade ? `<div class="alert info"><span>↑</span><span>До ${up.next_grade} не хватает уверенности: грейд повышается, когда вся полоса погрешности выше порога. ${up.allowed_at ? `Повторная попытка — с <b>${DATE(up.allowed_at)}</b>.` : 'Пересдать можно сейчас.'}${up.review_required ? ` Для ${up.next_grade} добавится разбор решения: 3–4 вопроса по вашим ответам, около 10 минут.` : ''}</span></div>` : ''}
+      ${up.next_grade ? `<div class="alert info"><span>↑</span><span>До ${esc(up.next_grade)} не хватает уверенности: грейд повышается, когда вся полоса погрешности выше порога. ${up.allowed_at ? `Повторная попытка — с <b>${DATE(up.allowed_at)}</b>.` : 'Пересдать можно сейчас.'}${up.review_required ? ` Для ${esc(up.next_grade)} добавится разбор решения: 3–4 вопроса по вашим ответам, около 10 минут.` : ''}</span></div>` : ''}
     </div>
     <aside class="stack">
       <div class="panel tight stack-s">
@@ -806,28 +906,32 @@ V['/c/result'] = () => {
         </div>
       </div>
       <button class="btn primary block" data-go="/c/home">Готово, жду приглашений</button>
+      <button class="btn ghost block" data-go="/c/quest">Пройти тест ещё раз</button>
       <button class="btn ghost block" data-act="noop" data-msg="PDF-профиль пока не формируется">PDF-профиль</button>
     </aside>
-  </div>`;
+  </div>
+  ${historyPanel()}`;
 };
 
 const INV_ST = { new: '<span class="status s-seen">новое</span>', seen: '<span class="status s-sent">просмотрено</span>', accepted: '<span class="status s-ok">принято</span>', declined: '<span class="status s-no">отклонено</span>', expired: '<span class="status s-exp">истекло</span>' };
 const isOpen = i => i.status === 'new' || i.status === 'seen';
 
 V['/c/home'] = () => {
-  if (!ME) return `${crumbs([['Главная', '/'], ['Кабинет кандидата']])}<div class="panel stack"><h2>Профиль ещё не создан</h2><div class="row"><button class="btn primary" data-go="/c/profile">Заполнить профиль</button></div></div>`;
+  if (!ME) return noProfile('Кабинет кандидата');
   const list = (D.invites && D.invites.items) || [];
   const open = D.invites ? D.invites.open : 0;
   const tg = list.find(isOpen) || list[0];
   return `
   ${crumbs([['Главная', '/'], ['Кабинет кандидата']])}
+  ${subnav('c')}
+  ${withdrawnAlert()}
   <div class="grid side fade">
     <div class="stack">
       <div class="panel stack">
         <div class="row sb">
           <div class="stack-s">
             <span class="label">${esc(ME.name)} · виден как ${esc(ME.id)}</span>
-            <div class="row">${catTag()}<span class="muted small">${ME.grade ? `перцентиль ${ME.pct ?? '—'} · грейд подтверждён ${ME.confirmed}` : 'тест ещё не пройден'}</span></div>
+            <div class="row">${catTag()}<span class="muted small">${ME.grade ? `перцентиль ${ME.pct ?? '—'} · грейд подтверждён ${esc(ME.confirmed)}` : 'тест ещё не пройден'}</span></div>
           </div>
           <div class="seg" role="group" aria-label="Статус поиска">
             <button data-act="status" data-v="open" aria-pressed="${ME.status === 'open'}">Открыт к предложениям</button>
@@ -835,6 +939,7 @@ V['/c/home'] = () => {
           </div>
         </div>
         ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: без категории профиль не попадает в подборки. <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
+        ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
           ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`
           : `<div class="alert warn">Профиль скрыт из подборок. Уже отправленные приглашения остаются в силе до срока ответа.</div>`}
@@ -846,7 +951,7 @@ V['/c/home'] = () => {
           <span class="stack-s" style="gap:2px;min-width:0">
             <b>${esc(inv.role)}</b>
             <span class="small muted">${esc(inv.company)} · ${esc(inv.format)}</span>
-            <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)}</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}</span>
+            <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)}</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
           </span>
           <span class="stack-s" style="align-items:flex-end">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
         </button>`).join('') || '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>'}
@@ -861,18 +966,18 @@ V['/c/home'] = () => {
       </div>` : ''}
       <div class="panel tight stack-s">
         <span class="label">Уведомления</span>
-        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.mail)}" data-act="notif" data-k="mail"><i></i> Почта</button>
-        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.tg)}" data-act="notif" data-k="tg"><i></i> Telegram</button>
+        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.mail)}" data-act="notif" data-k="mail" ${withdrawn() ? 'disabled' : ''}><i></i> Почта</button>
+        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.tg)}" data-act="notif" data-k="tg" ${withdrawn() ? 'disabled' : ''}><i></i> Telegram</button>
       </div>
       <div class="panel tight stack-s">
-        <span class="label">Тренажёр</span>
-        <p class="small">Короткие задания по желанию. На грейд не влияют, без серий и напоминаний.</p>
-        <button class="btn ghost small" data-act="noop" data-msg="Тренажёр — опциональный экран, пока не реализован">Открыть</button>
+        <span class="label">Витрина задач</span>
+        <p class="small">Короткие задачи от компаний. Заходите сами, без уведомлений и серий; на грейд не влияют.</p>
+        <button class="btn ghost small" data-go="/c/tasks">Открыть</button>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Приватность</span>
-        <p class="small">${ME.hidden_from.length ? `Скрыт от компаний с ИНН: <b class="num">${ME.hidden_from.map(esc).join(', ')}</b>` : 'Профиль виден всем проверенным компаниям'}</p>
-        <button class="btn ghost small" data-act="hidden">Изменить</button>
+        <p class="small">${ME.hidden_from.length ? `Скрыт от компаний с ИНН: <b class="num">${ME.hidden_from.map(esc).join(', ')}</b>` : 'Профиль виден всем компаниям'}</p>
+        <button class="btn ghost small" data-go="/c/settings">Настройки и согласия</button>
       </div>
     </aside>
   </div>`;
@@ -883,13 +988,13 @@ function inviteView() {
   if (!inv) return `${crumbs([['Кабинет', '/c/home'], ['Приглашение']])}<div class="panel">Приглашение не найдено.</div>`;
   const id = inv.id;
   const reasons = Object.entries((META && META.decline_reasons) || {});
+  const r = inv.recruiter || {};
   let actions = '';
   if (inv.status === 'accepted') {
-    const r = inv.recruiter || {}, me = inv.company_sees || {};
+    const me = inv.company_sees || {};
     actions = `<div class="panel stack" style="border-color:var(--ok)">
-      <div class="alert ok"><b>Вы приняли приглашение.</b> Контакты открыты обеим сторонам.</div>
-      <dl class="kv"><dt>Рекрутер</dt><dd>${esc(r.name || '—')}</dd><dt>Почта</dt><dd>${esc(r.email || '—')}</dd><dt>Telegram</dt><dd>${esc(r.tg || '—')}</dd><dt>Компания видит</dt><dd>${[me.name, me.email, me.tg].filter(Boolean).map(esc).join(', ')}</dd></dl>
-      ${inv.task ? '<button class="btn primary" data-act="noop" data-msg="Задача откроется в отдельном окне с таймером">Открыть задачу</button>' : ''}
+      <div class="alert ok"><b>Вы приняли приглашение.</b> Ваши контакты открыты компании.</div>
+      <dl class="kv"><dt>Компания видит</dt><dd>${[me.name, me.email, me.tg].filter(Boolean).map(esc).join(', ')}</dd></dl>
     </div>`;
   } else if (inv.status === 'declined') {
     actions = `<div class="alert bad">Вы отклонили приглашение. Причина «${esc(inv.reason)}» передана компании без ваших контактов.</div>`;
@@ -899,19 +1004,21 @@ function inviteView() {
     actions = `<div class="panel stack">
       <h3>Почему нет?</h3>
       <p class="small muted">Компания увидит только причину. Это помогает подбирать вам более точные предложения.</p>
-      <div class="chips">${reasons.map(([k, r]) => `<button class="chip ${S.declineReason === k ? 'on' : ''}" data-act="reason" data-v="${k}">${esc(r)}</button>`).join('')}</div>
+      <div class="chips">${reasons.map(([k, x]) => `<button class="chip ${S.declineReason === k ? 'on' : ''}" data-act="reason" data-v="${k}">${esc(x)}</button>`).join('')}</div>
       <textarea class="input" id="dc-comment" placeholder="Комментарий, по желанию" style="min-height:70px">${esc(S.dcComment)}</textarea>
       <div class="row"><button class="btn danger" ${S.declineReason ? '' : 'disabled'} data-act="decline" data-id="${id}">Отклонить</button><button class="btn ghost" data-act="cancel-decline">Отмена</button></div>
     </div>`;
   } else {
-    actions = `<div class="row"><button class="btn primary" data-act="accept" data-id="${id}">Принять и открыть контакты</button><button class="btn ghost" data-act="ask-decline" data-id="${id}">Нет: указать причину</button></div>`;
+    actions = `<div class="row"><button class="btn primary" data-act="accept" data-id="${id}">Принять и открыть мои контакты</button><button class="btn ghost" data-act="ask-decline" data-id="${id}">Нет: указать причину</button></div>`;
   }
   return `
   ${crumbs([['Кабинет', '/c/home'], [esc(inv.company)]])}
+  ${subnav('c')}
   <div class="grid side fade">
     <div class="stack">
+      ${domainWarn(inv)}
       <div class="panel stack">
-        <div class="row"><span class="logo-sq" style="background:${esc(inv.color)}">${esc(inv.company[0])}</span><div><b>${esc(inv.company)}</b><br><span class="small muted">${esc(inv.about)}</span></div>${inv.verified ? '<span class="chip ok" style="margin-left:auto">ИНН проверен</span>' : '<span class="chip warn" style="margin-left:auto">компания не проверена</span>'}</div>
+        <div class="row"><span class="logo-sq" style="background:${esc(inv.color)}">${esc(inv.company[0])}</span><div><b>${esc(inv.company)}</b><br><span class="small muted">${esc(inv.about)}</span></div><span style="margin-left:auto">${coChip(inv)}</span></div>
         <h2>${esc(inv.role)}</h2>
         <div class="row" style="gap:20px">
           <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px">${RUB(inv.from)} — ${RUB(inv.to)}</b></div>
@@ -919,52 +1026,331 @@ function inviteView() {
         <div class="alert ${inv.fork_check.ok ? 'ok' : 'warn'}">${esc(inv.fork_check.text)}.</div>
         <dl class="kv">
           <dt>Формат</dt><dd>${esc(inv.format)}</dd>
-          <dt>О работе</dt><dd class="prose" style="font-size:14px">${esc(inv.desc) || '<span class="muted">—</span>'}</dd>
+          <dt>О работе</dt><dd class="prose pre" style="font-size:14px">${esc(inv.desc) || '<span class="muted">—</span>'}</dd>
           <dt>Задача</dt><dd>${inv.task ? esc(inv.task) : '<span class="muted">не приложена</span>'}</dd>
           ${isOpen(inv) ? `<dt>Срок ответа</dt><dd>${inv.due} дн. из ${(META && META.invite_ttl_days) || 7}</dd>` : ''}
           <dt>Почему вы</dt><dd>${esc(inv.why) || '<span class="muted">—</span>'}</dd>
         </dl>
+        ${inv.task && inv.status !== 'declined' && inv.status !== 'expired' ? `<div class="alert info"><span>→</span><span>Можно пройти тест под эту вакансию: задания сместятся к нужным компетенциям, грейд считается как обычно. <button class="btn ghost small" data-act="quest-invite" data-id="${id}">Пройти тест по приглашению</button></span></div>` : ''}
       </div>
+      ${(D.invTasks || []).length ? `<div class="panel stack-s">
+        <h3>Задания по приглашению</h3>
+        <p class="small muted">Задания компании по этой вакансии. Решение уйдёт вместе с приглашением, контакты не раскрываются.</p>
+        ${D.invTasks.map(t => `<div class="row sb" style="padding:6px 0;border-bottom:1px dashed var(--line-2)"><button class="btn ghost small" data-go="/c/task/${t.id}/${id}" style="justify-content:flex-start">${esc(t.title)}</button><span class="row small" style="gap:6px"><span class="muted">${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>${t.submitted ? reviewChip(t.review) : '<span class="chip">не решено</span>'}</span></div>`).join('')}
+      </div>` : ''}
       ${actions}
     </div>
+    <aside class="stack">
+      <div class="panel tight stack-s">
+        <span class="label">Связаться с компанией</span>
+        <dl class="kv small" style="grid-template-columns:auto 1fr"><dt>Рекрутер</dt><dd>${esc(r.name || '—')}</dd><dt>Почта</dt><dd>${esc(r.email || '—')}</dd><dt>Telegram</dt><dd>${esc(r.tg || '—')}</dd></dl>
+        <span class="hint">Контакт компании виден сразу. Ваши контакты компания получит, только если вы примете приглашение.</span>
+      </div>
+      <div class="panel tight stack-s">
+        <span class="label">Что знает компания сейчас</span>
+        <p class="small">${inv.company_knows === 'contacts' ? 'Ваши ФИО и контакты: вы приняли приглашение.' : `Только анонимную карточку ${esc(inv.public_id)}. ФИО и контакты откроются после принятия.`}</p>
+        <div class="divider"></div>
+        <span class="label">Ваша нагрузка</span>
+        <p class="small num">${inv.load.open} из ${inv.load.cap} открытых приглашений. Когда лимит заполнен, вы опускаетесь в выдаче, а компании видят «много предложений».</p>
+      </div>
+    </aside>
+  </div>`;
+}
+
+/* ---------- настройки и приватность (152-ФЗ) ---------- */
+V['/c/settings'] = () => {
+  if (!ME) return noProfile('Настройки');
+  const ext = ACH ? ACH.consent_external : ME.consent_external;
+  return `
+  ${crumbs([['Кабинет', '/c/home'], ['Настройки и приватность']])}
+  ${subnav('c')}
+  ${withdrawnAlert()}
+  <div class="grid side fade">
+    <div class="stack">
+      <div class="panel stack">
+        <h2>Согласия</h2>
+        <p class="prose small">Три отдельных согласия: каждое можно дать или отозвать независимо. Изменения записываются в журнал без персональных данных.</p>
+        <div class="trust">
+          <div><span class="dot ${ME.consent_152 ? 'on' : ''}"></span><div style="flex:1">
+            <button class="switch" role="switch" aria-checked="${!!ME.consent_152}" data-act="consent-152"><i></i> <b>Обработка персональных данных</b></button>
+            <p class="small muted" style="margin-top:4px">${ME.consent_152 ? `Дано ${DATE(ME.consent_152_at)}, версия текста ${esc(ME.consent_version || '—')}.` : 'Не дано: профиль скрыт, отклики и решения задач недоступны.'} Обязательно для работы сервиса; отзыв скрывает профиль («не ищу») и снимает публикацию.</p>
+            ${consentLog('processing')}
+            ${confirmBox('revoke152', 'Отозвать согласие на обработку персональных данных? Профиль будет скрыт и снят с публикации, отправленные отклики останутся у работодателей.', 'Отозвать')}
+          </div></div>
+          <div><span class="dot ${ME.consent_publish ? 'on' : ''}"></span><div style="flex:1">
+            <button class="switch" role="switch" aria-checked="${!!ME.consent_publish}" data-act="consent-publish" ${ME.consent_152 ? '' : 'disabled'}><i></i> <b>Публикация обезличенной карточки работодателям</b></button>
+            <p class="small muted" style="margin-top:4px">Карточка: категория, перцентиль, подтверждённые навыки и бейджи — без ФИО и контактов. <b>Без этого согласия вас не увидят в подборках и поиске</b> и не смогут пригласить; откликаться на вакансии можно.</p>
+            ${consentLog('publish')}
+          </div></div>
+          <div><span class="dot ${ext ? 'on' : ''}"></span><div style="flex:1">
+            <button class="switch" role="switch" aria-checked="${!!ext}" data-act="consent-ext"><i></i> <b>Данные внешних профилей</b></button>
+            <p class="small muted" style="margin-top:4px">Codeforces и CTFtime: рейтинг и результаты соревнований. Отзыв удаляет привязки и полученные из них достижения. <button class="btn ghost small" data-go="/c/profile">Привязки в профиле</button></p>
+            ${consentLog('external')}
+            ${confirmBox('revokeExt', 'Отозвать согласие? Привязки Codeforces и CTFtime и полученные из них достижения будут удалены.', 'Отозвать')}
+          </div></div>
+        </div>
+      </div>
+      <div class="panel stack">
+        <h3>Скрыть профиль от компаний</h3>
+        <p class="small muted">Например, от текущего работодателя. Компания с этим ИНН не увидит вас ни в подборке, ни в поиске.</p>
+        <p class="small">${ME.hidden_from.length ? `Сейчас скрыт от: <b class="num">${ME.hidden_from.map(esc).join(', ')}</b>` : 'Сейчас профиль виден всем компаниям.'}</p>
+        ${S.hiddenEdit ? `<label class="field"><span>ИНН через запятую</span><input class="input num" id="hid-inns" value="${esc(ME.hidden_from.join(', '))}"></label>
+        <div class="row"><button class="btn primary small" data-act="hidden-save">Сохранить</button><button class="btn ghost small" data-act="hidden-edit">Отмена</button></div>`
+        : `<div class="row"><button class="btn ghost small" data-act="hidden-edit" ${withdrawn() ? 'disabled' : ''}>Изменить список</button></div>`}
+      </div>
+      <div class="panel stack">
+        <h3>Мои данные</h3>
+        <p class="small muted">Выгрузка: профиль, достижения, приглашения, отклики, решения задач и попытки теста — одним JSON-файлом.</p>
+        <div class="row"><button class="btn ghost" data-act="export">Скачать мои данные</button><button class="btn danger" data-act="ask" data-k="delete">Удалить аккаунт</button></div>
+        ${confirmBox('delete', '<b>Удалить аккаунт навсегда?</b> Профиль, результаты теста, достижения, приглашения, отклики и решения будут удалены без возможности восстановления. В журнале останутся только обезличенные идентификаторы.', 'Удалить навсегда')}
+      </div>
+    </div>
     <aside class="panel tight stack-s">
-      <span class="label">Что знает компания сейчас</span>
-      <p class="small">${inv.company_knows === 'contacts' ? 'Ваши ФИО и контакты: вы приняли приглашение.' : `Только анонимную карточку ${esc(inv.public_id)}. ФИО и контакты откроются после принятия.`}</p>
+      <span class="label">Что видит работодатель</span>
+      <p class="small">До принятия приглашения или вашего отклика — только анонимную карточку ${esc(ME.id)}. Каждое раскрытие контактов пишется в журнал.</p>
       <div class="divider"></div>
-      <span class="label">Ваша нагрузка</span>
-      <p class="small num">${inv.load.open} из ${inv.load.cap} открытых приглашений. Когда лимит заполнен, вы опускаетесь в выдаче, а компании видят «много предложений».</p>
+      <span class="label">Вход</span>
+      <p class="small">${esc(ME.email)}</p>
+      <button class="btn ghost small" data-act="logout">Выйти</button>
+    </aside>
+  </div>`;
+};
+
+/* ---------- вакансии (кандидат) ---------- */
+const vacMeta = v => `${K(v.from)} — ${K(v.to)} · ${esc([v.format, v.city].filter(Boolean).join(', '))}`;
+const vacChips = v => `${coChip(v.company)}${v.fork_vs_min === false ? '<span class="chip warn">вилка ниже вашего минимума</span>' : ''}${v.applied ? appChip(v.applied) : ''}`;
+
+V['/c/vacancies'] = () => {
+  if (!ME) return noProfile('Вакансии');
+  const L = D.vac || { items: [], total: 0 }, f = S.vf, lim = D.apps && D.apps.limit;
+  const sel = (id, label, opts, val) => `<label class="field"><span>${label}</span><select class="input" id="${id}"><option value="">все</option>${opts.map(o => `<option ${o === val ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
+  return `
+  ${crumbs([['Кабинет', '/c/home'], ['Вакансии']])}
+  ${subnav('c')}
+  <div class="grid side-l">
+    <aside class="stack">
+      <div class="panel tight stack-s">
+        <span class="label">Фильтры</span>
+        <label class="field"><span>Поиск</span><input class="input" id="vf-q" value="${esc(f.q)}" placeholder="платежи, Kafka…"></label>
+        ${sel('vf-spec', 'Специализация', (META && META.specs) || [], f.spec)}
+        ${sel('vf-grade', 'Грейд', (META && META.grades) || [], f.grade)}
+        ${sel('vf-format', 'Формат', (META && META.formats) || [], f.format)}
+        <label class="field"><span>Город</span><input class="input" id="vf-city" value="${esc(f.city)}"></label>
+        <div class="row"><button class="btn primary small" data-act="vf-apply">Показать</button><button class="btn ghost small" data-act="vf-reset">Сбросить</button></div>
+      </div>
+      ${lim ? `<div class="panel tight stack-s">
+        <span class="label">Отклики за 7 дней</span>
+        <div class="row sb"><b class="num" style="font-size:22px">${lim.used} / ${lim.max}</b>${lim.free_at ? `<span class="small muted">новый — ${DAYMON(lim.free_at)}</span>` : ''}</div>
+        <div class="meter"><i style="width:${Math.min(100, lim.used / lim.max * 100)}%"></i></div>
+        <p class="small muted">Мягкий лимит: так работодатели внимательнее читают каждый отклик.</p>
+      </div>` : ''}
+    </aside>
+    <div class="stack">
+      <div class="row sb small muted"><span>${L.items.length} из ${L.total} · ${L.sort === 'fit' ? 'по соответствию вашему профилю' : 'сначала новые'}</span><span>Основной путь — приглашения; вакансии — для инициативы</span></div>
+      ${L.items.map(v => `<button class="cand" data-go="/c/vacancy/${v.id}">
+          <div class="stack-s" style="min-width:0">
+            <div class="row"><span class="id">${esc(v.title)}</span></div>
+            <span class="small muted">${esc(v.company.name)} · ${vacMeta(v)}</span>
+            <div class="row" style="gap:6px">${catTag(v.spec, v.track, v.grade)}${vacChips(v)}</div>
+            <div class="chips">${v.must.map(s => `<span class="chip ${(ME.skills_confirmed || []).includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${v.nice.map(s => `<span class="chip dim">${esc(s)}</span>`).join('')}</div>
+          </div>
+          <div class="score">${v.fit != null ? `<b class="num">${v.fit.toFixed(2)}</b><span class="small muted">соответствие</span>` : '<span class="small muted">другая специализация</span>'}</div>
+        </button>`).join('') || '<div class="panel">Под фильтры ничего не нашлось.</div>'}
+    </div>
+  </div>`;
+};
+
+function cVacancyView() {
+  if (!ME) return noProfile('Вакансия');
+  const v = D.vacancy;
+  if (!v) return `${crumbs([['Вакансии', '/c/vacancies'], ['Вакансия']])}<div class="panel">Вакансия не найдена.</div>`;
+  const lim = D.apps && D.apps.limit, left = 300 - (S.applyNote || '').length;
+  return `
+  ${crumbs([['Вакансии', '/c/vacancies'], [esc(v.title)]])}
+  ${subnav('c')}
+  <div class="grid side fade">
+    <div class="stack">
+      ${domainWarn(v.company)}
+      <div class="panel stack">
+        <div class="row"><span class="logo-sq" style="background:${esc(v.company.color)}">${esc(v.company.name[0])}</span><b>${esc(v.company.name)}</b><span style="margin-left:auto">${coChip(v.company)}</span></div>
+        <h2>${esc(v.title)}</h2>
+        <div class="row">${catTag(v.spec, v.track, v.grade)}${v.status !== 'open' ? '<span class="status s-exp">закрыта</span>' : ''}</div>
+        <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px">${RUB(v.from)} — ${RUB(v.to)}</b></div>
+        ${v.fork_vs_min === false ? `<div class="alert warn">Верхняя граница ниже вашего минимума (${RUB(ME.min)}).</div>` : v.fork_vs_min ? `<div class="alert ok">Вилка покрывает ваш минимум ${RUB(ME.min)}.</div>` : ''}
+        <dl class="kv">
+          <dt>Формат</dt><dd>${esc([v.format, v.city].filter(Boolean).join(', '))}</dd>
+          <dt>Обязательно</dt><dd><div class="chips">${v.must.map(s => `<span class="chip ${(ME.skills_confirmed || []).includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('') || '—'}</div></dd>
+          <dt>Желательно</dt><dd><div class="chips">${v.nice.map(s => `<span class="chip">${esc(s)}</span>`).join('') || '—'}</div></dd>
+          <dt>Описание</dt><dd class="prose pre" style="font-size:14px">${esc(v.description) || '—'}</dd>
+        </dl>
+      </div>
+      ${v.applied ? `<div class="alert info"><span>→</span><span>Вы откликнулись: ${appChip(v.applied)} <button class="btn ghost small" data-go="/c/applications">Мои отклики</button></span></div>`
+        : v.status !== 'open' ? '<div class="alert warn">Вакансия закрыта.</div>'
+        : `<div class="panel stack">
+        <h3>Откликнуться</h3>
+        <p class="small muted">Вы откликаетесь сами, поэтому компания сразу увидит ваши контакты и анонимную карточку с результатом теста.</p>
+        <label class="field"><span>Короткая заметка, по желанию</span><textarea class="input" id="ap-note" maxlength="300" style="min-height:70px" placeholder="Чем интересна вакансия">${esc(S.applyNote)}</textarea><span class="hint" id="ap-left">${left} символов</span></label>
+        ${S.applyErr ? `<div class="alert bad">${esc(S.applyErr)}</div>` : ''}
+        <div class="row"><button class="btn primary" data-act="apply" data-id="${v.id}" ${lim && lim.used >= lim.max ? 'disabled' : ''}>Откликнуться</button>${lim ? `<span class="small muted num">откликов за 7 дней: ${lim.used} / ${lim.max}</span>` : ''}</div>
+      </div>`}
+    </div>
+    <aside class="stack">
+      ${v.fit != null ? `<div class="panel tight stack-s"><span class="label">Соответствие вашему профилю</span><b class="num" style="font-size:28px;color:var(--blue)">${v.fit.toFixed(2)}</b><span class="small muted">По той же формуле, что и подборка: тест, навыки, достижения × вероятность, что вилка вам подойдёт</span></div>` : ''}
+      <div class="panel tight stack-s">
+        <span class="label">Рынок · ${esc(v.spec)} · ${esc(v.grade)}</span>
+        <dl class="kv small num" style="grid-template-columns:auto 1fr"><dt>25-й перцентиль</dt><dd>${RUB(v.market.p25)}</dd><dt>медиана</dt><dd>${RUB(v.market.p50)}</dd><dt>75-й перцентиль</dt><dd>${RUB(v.market.p75)}</dd></dl>
+        <span class="demo-tag">демо-данные</span>
+      </div>
+    </aside>
+  </div>`;
+}
+
+V['/c/applications'] = () => {
+  if (!ME) return noProfile('Мои отклики');
+  const A = D.apps || { items: [], limit: null }, lim = A.limit;
+  return `
+  ${crumbs([['Кабинет', '/c/home'], ['Мои отклики']])}
+  ${subnav('c')}
+  <div class="row sb fade" style="margin-bottom:16px"><h2>Мои отклики</h2>${lim ? `<span class="small muted num">за 7 дней ${lim.used} / ${lim.max}${lim.free_at ? ` · следующий — ${DAYMON(lim.free_at)}` : ''}</span>` : ''}</div>
+  <div class="stack">
+    ${A.items.map(a => `<div class="panel stack-s">
+      <div class="row sb"><button class="btn ghost small" data-go="/c/vacancy/${a.vacancy.id}">${esc(a.vacancy.title)}</button>${appChip(a.status)}</div>
+      <span class="small muted">${esc(a.vacancy.company.name)} · ${vacMeta(a.vacancy)} · отправлен ${DAYMON(a.created_at)}${a.seen_at ? ` · просмотрен ${DAYMON(a.seen_at)}` : ''}</span>
+      ${a.note ? `<p class="small">Ваша заметка: ${esc(a.note)}</p>` : ''}
+      ${a.status === 'accepted' ? '<div class="alert ok">Компания готова пообщаться и свяжется по вашим контактам.</div>' : ''}
+      ${a.status === 'declined' ? `<div class="alert bad">Отказ${a.reason ? `: ${esc(a.reason.toLowerCase())}` : ''}.</div>` : ''}
+      ${a.status === 'sent' || a.status === 'seen' ? `<div class="row"><button class="btn ghost small" data-act="withdraw" data-id="${a.id}">Отозвать отклик</button></div>` : ''}
+    </div>`).join('') || '<div class="panel small muted">Откликов пока нет. <button class="btn ghost small" data-go="/c/vacancies">К вакансиям</button></div>'}
+  </div>`;
+};
+
+/* ---------- витрина задач (кандидат) ---------- */
+const KIND_T = { solve: 'решить', approach: 'предложить подход' };
+V['/c/tasks'] = () => {
+  if (!ME) return noProfile('Задачи');
+  const T = D.showcase || [], M = D.subs || [];
+  return `
+  ${crumbs([['Кабинет', '/c/home'], ['Задачи']])}
+  ${subnav('c')}
+  <div class="grid side fade">
+    <div class="stack">
+      <div class="stack-s"><h2>Витрина задач</h2><p class="prose small">Короткие задачи от компаний по вашей специализации. Без уведомлений, серий и напоминаний — заходите, когда хотите. Оценка решения видна другим компаниям как свежий сигнал, на грейд и место в выдаче не влияет.</p></div>
+      ${T.map(t => `<button class="cand" data-go="/c/task/${t.id}">
+          <div class="stack-s" style="min-width:0">
+            <span class="id">${esc(t.title)}</span>
+            <span class="small muted">${esc(t.company.name)} · ${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>
+            <div class="row" style="gap:6px">${coChip(t.company)}${t.submitted ? reviewChip(t.review) : ''}</div>
+          </div>
+          <div class="score">${t.submitted ? '<span class="status s-ok">решение отправлено</span>' : '<span class="small muted">открыть</span>'}</div>
+        </button>`).join('') || '<div class="panel small muted">Задач по вашей специализации пока нет.</div>'}
+    </div>
+    <aside class="panel tight stack-s">
+      <span class="label">Мои решения</span>
+      ${M.map(s => `<div class="stack-s" style="padding:8px 0;border-bottom:1px dashed var(--line-2)">
+        <button class="btn ghost small" data-go="/c/task/${s.task.id}" style="justify-content:flex-start">${esc(s.task.title)}</button>
+        <div class="row small" style="gap:6px">${reviewChip(s.review)}<span class="muted">${DAYMON(s.created_at)}</span></div>
+        ${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}
+      </div>`).join('') || '<p class="small muted">Пока нет.</p>'}
+    </aside>
+  </div>`;
+};
+
+function cTaskView() {
+  if (!ME) return noProfile('Задача');
+  const t = D.task;
+  if (!t) return `${crumbs([['Задачи', '/c/tasks'], ['Задача']])}<div class="panel">Задача не найдена.</div>`;
+  const mine = (D.subs || []).find(s => s.task.id === t.id);
+  return `
+  ${crumbs([['Задачи', '/c/tasks'], [esc(t.title)]])}
+  ${subnav('c')}
+  <div class="grid side fade">
+    <div class="stack">
+      <div class="panel stack">
+        <div class="row"><span class="logo-sq" style="background:${esc(t.company.color)}">${esc(t.company.name[0])}</span><b>${esc(t.company.name)}</b><span style="margin-left:auto">${coChip(t.company)}</span></div>
+        <h2>${esc(t.title)}</h2>
+        <span class="small muted">${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>
+        ${S.taskInv ? `<div class="alert info"><span>→</span><span>Задание из приглашения. <button class="btn ghost small" data-go="/c/invite/${S.taskInv}">К приглашению</button></span></div>` : ''}
+        <p class="prose pre">${esc(t.text)}</p>
+      </div>
+      ${mine ? `<div class="panel stack">
+        <h3>Ваше решение</h3>
+        <p class="small pre">${esc(mine.answer)}</p>
+        <div class="row">${reviewChip(mine.review)}${mine.reviewed_at ? `<span class="small muted">оценено ${DAYMON(mine.reviewed_at)}</span>` : ''}</div>
+        ${mine.review_comment ? `<p class="small">Комментарий компании: ${esc(mine.review_comment)}</p>` : ''}
+      </div>` : `<div class="panel stack">
+        <h3>${t.kind === 'solve' ? 'Решение' : 'Ваш подход'}</h3>
+        <textarea class="input" id="tk-answer" maxlength="5000" style="min-height:180px" placeholder="${t.kind === 'solve' ? 'Код или решение' : 'Опишите подход: что делаете, почему, какие риски'}">${esc(S.answer)}</textarea>
+        <span class="hint">Компания увидит решение с анонимной карточкой — без ФИО и контактов.</span>
+        <div class="row"><button class="btn primary" data-act="task-submit" data-id="${t.id}">Отправить решение</button></div>
+      </div>`}
+    </div>
+    <aside class="panel tight stack-s">
+      <span class="label">Как это работает</span>
+      <p class="small">Компания оценивает решение: сильное, нормально или слабо. В карточке у других работодателей появится «решил задачу N дн. назад · оценка». Контакты не раскрываются.</p>
     </aside>
   </div>`;
 }
 
 /* ===================== работодатель ===================== */
 V['/e/signup'] = () => {
-  const co = D.company || { inn: '7704123450', name: 'Ладога Пэй', recruiter_email: 'm.kovaleva@ladoga-pay.example', recruiter_name: 'Мария Ковалёва', site_domain: 'ladoga-pay.example', about: 'Финтех, платёжный процессинг для малого бизнеса. 420 сотрудников, 60 в разработке.' };
+  if (!TOK.e) {
+    const f = S.esignup;
+    return `
+  ${crumbs([['Главная', '/'], ['Вход для компаний']])}
+  <div class="grid side fade">
+    <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
+      <h1>Вход для компаний</h1>
+      <p class="prose">Войдите по рабочей почте. Если компании ещё нет — после входа заполните ИНН и данные рекрутера.</p>
+      <label class="field"><span>Рабочая почта</span><input class="input" id="es-mail" type="email" autocomplete="email" placeholder="hr@company.ru" value="${esc(f.email)}"></label>
+      ${f.sent ? `
+      <label class="field"><span>Код из письма</span><input class="input num" id="es-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="${esc(f.otp)}" style="max-width:200px"></label>
+      ${f.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
+      <div class="row"><button class="btn primary" data-act="eotp-verify">Войти</button><button class="btn ghost" data-act="eotp-send">Отправить код ещё раз</button></div>`
+      : '<button class="btn primary" data-act="eotp-send">Получить код на почту</button>'}
+      <div class="divider"></div>
+      <div class="stack-s">
+        <button class="btn dark" data-act="demo" data-who="e">Демо: войти как «Ладога Пэй» (компания подтверждена)</button>
+        <button class="btn ghost" data-act="demo" data-who="newco">Демо: войти как «Новый Стартап» (не прошла проверку, квота 3)</button>
+        <span class="hint">Демо-вход работает только на стенде жюри (DEMO=1)</span>
+      </div>
+    </div>
+    <aside class="panel tight stack-s">
+      <span class="label">Проверка компании</span>
+      <p class="small">ИНН — контрольные цифры, рабочая почта — на домене сайта компании. Неподтверждённая компания работает с квотой 3 приглашения в неделю, кандидаты видят плашку.</p>
+      <div class="divider"></div>
+      <span class="label">Оплата</span>
+      <p class="small">Только за принятые приглашения.</p>
+    </aside>
+  </div>`;
+  }
+  const co = D.company || { inn: '', name: '', recruiter_email: '', recruiter_name: '', site_domain: '', about: '' };
   const q = co.quota;
   return `
-  ${crumbs([['Главная', '/'], ['Регистрация компании']])}
+  ${crumbs([['Главная', '/'], ['Компания']])}
   <div class="grid side fade">
     <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
       <h1>Компания</h1>
       <p class="prose">Проверяем компанию до первого приглашения. Так кандидаты защищены от фиктивных работодателей.</p>
+      ${D.company && !D.company.verified ? '<div class="alert warn"><span>!</span><span><b>Компания не прошла проверку.</b> Работает с квотой 3 приглашения в неделю. Чтобы пройти, укажите корректный ИНН и входите с рабочей почты на домене сайта.</span></div>' : ''}
+      ${D.company && D.company.domain_confirmed !== undefined ? `<div class="row small" style="gap:6px"><span class="muted">Кандидаты видят:</span>${coChip(D.company)}${D.company.inn_checksum_valid ? ' <span class="chip ok">ИНН: контрольные цифры верны</span>' : ''}</div>` : ''}
       <div class="grid g2">
         <label class="field"><span>ИНН</span><input class="input num" id="co-inn" value="${esc(co.inn)}"></label>
         <label class="field"><span>Название</span><input class="input" id="co-name" value="${esc(co.name)}"></label>
       </div>
       <div class="grid g2">
         <label class="field"><span>Рекрутер</span><input class="input" id="co-rec" value="${esc(co.recruiter_name)}"></label>
-        <label class="field"><span>Сайт компании</span><input class="input" id="co-site" value="${esc(co.site_domain)}"></label>
+        <label class="field"><span>Сайт компании</span><input class="input" id="co-site" value="${esc(co.site_domain)}" placeholder="company.ru"></label>
       </div>
       <label class="field"><span>Рабочая почта рекрутера</span><input class="input" id="co-mail" value="${esc(co.recruiter_email)}"></label>
       <div class="stack-s">
         ${co.checks ? co.checks.map(c => `<div class="alert ${c.ok === true ? 'ok' : c.ok === false ? 'bad' : 'info'}">${esc(c.text)}.</div>`).join('') : '<div class="alert info">Проверки ИНН и домена почты появятся после сохранения.</div>'}
       </div>
       <label class="field"><span>О компании, 1–2 предложения</span><textarea class="input" id="co-about" style="min-height:70px">${esc(co.about)}</textarea></label>
-      <div class="row"><button class="btn primary" data-act="co-save">${D.company ? 'Сохранить и перейти к поиску' : 'Зарегистрировать и перейти к поиску'}</button>${!TOK.e ? '<span class="hint">В демо вход — за рекрутера «Ладога Пэй»</span>' : ''}</div>
+      <div class="row"><button class="btn primary" data-act="co-save">${D.company ? 'Сохранить и перейти к поиску' : 'Зарегистрировать и перейти к поиску'}</button><button class="btn ghost" data-act="logout">Выйти</button></div>
     </div>
     <aside class="panel tight stack-s">
       <span class="label">Квота приглашений</span>
-      <p class="small">Старт — 10 приглашений в неделю. Лимит растёт, если кандидаты принимают больше половины приглашений.</p>
+      <p class="small">Старт — 10 приглашений в неделю, у неподтверждённой компании — 3. Лимит растёт, если кандидаты принимают больше половины приглашений.</p>
       ${q ? `<p class="small num">Сейчас: <b>${q.used} / ${q.max}</b>, обновится ${DAYMON(q.resets_at)}</p>` : ''}
       <div class="divider"></div>
       <span class="label">Оплата</span>
@@ -973,11 +1359,35 @@ V['/e/signup'] = () => {
   </div>`;
 };
 
+// POST /api/quest/plan: как тест проверит кандидатов под потребность
+function planPanel() {
+  const P = S.plan;
+  if (!P) return `<div class="panel stack">
+    <div class="row sb"><h3>Как система проверит кандидатов</h3><button class="btn ghost small" data-act="plan">Показать план теста</button></div>
+    <p class="small muted">Веса компетенций из навыков потребности, диапазон сложности вокруг порога грейда и примеры заданий.</p>
+  </div>`;
+  const p = P.plan, mx = Math.max(...p.competencies.map(c => c.weight), 1);
+  return `<div class="panel stack fade">
+    <div class="row sb"><h3>Как система проверит кандидатов под эту потребность</h3><span class="chip">${esc(p.spec)} · ${esc(p.grade)}</span></div>
+    <p class="small muted">Веса только смещают выбор заданий к важным компетенциям; грейд считается по всем компетенциям одинаково. Около ${p.items_total} заданий, ~${p.minutes} мин.</p>
+    <div class="bars">
+      <span class="label">Вес компетенции</span>
+      ${p.competencies.map(c => `<div class="bar"><span>${esc(c.n)}${c.why.length ? `<span class="muted small"> · ${esc(c.why.join(', '))}</span>` : ''}</span><div class="b"><i class="${c.weight > 1 ? '' : 'alt'}" style="width:${(c.weight / mx * 100).toFixed(0)}%"></i></div><span class="v">${DEC(c.weight)}</span></div>`).join('')}
+    </div>
+    <p class="small">Сложность заданий (b по шкале θ): от <b class="num">${DEC(p.difficulty.b_from)}</b> до <b class="num">${DEC(p.difficulty.b_to)}</b> — вокруг порога ${esc(p.grade)}.</p>
+    <span class="label">Примеры заданий</span>
+    <div class="stack-s">${p.families.slice(0, 5).map(f => `<div class="small" style="padding:8px 0;border-bottom:1px dashed var(--line-2)"><b>${esc(f.scene_title)}</b> <span class="muted">· ${esc(f.competency)} · ${f.kind === 'choice' ? 'выбор ответа' : 'отметить строку в коде'} · b = ${DEC(f.b)}</span><br>${esc(f.sample_prompt)}</div>`).join('')}</div>
+  </div>`;
+}
+
 V['/e/need'] = () => {
   const p = S.need.parsed;
   const mk = p && p.market;
+  const addBox = k => S.needAdd === k ? `<span class="row" style="gap:6px"><input class="input" id="need-skill" list="skills-list" style="max-width:160px;padding:6px 10px" placeholder="навык"><button class="btn primary small" data-act="need-add-ok" data-k="${k}">Добавить</button><button class="btn ghost small" data-act="need-add" data-k="">×</button></span>` : `<button class="chip dim" data-act="need-add" data-k="${k}">+ навык</button>`;
   return `
   ${crumbs([['Подборки', '/e/picks'], ['Новая потребность']])}
+  ${unverifiedBanner()}
+  <datalist id="skills-list">${((META && META.skills) || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>
   <div class="grid side fade">
     <div class="stack">
       <div class="panel stack">
@@ -991,8 +1401,8 @@ V['/e/need'] = () => {
         <div class="row sb"><h3>Структура потребности</h3><span class="chip on">${p.parsed_by === 'llm' ? 'разобрано моделью · ' : ''}проверьте поля</span></div>
         <div class="parsed">
           <span class="label">Категория</span><div class="row">${catTag(p.spec, p.track, p.grade)}<button class="btn ghost small" data-act="noop" data-msg="Категория берётся из текста: уточните специализацию, стек или грейд в описании">Изменить</button></div>
-          <span class="label">Обязательно</span><div class="chips">${p.must.map(s => `<button class="chip on" data-act="need-rm" data-k="must" data-v="${esc(s)}">${esc(s)} <span class="x">×</span></button>`).join('')}<button class="chip dim" data-act="need-add" data-k="must">+ навык</button></div>
-          <span class="label">Желательно</span><div class="chips">${p.nice.map(s => `<button class="chip" data-act="need-rm" data-k="nice" data-v="${esc(s)}">${esc(s)} <span class="x">×</span></button>`).join('')}<button class="chip dim" data-act="need-add" data-k="nice">+ навык</button></div>
+          <span class="label">Обязательно</span><div class="chips">${p.must.map(s => `<button class="chip on" data-act="need-rm" data-k="must" data-v="${esc(s)}">${esc(s)} <span class="x">×</span></button>`).join('')}${addBox('must')}</div>
+          <span class="label">Желательно</span><div class="chips">${p.nice.map(s => `<button class="chip" data-act="need-rm" data-k="nice" data-v="${esc(s)}">${esc(s)} <span class="x">×</span></button>`).join('')}${addBox('nice')}</div>
           <span class="label">Вилка на руки</span><div class="row num"><b>${p.from || p.to ? `${RUB(p.from)} — ${RUB(p.to)}` : 'не указана'}</b>${p.hints && p.hints.length ? `<span class="hint">${esc(p.hints[0])}</span>` : ''}</div>
           <span class="label">Формат</span><div>${esc([p.format || 'любой', p.city].filter(Boolean).join(', '))}</div>
         </div>
@@ -1000,6 +1410,7 @@ V['/e/need'] = () => {
         <div class="alert info">В категории <b>${esc([p.category.spec, p.category.track, p.category.grade].filter(Boolean).join(' · '))}</b> ${p.category.count} кандидатов открыты к предложениям.${p.market_hint ? ' ' + esc(p.market_hint) : ''}</div>
         <div class="row"><button class="btn primary" data-act="need-save">Показать подборку</button></div>
       </div>` : ''}
+      ${p || S.needObj ? planPanel() : ''}
     </div>
     <aside class="panel tight stack-s">
       ${mk ? `<span class="label">Рынок · ${esc(p.spec)} · ${esc(p.grade)} · ${esc(p.city || 'Москва')}</span>
@@ -1032,10 +1443,10 @@ function lotteryPanel(n) {
     body = `
       <div class="alert info"><span>#</span><span>Порог прошли <b class="num">${c.pool_size}</b> кандидатов. Пул заморожен, хеш зерна опубликован до розыгрыша:<br><code style="word-break:break-all">${esc(c.seed_hash)}</code><br>Обязательство (порог + пул + число мест): <code style="word-break:break-all">${esc(c.commitment || '')}</code><br><a class="small" href="/api/lottery/${c.id}/public" target="_blank" rel="noopener">Публичная проверка</a> · повторная жеребьёвка по этой потребности невозможна</span></div>
       ${!L.drawn ? `<div class="row"><button class="btn primary small" data-act="lot-draw">Бросить жребий: ${L.draw_count} из ${c.pool_size}</button><button class="btn ghost small" data-act="lot-reset">Изменить порог</button></div>` : `
-      <span class="small muted">Зерно раскрыто: <code style="word-break:break-all">${esc(L.drawn.seed)}</code>. Порядок — sha256(зерно + id кандидата).</span>
-      ${L.drawn.drawn.map(d => `<div class="cand" style="cursor:default">
+      <span class="small muted">Зерно раскрыто: <code style="word-break:break-all">${esc(L.drawn.seed)}</code>. Порядок — sha256(зерно + псевдоним кандидата); в публичной проверке видны только псевдонимы.</span>
+      ${L.drawn.drawn.map(d => d.hidden || !d.public_id ? `<div class="cand" style="cursor:default"><div class="stack-s"><span class="muted">Кандидат скрыл профиль</span><span class="small muted">псевдоним <code>${esc(d.pseudonym)}</code> · пригласить нельзя</span></div></div>` : `<div class="cand" style="cursor:default">
           <div class="stack-s" style="min-width:0">
-            <div class="row"><span class="id">Кандидат ${esc(d.public_id)}</span>${catTag(d.category.spec, d.category.track, d.category.grade)}</div>
+            <div class="row"><span class="id">Кандидат ${esc(d.public_id)}</span>${catTag(d.category.spec, d.category.track, d.category.grade)}${d.pseudonym ? `<span class="small muted" title="Псевдоним в публичной проверке">псевдоним <code>${esc(d.pseudonym)}</code></span>` : ''}</div>
             <div class="chips">${(d.skills_confirmed || []).map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}</div>
             <span class="small muted num">перцентиль ${d.percentile ?? '—'} · θ ${d.theta != null ? d.theta.toFixed(2) + ' ± ' + (d.se || 0).toFixed(2) : '—'} · нагрузка ${d.load} / ${CAP}</span>
           </div>
@@ -1053,7 +1464,7 @@ function lotteryPanel(n) {
 
 V['/e/picks'] = () => {
   const P = D.picks;
-  if (!P) return `${crumbs([['Компания', '/e/signup'], ['Подборка']])}<div class="panel stack"><h2>Потребностей пока нет</h2><p class="prose small">Опишите, кого ищете, — подборка появится сразу.</p><div class="row"><button class="btn primary" data-go="/e/need">Новая потребность</button></div></div>`;
+  if (!P) return `${crumbs([['Компания', '/e/signup'], ['Подборка']])}${subnav('e')}${unverifiedBanner()}<div class="panel stack"><h2>Потребностей пока нет</h2><p class="prose small">Опишите, кого ищете, — подборка появится сразу.</p><div class="row"><button class="btn primary" data-go="/e/need">Новая потребность</button></div></div>`;
   const n = P.need, list = P.items, q = P.quota;
   const fl = [['fmt', 'Формат совпадает'], ['free', 'Без перегрузки'], ['fsp', 'Есть ФСП'], ['cf', 'Есть Codeforces']];
   const cats = P.categories, warnCat = cats.find(c => !c.current && !c.fork_ok && c.note);
@@ -1061,6 +1472,8 @@ V['/e/picks'] = () => {
   const msk = list.length ? Math.round((cities['Москва'] || 0) / list.length * 100) : 0;
   return `
   ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Подборка']])}
+  ${subnav('e')}
+  ${unverifiedBanner()}
   <div class="row sb fade" style="margin-bottom:16px">
     <div class="stack-s"><h2>${esc(roleTitle(n))}</h2><span class="small muted">${esc(n.must.join(', '))}${n.nice.length ? ' · желательно ' + esc(n.nice.join(', ')) : ''} · ${K(n.from)} — ${K(n.to)}${n.format ? ' · ' + esc([n.format.toLowerCase(), n.city].filter(Boolean).join(', ')) : ''}</span></div>
     <div class="row"><button class="btn ghost small" data-go="/e/need">Изменить потребность</button><button class="btn ghost small" data-go="/e/pipeline">Приглашения</button></div>
@@ -1117,11 +1530,12 @@ function candView() {
   const ach = [...(c.badges || []).map(x => x.title), c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id)]])}
+  ${unverifiedBanner()}
   <div class="grid side fade">
     <div class="stack">
       <div class="panel stack">
         <div class="row sb">
-          <div class="stack-s"><h2>Кандидат ${esc(c.id)}</h2><div class="row">${catTag(c.spec, c.track, c.grade)}<span class="small muted">грейд подтверждён ${c.confirmed || '—'}</span></div></div>
+          <div class="stack-s"><h2>Кандидат ${esc(c.id)}</h2><div class="row">${catTag(c.spec, c.track, c.grade)}<span class="small muted">грейд подтверждён ${esc(c.confirmed || '—')}</span></div></div>
           <div class="row" style="gap:24px">
             <div class="stat"><span class="label">Перцентиль</span><b>${c.pct ?? '—'}</b></div>
             <div class="stat"><span class="label">θ</span><b class="num" style="font-size:20px">${esc(c.theta)}</b></div>
@@ -1156,6 +1570,7 @@ function candView() {
           <div><span class="dot ${c.trust.test ? 'on' : ''}"></span><div>Тест пройден</div></div>
           <div><span class="dot ${c.trust.review ? 'on' : ''}"></span><div>Разбор решения</div></div>
           <div><span class="dot ${c.trust.employer_confirmed ? 'on' : ''}"></span><div>Подтверждён работодателем${c.trust.employer_confirmed ? ` · ${c.trust.employer_confirmed} раз` : ''}</div></div>
+          <div><span class="dot ${c.task_signal ? 'on' : ''}"></span><div>${c.task_signal ? `Решил задачу ${c.task_signal.days_ago ? c.task_signal.days_ago + ' дн. назад' : 'сегодня'} · оценка работодателя: ${esc(c.task_signal.review_text)}${c.task_signal.company_verified ? '' : ' <span class="muted small">(компания не прошла проверку)</span>'}` : 'Задачи компаний: оценённых решений нет'}<br><span class="muted small">свежий сигнал, на скор не влияет</span></div></div>
         </div>
       </div>
       <div class="panel tight stack-s">
@@ -1193,6 +1608,7 @@ function inviteFormView() {
   const ok = !errs.length && q.used < q.max;
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id), '/e/cand/' + esc(c.id)], ['Приглашение']])}
+  ${unverifiedBanner()}
   <div class="grid side fade">
     <form class="panel stack" id="inv-form" novalidate>
       <h2>Приглашение для ${esc(c.id)}</h2>
@@ -1244,6 +1660,7 @@ V['/e/pipeline'] = () => {
   const demo = rows.find(r => r.cid === 'A-1042');
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Приглашения']])}
+  ${subnav('e')}
   <div class="row sb fade" style="margin-bottom:16px"><h2>Приглашения</h2><span class="small muted num">квота ${q.used} / ${q.max}${q.accepted_share != null ? ' · принято ' + PCT(q.accepted_share) : ''}</span></div>
   <div class="panel" style="padding:8px 12px">
     <div class="tbl-wrap"><table class="tbl">
@@ -1254,7 +1671,7 @@ V['/e/pipeline'] = () => {
         <td class="num">${K(r.from)} — ${K(r.to)}</td>
         <td class="muted">${esc(r.when)}</td>
         <td><span class="status ${stl[r.status][0]}">${stl[r.status][1]}</span>${r.status === 'no' && r.reason ? `<div class="small muted">причина: ${esc(r.reason.toLowerCase())}</div>` : ''}</td>
-        <td class="small">${r.contact ? esc(r.contact.text) : '<span class="muted">скрыты</span>'}</td>
+        <td class="small">${r.contact ? esc(r.contact.text) : r.status === 'ok' && r.reason ? `<span class="muted">${esc(r.reason)}</span>` : '<span class="muted">скрыты</span>'}</td>
         <td>${fb(r)}</td>
       </tr>`).join('') || '<tr><td colspan="7" class="muted">Приглашений пока нет</td></tr>'}</tbody>
     </table></div>
@@ -1262,6 +1679,197 @@ V['/e/pipeline'] = () => {
   ${demo && (demo.status === 'sent' || demo.status === 'seen') ? `<div class="alert info" style="margin-top:16px"><span>→</span><span>A-1042 ещё не ответил. Переключитесь на роль «Кандидат», откройте приглашение ${esc(D.coName || 'компании')} и примите его: статус и контакты появятся здесь.</span></div>` : ''}
   <p class="small muted" style="margin-top:16px">Отметка после собеседования калибрует тест: если грейд не подтверждается, задания этого кандидата уходят на перепроверку.</p>`;
 };
+
+/* ---------- поиск по банку (работодатель) ---------- */
+V['/e/search'] = () => {
+  const R = D.search || { items: [], total: 0, page: 1, limit: 20, facets: { spec: {}, grade: {} }, skills: [] }, f = S.sf;
+  const opt = (list, val) => `<option value="">все</option>${list.map(o => `<option ${o === val ? 'selected' : ''}>${esc(o)}</option>`).join('')}`;
+  const pages = Math.max(1, Math.ceil(R.total / R.limit));
+  const facet = (k, obj) => Object.entries(obj).map(([v, n]) => `<button class="chip ${f[k] === v ? 'on' : ''}" data-act="sf-facet" data-k="${k}" data-v="${esc(v)}">${esc(v)} <b class="num">${n}</b></button>`).join('');
+  return `
+  ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Поиск по банку']])}
+  ${subnav('e')}
+  ${unverifiedBanner()}
+  <div class="grid side-l">
+    <aside class="stack">
+      <div class="panel tight stack-s">
+        <span class="label">Фильтры</span>
+        <label class="field"><span>Текст</span><input class="input" id="sf-q" value="${esc(f.q)}" placeholder="python kafka платежи"></label>
+        <label class="field"><span>Специализация</span><select class="input" id="sf-spec">${opt((META && META.specs) || [], f.spec)}</select></label>
+        <label class="field"><span>Трек</span><select class="input" id="sf-track">${opt(f.spec && META ? META.tracks[f.spec] : [], f.track)}</select></label>
+        <label class="field"><span>Грейд</span><select class="input" id="sf-grade">${opt((META && META.grades) || [], f.grade)}</select></label>
+        <label class="field"><span>Навыки через запятую</span><input class="input" id="sf-skills" value="${esc(f.skills)}" placeholder="PostgreSQL, Kafka"></label>
+        <label class="field"><span>Формат</span><select class="input" id="sf-format">${opt((META && META.formats) || [], f.format)}</select></label>
+        <label class="field"><span>Город</span><input class="input" id="sf-city" value="${esc(f.city)}"></label>
+        <div class="chips">${[['fsp', 'ФСП'], ['cf', 'Codeforces'], ['hackathon', 'Хакатоны']].map(([k, l]) => `<button class="chip ${f[k] ? 'on' : ''}" data-act="sf-flag" data-k="${k}">${l}</button>`).join('')}</div>
+        <div class="row"><button class="btn primary small" data-act="sf-apply">Найти</button><button class="btn ghost small" data-act="sf-reset">Сбросить</button></div>
+      </div>
+      <div class="panel tight stack-s">
+        <span class="label">Специализации</span><div class="chips">${facet('spec', R.facets.spec) || '<span class="small muted">—</span>'}</div>
+        <span class="label" style="margin-top:8px">Грейды</span><div class="chips">${facet('grade', R.facets.grade) || '<span class="small muted">—</span>'}</div>
+        <span class="hint">Счётчик — без учёта своего фильтра</span>
+      </div>
+    </aside>
+    <div class="stack">
+      <div class="row sb small muted"><span>Найдено ${R.total} · сортировка по силе подтверждённого профиля${R.skills.length ? ` · навыки: ${esc(R.skills.join(', '))}` : ''}</span><span>Только опубликованные анонимные карточки</span></div>
+      ${R.items.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
+          <div class="stack-s" style="min-width:0">
+            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
+            <div class="chips">${c.skills.map(s => `<span class="chip ${c.matched.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
+          </div>
+          <div class="score"><b class="num">${DEC(c.strength)}</b><span class="small muted">сила профиля</span></div>
+          <div class="facts">
+            <div><span class="muted">Перцентиль</span><b class="num">${c.pct ?? '—'}</b></div>
+            <div><span class="muted">Ожидания</span><b class="num">от ${K(c.salary)}</b></div>
+            <div><span class="muted">Формат</span><b>${esc(c.format)}</b></div>
+            <div><span class="muted">Нагрузка</span><b class="num" style="color:${c.busy ? 'var(--red)' : 'inherit'}">${c.load} / ${CAP}</b></div>
+          </div>
+        </button>`).join('') || '<div class="panel">Под фильтры никто не подходит.</div>'}
+      ${pages > 1 ? `<div class="row sb"><button class="btn ghost small" data-act="sf-page" data-v="${R.page - 1}" ${R.page <= 1 ? 'disabled' : ''}>← Назад</button><span class="small muted num">страница ${R.page} из ${pages}</span><button class="btn ghost small" data-act="sf-page" data-v="${R.page + 1}" ${R.page >= pages ? 'disabled' : ''}>Дальше →</button></div>` : ''}
+    </div>
+  </div>`;
+};
+
+/* ---------- вакансии (работодатель) ---------- */
+function vformFrom(v) {
+  const n = S.needObj;
+  if (v) return { id: v.id, title: v.title, description: v.description, spec: v.spec, track: v.track || '', grade: v.grade, must: v.must.join(', '), nice: v.nice.join(', '), from: v.from, to: v.to, format: v.format, city: v.city || '', server: null };
+  return { id: null, title: n ? roleTitle(n) : '', description: n ? n.text : '', spec: n ? n.spec : 'Backend', track: (n && n.track) || '', grade: n ? n.grade : 'Middle', must: n ? n.must.join(', ') : '', nice: n ? n.nice.join(', ') : '', from: n && n.from, to: n && n.to, format: (n && n.format) || 'Гибрид', city: (n && n.city) || '', server: null };
+}
+function vacancyForm() {
+  const f = S.vform;
+  const errs = [];
+  if (!f.from || !f.to) errs.push('Укажите обе границы вилки.');
+  else {
+    if (f.from > f.to) errs.push('Нижняя граница больше верхней.');
+    const w = (META && META.fork_max_width) || .4;
+    if ((f.to - f.from) / f.from > w) errs.push(`Вилка слишком широкая: верхняя граница не больше нижней + ${Math.round(w * 100)} %.`);
+  }
+  if (f.server) errs.push(...f.server.errors.filter(x => !errs.includes(x)));
+  const warns = f.server ? f.server.warnings : [];
+  return `<div class="panel stack fade" id="vac-form">
+    <div class="row sb"><h3>${f.id ? 'Редактирование вакансии' : 'Новая вакансия'}</h3><button class="btn ghost small" data-act="vac-cancel">Закрыть</button></div>
+    <label class="field"><span>Название</span><input class="input" id="vx-title" value="${esc(f.title)}"></label>
+    <div class="grid g2">
+      <label class="field"><span>Специализация</span><select class="input" id="vx-spec">${((META && META.specs) || []).map(x => `<option ${x === f.spec ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+      <label class="field"><span>Трек</span><select class="input" id="vx-track"><option value="">любой</option>${((META && META.tracks[f.spec]) || []).map(x => `<option ${x === f.track ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+    </div>
+    <div class="field"><span>Грейд</span><div class="seg" role="group">${((META && META.grades) || []).map(g => `<button data-act="vx-set" data-k="grade" data-v="${g}" aria-pressed="${g === f.grade}">${g}</button>`).join('')}</div></div>
+    <div class="grid g2">
+      <label class="field"><span>Обязательные навыки</span><input class="input" id="vx-must" value="${esc(f.must)}" placeholder="Python, PostgreSQL"></label>
+      <label class="field"><span>Желательные навыки</span><input class="input" id="vx-nice" value="${esc(f.nice)}"></label>
+    </div>
+    <div class="field"><span>Вилка на руки, ₽ · обязательно</span>
+      <div class="grid g2" style="gap:10px"><input class="input num" id="vx-from" inputmode="numeric" value="${f.from || ''}" aria-label="от"><input class="input num" id="vx-to" inputmode="numeric" value="${f.to || ''}" aria-label="до"></div>
+      <div class="stack-s" id="vx-msgs">${errs.map(e => `<div class="alert bad">${esc(e)}</div>`).join('')}${warns.map(e => `<div class="alert warn">${esc(e)}</div>`).join('')}</div>
+      <span class="hint">Те же правила, что в приглашении: нижняя граница не ниже 25-го перцентиля рынка, ширина не больше 40 %.</span>
+    </div>
+    <div class="grid g2">
+      <div class="field"><span>Формат</span><div class="seg" role="group">${((META && META.formats) || []).map(x => `<button data-act="vx-set" data-k="format" data-v="${x}" aria-pressed="${f.format === x}">${x}</button>`).join('')}</div></div>
+      <label class="field"><span>Город</span><input class="input" id="vx-city" value="${esc(f.city)}"></label>
+    </div>
+    <label class="field"><span>Описание</span><textarea class="input" id="vx-desc" style="min-height:120px">${esc(f.description)}</textarea></label>
+    <div class="row"><button class="btn primary" data-act="vac-save">${f.id ? 'Сохранить' : 'Опубликовать'}</button></div>
+  </div>`;
+}
+
+V['/e/vacancies'] = () => {
+  const L = D.myvac || [];
+  return `
+  ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Вакансии']])}
+  ${subnav('e')}
+  ${unverifiedBanner()}
+  <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>Вакансии</h2><span class="small muted">Дополнительный путь: кандидат откликается сам, контакты видны сразу. Основной — приглашения из подборки.</span></div>${S.vform ? '' : '<button class="btn primary small" data-act="vac-new">Новая вакансия</button>'}</div>
+  <div class="stack">
+    ${S.vform ? vacancyForm() : ''}
+    ${L.map(v => `<div class="panel stack-s">
+      <div class="row sb"><b>${esc(v.title)}</b>${v.status === 'open' ? '<span class="status s-ok">открыта</span>' : '<span class="status s-exp">закрыта</span>'}</div>
+      <div class="row" style="gap:6px">${catTag(v.spec, v.track, v.grade)}<span class="small muted">${vacMeta(v)}</span></div>
+      <div class="row small" style="gap:12px"><span>Откликов: <b class="num">${v.applications.total}</b></span>${v.applications.sent ? `<span class="chip warn">новых ${v.applications.sent}</span>` : ''}${v.applications.accepted ? `<span class="muted">принято ${v.applications.accepted}</span>` : ''}${v.applications.declined ? `<span class="muted">отказ ${v.applications.declined}</span>` : ''}</div>
+      <div class="row"><button class="btn ghost small" data-go="/e/vacancy/${v.id}">Отклики</button>${v.status === 'open' ? `<button class="btn ghost small" data-act="vac-edit" data-id="${v.id}">Изменить</button><button class="btn ghost small" data-act="vac-close" data-id="${v.id}">Закрыть</button>` : ''}</div>
+    </div>`).join('') || '<div class="panel small muted">Вакансий пока нет.</div>'}
+  </div>`;
+};
+
+function eVacancyView() {
+  const A = D.vapps;
+  if (!A) return `${crumbs([['Вакансии', '/e/vacancies'], ['Отклики']])}<div class="panel">Вакансия не найдена.</div>`;
+  const v = A.vacancy, reasons = Object.entries((META && META.decline_reasons) || {});
+  return `
+  ${crumbs([['Вакансии', '/e/vacancies'], [esc(v.title)]])}
+  ${subnav('e')}
+  <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>${esc(v.title)}</h2><span class="small muted">${vacMeta(v)} · откликов ${A.items.length}</span></div></div>
+  <div class="alert info" style="margin-bottom:16px"><span>i</span><span>Кандидат откликнулся сам, поэтому контакты видны сразу. Каждое первое раскрытие записывается в журнал.</span></div>
+  <div class="stack">
+    ${A.items.map(a => { const c = a.candidate, ct = a.contacts; if (a.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span>${appChip(a.status)}</div><span class="small muted">Согласие на обработку данных отозвано: карточка и контакты недоступны · ${DAYMON(a.created_at)}</span></div>`; return `<div class="panel stack-s">
+      <div class="row sb"><div class="row"><button class="btn ghost small" data-go="/e/cand/${esc(c.id)}">Кандидат ${esc(c.id)}</button>${catTag(c.spec, c.track, c.grade)}<span class="small muted">перцентиль ${c.pct ?? '—'}</span></div>${appChip(a.status)}</div>
+      <div class="chips">${c.skills.map(s => `<span class="chip ${v.must.includes(s) || v.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
+      ${a.note ? `<p class="small">«${esc(a.note)}»</p>` : ''}
+      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : '<span class="muted">Кандидат отозвал отклик — контакты скрыты</span>'} <span class="muted">· ожидания от ${RUB(c.salary)} · ${DAYMON(a.created_at)}</span></p>
+      ${a.status === 'declined' && a.reason ? `<span class="small muted">причина отказа: ${esc(a.reason.toLowerCase())}</span>` : ''}
+      ${a.status === 'sent' || a.status === 'seen' ? (S.appDecline === a.id ? `<div class="stack-s"><div class="chips">${reasons.map(([k, x]) => `<button class="chip ${S.appReason === k ? 'on' : ''}" data-act="app-reason" data-v="${k}">${esc(x)}</button>`).join('')}</div>
+        <div class="row"><button class="btn danger small" data-act="app-status" data-id="${a.id}" data-v="declined" ${S.appReason ? '' : 'disabled'}>Отклонить</button><button class="btn ghost small" data-act="app-decline" data-id="">Отмена</button></div></div>`
+        : `<div class="row">${a.status === 'sent' ? `<button class="btn ghost small" data-act="app-status" data-id="${a.id}" data-v="seen">Просмотрено</button>` : ''}<button class="btn primary small" data-act="app-status" data-id="${a.id}" data-v="accepted">Пригласить на интервью</button><button class="btn ghost small" data-act="app-decline" data-id="${a.id}">Отклонить…</button></div>`) : ''}
+    </div>`; }).join('') || '<div class="panel small muted">Откликов пока нет.</div>'}
+  </div>`;
+}
+
+/* ---------- задания (работодатель) ---------- */
+function taskForm() {
+  const f = S.tform, comps = (META && META.competencies[f.spec]) || [];
+  return `<div class="panel stack fade">
+    <div class="row sb"><h3>Новое задание</h3><button class="btn ghost small" data-act="task-cancel">Закрыть</button></div>
+    <label class="field"><span>Название</span><input class="input" id="tx-title" value="${esc(f.title)}"></label>
+    <label class="field"><span>Условие</span><textarea class="input" id="tx-text" style="min-height:120px" placeholder="Короткая задача: решить или предложить подход">${esc(f.text)}</textarea></label>
+    <div class="grid g2">
+      <label class="field"><span>Специализация</span><select class="input" id="tx-spec">${((META && META.specs) || []).map(x => `<option ${x === f.spec ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+      <label class="field"><span>Компетенция</span><select class="input" id="tx-comp"><option value="">не указана</option>${comps.map(x => `<option ${x === f.competency ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+    </div>
+    <div class="grid g2">
+      <div class="field"><span>Тип</span><div class="seg" role="group">${[['approach', 'Предложить подход'], ['solve', 'Решить']].map(([k, l]) => `<button data-act="tx-set" data-k="kind" data-v="${k}" aria-pressed="${f.kind === k}">${l}</button>`).join('')}</div></div>
+      <label class="field"><span>Минут на решение</span><input class="input num" id="tx-min" inputmode="numeric" value="${f.minutes}"></label>
+    </div>
+    <button class="switch" role="switch" aria-checked="${f.public}" data-act="tx-set" data-k="public"><i></i> На витрине для всех кандидатов специализации (иначе — только приглашённым)</button>
+    ${S.needObj ? `<button class="switch" role="switch" aria-checked="${f.link}" data-act="tx-set" data-k="link"><i></i> К потребности «${esc(roleTitle(S.needObj))}»</button>` : ''}
+    <div class="row"><button class="btn primary" data-act="task-save">Создать задание</button><span class="hint">Без уведомлений: кандидаты заходят на витрину сами</span></div>
+  </div>`;
+}
+
+V['/e/tasks'] = () => {
+  const L = D.mytasks || [];
+  return `
+  ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Задания']])}
+  ${subnav('e')}
+  <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>Задания</h2><span class="small muted">Решения приходят анонимно. Ваша оценка — свежий сигнал в карточке кандидата для других компаний; на грейд не влияет.</span></div>${S.tform ? '' : '<button class="btn primary small" data-act="task-new">Новое задание</button>'}</div>
+  <div class="stack">
+    ${S.tform ? taskForm() : ''}
+    ${L.map(t => `<div class="panel stack-s">
+      <div class="row sb"><b>${esc(t.title)}</b><span class="chip ${t.public ? 'on' : ''}">${t.public ? 'на витрине' : 'только приглашённым'}</span></div>
+      <span class="small muted">${esc(t.spec)}${t.competency ? ' · ' + esc(t.competency) : ''} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин${t.need_id ? ' · к потребности' : ''}</span>
+      <div class="row small" style="gap:12px"><span>Решений: <b class="num">${t.submissions}</b></span><span>оценено ${t.reviewed}</span>${t.avg_review != null ? `<span class="muted">средняя оценка ${DEC(t.avg_review, 1)} из 3</span>` : ''}</div>
+      <div class="row"><button class="btn ghost small" data-go="/e/task/${t.id}">Решения</button></div>
+    </div>`).join('') || '<div class="panel small muted">Заданий пока нет.</div>'}
+  </div>`;
+};
+
+function eTaskView() {
+  const T = D.tsubs;
+  if (!T) return `${crumbs([['Задания', '/e/tasks'], ['Решения']])}<div class="panel">Задание не найдено.</div>`;
+  const t = T.task;
+  return `
+  ${crumbs([['Задания', '/e/tasks'], [esc(t.title)]])}
+  ${subnav('e')}
+  <div class="panel stack" style="margin-bottom:16px"><h2>${esc(t.title)}</h2><p class="prose small pre">${esc(t.text)}</p></div>
+  <div class="stack">
+    ${T.items.map(s => { const c = s.candidate; if (s.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span><span class="small muted">${DAYMON(s.created_at)}</span></div><span class="small muted">Решение и карточка недоступны: кандидат отозвал согласие или скрыл профиль от компании.</span>${s.review ? `<div class="row">${reviewChip(s.review)}</div>` : ''}</div>`; return `<div class="panel stack-s">
+      <div class="row sb"><div class="row"><button class="btn ghost small" data-go="/e/cand/${esc(c.id)}">Кандидат ${esc(c.id)}</button>${catTag(c.spec, c.track, c.grade)}</div><span class="small muted">${DAYMON(s.created_at)}</span></div>
+      <p class="small pre" style="background:var(--ground);padding:12px;border-radius:8px">${esc(s.answer)}</p>
+      ${s.review ? `<div class="row">${reviewChip(s.review)}${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}</div>` : `
+      <input class="input" id="rvc-${s.id}" placeholder="Комментарий кандидату, по желанию" style="max-width:520px">
+      <div class="row">${['strong', 'ok', 'weak'].map(k => `<button class="btn ${k === 'strong' ? 'primary' : 'ghost'} small" data-act="review" data-id="${s.id}" data-v="${k}">${REVIEW[k][1]}</button>`).join('')}</div>`}
+    </div>`; }).join('') || '<div class="panel small muted">Решений пока нет.</div>'}
+  </div>`;
+}
 
 /* ===================== валидация ===================== */
 // GET /api/validation — результаты прогона app.services.validation; 404, пока прогон не запускали
@@ -1332,8 +1940,8 @@ V['/v'] = () => {
 /* ===================== карта экранов ===================== */
 const MAP = [
   ['Общее', [['/', 'Главная']]],
-  ['Кандидат', [['/c/signup', 'Регистрация'], ['/c/profile', 'Профиль, резюме и достижения'], ['/c/quest', 'Тест-квест: вводная'], ['/c/quest/go', 'Тест-квест: задания'], ['/c/result', 'Категория и компетенции'], ['/c/home', 'Кабинет и приглашения']]],
-  ['Работодатель', [['/e/signup', 'Регистрация компании'], ['/e/need', 'Потребность текстом'], ['/e/picks', 'Подборка и лотерея'], ['/e/cand/A-1042', 'Карточка кандидата'], ['/e/invite/C-0775', 'Форма приглашения'], ['/e/pipeline', 'Статусы и обратная связь']]],
+  ['Кандидат', [['/c/signup', 'Вход и регистрация'], ['/c/profile', 'Профиль, резюме и достижения'], ['/c/quest', 'Тест-квест: грейд и история'], ['/c/quest/go', 'Тест-квест: задания'], ['/c/result', 'Категория и вердикт'], ['/c/home', 'Кабинет и приглашения'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Витрина задач'], ['/c/settings', 'Согласия и мои данные']]],
+  ['Работодатель', [['/e/signup', 'Вход и компания'], ['/e/need', 'Потребность и план теста'], ['/e/picks', 'Подборка и лотерея'], ['/e/search', 'Поиск по банку'], ['/e/cand/A-1042', 'Карточка кандидата'], ['/e/invite/C-0775', 'Форма приглашения'], ['/e/pipeline', 'Статусы и обратная связь'], ['/e/vacancies', 'Вакансии и отклики'], ['/e/tasks', 'Задания и решения']]],
   ['Жюри', [['/v', 'Дашборд валидации']]],
 ];
 function openMap() {
@@ -1342,7 +1950,7 @@ function openMap() {
   document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-label="Карта экранов">
     <div class="row sb"><h3>Карта экранов</h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
     ${MAP.map(([g, items]) => [g, g === 'Кандидат' ? [...items, ...((D.invites && D.invites.items) || []).slice(0, 2).map(i => ['/c/invite/' + i.id, 'Приглашение: ' + esc(i.company)])] : items]).map(([g, items]) => `<div class="grp"><span class="label" style="margin:0 10px 4px">${g}</span>${items.map(([p, t]) => `<button data-go="${p}" aria-current="${r === p}"><span class="num">${String(++n).padStart(2, '0')}</span><span>${t}</span></button>`).join('')}</div>`).join('')}
-    <p class="small muted">Демо-сценарий: регистрация → профиль → тест → категория → работодатель пишет потребность → подборка → приглашение → кандидат принимает → контакты.</p>
+    <p class="small muted">Демо-сценарий: регистрация → профиль и PDF → тест → категория → работодатель пишет потребность → подборка → приглашение → кандидат принимает → контакты. Вход за демо-персонажей — кнопками «Демо: войти как …» на экранах входа.</p>
   </div></div>`;
 }
 const closeMap = () => document.getElementById('overlay').innerHTML = '';
@@ -1354,9 +1962,18 @@ async function loadMe() {
   ME = await api('GET', '/api/candidate/me').catch(e => { if (e.status === 403) return null; throw e; });
 }
 
+// компания работодателя (для плашки «не подтверждена» и квоты); без компании — на экран регистрации
+async function ensureCo() {
+  if (D.co) return;
+  D.co = await api('GET', '/api/employer/company').catch(e => {
+    if (e.status === 403) { go('/e/signup'); e.message = 'Сначала заполните данные компании'; }
+    throw e;
+  });
+  D.coName = D.co.name;
+}
+
 // текущая потребность работодателя: выбранная в этой сессии или последняя созданная
 async function ensureNeed() {
-  if (!D.coName) D.coName = (await api('GET', '/api/employer/company')).name;
   if (S.needId && S.needObj && S.needObj.id === S.needId) return;
   const needs = await api('GET', '/api/employer/needs');
   const n = needs.find(x => x.id === S.needId) || needs[0] || null;
@@ -1367,6 +1984,8 @@ async function loadPicks() {
   D.picks = S.needId ? await api('GET', `/api/employer/needs/${S.needId}/picks?limit=20&filters=${[...S.filters].join(',')}`) : null;
   if (D.picks) S.needObj = D.picks.need;
 }
+const loadSearch = async () => { D.search = await api('GET', '/api/employer/search?' + qs({ ...S.sf, limit: 20 })); };
+const loadVac = async () => { D.vac = await api('GET', '/api/vacancies?' + qs({ ...S.vf, limit: 50 })); };
 
 async function load(r) {
   if (!META) {
@@ -1377,41 +1996,60 @@ async function load(r) {
   const [, side, page, arg] = r.split('/');
   if (side === 'c' && page !== 'signup') {
     await loadMe();
-    if (page === 'profile') { ACH = ME ? await api('GET', '/api/achievements') : null; S.pf = pfFromMe(); S.cv = null; }
-    else if (page === 'quest' && arg === 'go') { S.quest = await api('POST', '/api/quest/start', { story: S.story }); S.qAt = Date.now(); S.finish = null; }
-    else if (page === 'result') { D.result = S.finish || await or404(api('GET', '/api/quest/result')); ACH = await api('GET', '/api/achievements'); }
+    if (page === 'profile') { ACH = ME ? await api('GET', '/api/achievements') : null; S.pf = pfFromMe(); S.cv = null; S.cfCode = null; }  // код CF — только один раз
+    if (!ME) return;
+    if (page === 'quest' && arg === 'go') {
+      S.quest = await api('POST', '/api/quest/start', { story: S.story, target_grade: S.target || ME.grade_claimed, invitation_id: S.questInvite });
+      S.qAt = Date.now(); S.finish = null; S.questInvite = null;
+    } else if (page === 'quest') D.history = await api('GET', '/api/quest/history');
+    else if (page === 'result') {
+      [D.result, ACH, D.history] = await Promise.all([S.finish || or404(api('GET', '/api/quest/result')), api('GET', '/api/achievements'), api('GET', '/api/quest/history')]);
+    }
     else if (page === 'home') D.invites = await api('GET', '/api/candidate/invites');
-    else if (page === 'invite') { D.inv = await or404(api('GET', '/api/candidate/invites/' + encodeURIComponent(arg))); S.declineFor = null; }
+    else if (page === 'invite') {
+      [D.inv, D.invTasks] = await Promise.all([or404(api('GET', '/api/candidate/invites/' + encodeURIComponent(arg))), or404(api('GET', '/api/tasks/for-invitation/' + encodeURIComponent(arg)))]);
+      S.declineFor = null;
+    }
+    else if (page === 'settings') { ACH = await api('GET', '/api/achievements'); S.confirm = null; S.hiddenEdit = false; }
+    else if (page === 'vacancies') [, D.apps] = await Promise.all([loadVac(), api('GET', '/api/vacancies/applications/mine')]);
+    else if (page === 'vacancy') { [D.vacancy, D.apps] = await Promise.all([or404(api('GET', '/api/vacancies/' + encodeURIComponent(arg))), api('GET', '/api/vacancies/applications/mine')]); S.applyNote = ''; S.applyErr = null; }
+    else if (page === 'applications') D.apps = await api('GET', '/api/vacancies/applications/mine');
+    else if (page === 'tasks') [D.showcase, D.subs] = await Promise.all([api('GET', '/api/tasks/showcase'), api('GET', '/api/tasks/submissions/mine')]);
+    else if (page === 'task') { S.taskInv = +r.split('/')[4] || null; [D.task, D.subs] = await Promise.all([or404(api('GET', '/api/tasks/' + encodeURIComponent(arg))), api('GET', '/api/tasks/submissions/mine')]); S.answer = ''; }
   }
   if (side === 'e') {
     if (page === 'signup') {
       D.company = TOK.e ? await api('GET', '/api/employer/company').catch(() => null) : null;
-      if (D.company) D.coName = D.company.name;
+      if (D.company) { D.co = D.company; D.coName = D.company.name; }
       return;
     }
+    await ensureCo();
     await ensureNeed();
     if (page === 'need') { if (!S.need.text) S.need.text = (S.needObj && S.needObj.text) || NEED_TEXT; }
     else if (page === 'picks') await loadPicks();
+    else if (page === 'search') await loadSearch();
     else if (page === 'cand' || page === 'invite') {
       D.cand = await or404(api('GET', `/api/employer/candidates/${encodeURIComponent(arg)}${S.needId ? '?need_id=' + S.needId : ''}`));
       if (page === 'invite') D.quota = await api('GET', '/api/employer/quota');
     }
     else if (page === 'pipeline') D.pipe = await api('GET', '/api/employer/pipeline');
+    else if (page === 'vacancies') D.myvac = await api('GET', '/api/vacancies/mine');
+    else if (page === 'vacancy') { D.vapps = await or404(api('GET', `/api/vacancies/${encodeURIComponent(arg)}/applications`)); S.appDecline = null; }
+    else if (page === 'tasks') D.mytasks = await api('GET', '/api/tasks/mine');
+    else if (page === 'task') D.tsubs = await or404(api('GET', `/api/tasks/${encodeURIComponent(arg)}/submissions`));
   }
   if (side === 'v') D.val = await or404(api('GET', '/api/validation'));
 }
 
 /* ===================== рендер и события ===================== */
 let timerId, seq = 0;
+const PARAM_VIEWS = [['/c/invite/', inviteView], ['/c/vacancy/', cVacancyView], ['/c/task/', cTaskView], ['/e/cand/', candView], ['/e/invite/', inviteFormView], ['/e/vacancy/', eVacancyView], ['/e/task/', eTaskView]];
 function render() {
   const r = route();
   let html;
   try {
-    if (V[r]) html = V[r]();
-    else if (r.startsWith('/c/invite/')) html = inviteView();
-    else if (r.startsWith('/e/cand/')) html = candView();
-    else if (r.startsWith('/e/invite/')) html = inviteFormView();
-    else html = V['/']();
+    const pv = PARAM_VIEWS.find(([p]) => r.startsWith(p));
+    html = V[r] ? V[r]() : pv ? pv[1]() : V['/']();
   } catch (e) {
     console.error(e);
     html = `<div class="panel stack"><p>Не удалось показать экран: данные не загрузились.</p><div class="row"><button class="btn ghost small" data-act="reload">Повторить</button></div></div>`;
@@ -1419,17 +2057,17 @@ function render() {
   $app.innerHTML = html;
   const role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
   document.querySelectorAll('.roles button').forEach(b => b.setAttribute('aria-current', b.dataset.role === role));
+  document.getElementById('logout').hidden = !(role === 'c' || role === 'e') || !TOK[role];
   startTimer();
 }
 function rerender() { const y = scrollY; render(); scrollTo(0, y); }
 
-// смена экрана: вход демо-персонажем (переключатель ролей), загрузка данных, рендер
+// смена экрана: без входа — на экран входа своей роли; загрузка данных, рендер
 async function show(keep) {
   const r = route(), my = ++seq, y = scrollY;
+  const side = r.split('/')[1];
+  if ((side === 'c' || side === 'e') && r !== `/${side}/signup` && !TOK[side]) { go(`/${side}/signup`); return; }
   try {
-    const side = r.split('/')[1];
-    if (side === 'c' && r !== '/c/signup' && !TOK.c) await demoLogin('c');
-    if (side === 'e' && r !== '/e/signup' && !TOK.e) await demoLogin('e');
     await load(r);
   } catch (e) {
     if (my === seq) fail(e);
@@ -1456,42 +2094,94 @@ function startTimer() {
 }
 
 // поля форм → состояние, чтобы перерисовка не теряла ввод
+const num = x => parseInt(String(x || '').replace(/\D/g, ''), 10) || null;
 function capture() {
   const v = id => { const el = document.getElementById(id); return el ? el.value : null; };
   const ck = id => { const el = document.getElementById(id); return el ? el.checked : null; };
   if (S.pf && v('p-name') != null) {
     Object.assign(S.pf, { name: v('p-name').trim(), tg: v('p-tg').trim(), city: v('p-city').trim(), spec: v('p-spec'), track: v('p-track') || null });
-    S.pf.min = parseInt(v('p-min').replace(/\D/g, ''), 10) || null;
+    S.pf.min = num(v('p-min'));
   }
-  if (v('su-mail') != null) Object.assign(S.signup, { email: v('su-mail').trim(), c152: ck('su-152'), tg: ck('su-tg') });
+  if (v('su-mail') != null) Object.assign(S.signup, { email: v('su-mail').trim(), c152: ck('su-152'), publish: ck('su-pub'), tg: ck('su-tg') });
   if (v('su-otp') != null) S.signup.otp = v('su-otp').trim();
+  if (v('es-mail') != null) S.esignup.email = v('es-mail').trim();
+  if (v('es-otp') != null) S.esignup.otp = v('es-otp').trim();
   if (v('need-text') != null) S.need.text = v('need-text');
   if (v('rv-comment') != null) S.qComment = v('rv-comment');
   if (v('dc-comment') != null) S.dcComment = v('dc-comment');
+  if (v('ap-note') != null) S.applyNote = v('ap-note');
+  if (v('tk-answer') != null) S.answer = v('tk-answer');
   if (S.lot && v('lot-fork') != null) {
-    S.lot.fork_to = parseInt(v('lot-fork').replace(/\D/g, ''), 10) || null;
+    S.lot.fork_to = num(v('lot-fork'));
     S.lot.draw_count = Math.max(1, Math.min(50, parseInt(v('lot-k'), 10) || 1));
   }
+  if (v('vf-q') != null) Object.assign(S.vf, { q: v('vf-q').trim(), spec: v('vf-spec'), grade: v('vf-grade'), format: v('vf-format'), city: v('vf-city').trim() });
+  if (v('sf-q') != null) Object.assign(S.sf, { q: v('sf-q').trim(), spec: v('sf-spec'), track: v('sf-track'), grade: v('sf-grade'), skills: v('sf-skills').trim(), format: v('sf-format'), city: v('sf-city').trim() });
+  if (S.vform && v('vx-title') != null) Object.assign(S.vform, { title: v('vx-title'), spec: v('vx-spec'), track: v('vx-track'), must: v('vx-must'), nice: v('vx-nice'), from: num(v('vx-from')), to: num(v('vx-to')), city: v('vx-city'), description: v('vx-desc') });
+  if (S.tform && v('tx-title') != null) Object.assign(S.tform, { title: v('tx-title'), text: v('tx-text'), spec: v('tx-spec'), competency: v('tx-comp'), minutes: num(v('tx-min')) || 45 });
 }
 const reloadAch = async () => { ACH = await api('GET', '/api/achievements'); };
+const skillList = s => s.split(/[,;]+/).map(x => x.trim()).filter(Boolean);
+
+// подтверждения через инлайн-диалог (S.confirm)
+const CONFIRM = {
+  async delete() {
+    await api('DELETE', '/api/candidate/me');
+    clearSide('c'); toast('Аккаунт удалён'); go('/');
+  },
+  async revoke152() {
+    await api('PATCH', '/api/candidate/consents', { consent_152: false });
+    // отзыв обработки гасит и внешние данные на сервере — перечитываем и достижения
+    await loadMe(); await reloadAch(); S.confirm = null; toast('Согласие отозвано: профиль скрыт'); rerender();
+  },
+  async revokeExt() {
+    await api('POST', '/api/achievements/consent', { value: false });
+    await reloadAch(); await loadMe(); S.confirm = null; rerender();
+  },
+};
 
 const ACT = {
   map: () => openMap(),
   noop: (a, d) => toast(d.msg || 'Пока не реализовано'),
   reload: () => refresh(),
+  ask: (a, d) => { S.confirm = d.k; rerender(); },
+  'confirm-no': () => { S.confirm = null; rerender(); },
+  'confirm-yes': (a, d) => CONFIRM[d.k](),
+  async logout() {
+    const role = roleOf(route());
+    await api('POST', '/api/auth/logout', undefined, role).catch(() => null);  // токен мог уже истечь — всё равно чистим
+    clearSide(role); toast('Вы вышли');
+    const to = role === 'e' ? '/e/signup' : '/c/signup';
+    if (route() === to) show(); else go(to);
+  },
 
-  // вход кандидата
-  async fspid() { await demoLogin('c'); toast('ФСП ID: профиль и достижения подтянуты'); go('/c/profile'); },
+  // вход
+  async demo(a, d) {
+    await demoLogin(d.who);
+    toast(d.who === 'newco' ? 'Вход: «Новый Стартап» (компания не прошла проверку)' : 'Демо-вход выполнен');
+    go(d.who === 'c' ? '/c/home' : '/e/picks');
+  },
   async 'otp-send'() {
+    if (!S.signup.email) throw new Error('Укажите почту');
     const r = await api('POST', '/api/auth/email', { email: S.signup.email, role: 'candidate' }, 'c');
     S.signup.sent = true; S.signup.otp = r.otp || '';
     toast('Код отправлен на ' + S.signup.email); rerender();
   },
   async 'otp-verify'() {
-    const r = await api('POST', '/api/auth/verify', { email: S.signup.email, otp: S.signup.otp }, 'c');
-    if (r.role !== 'candidate') throw new Error('Эта почта зарегистрирована как работодатель');
-    setTok('c', r.token); ME = null; ACH = null; S.pf = null; S.quest = null; S.finish = null; S.signup.sent = false;
+    await verifyLogin('c', S.signup.email, S.signup.otp);
+    S.signup.sent = false;
     go('/c/profile');
+  },
+  async 'eotp-send'() {
+    if (!S.esignup.email) throw new Error('Укажите рабочую почту');
+    const r = await api('POST', '/api/auth/email', { email: S.esignup.email, role: 'employer' }, 'e');
+    S.esignup.sent = true; S.esignup.otp = r.otp || '';
+    toast('Код отправлен на ' + S.esignup.email); rerender();
+  },
+  async 'eotp-verify'() {
+    await verifyLogin('e', S.esignup.email, S.esignup.otp);
+    S.esignup.sent = false;
+    go('/e/picks');
   },
 
   // профиль, резюме, достижения
@@ -1504,25 +2194,55 @@ const ACT = {
     if (!f.min) throw new Error('Укажите минимальную зарплату');
     if (!f.formats.length) throw new Error('Выберите хотя бы один формат');
     const first = !ME;
+    if (first && !S.signup.c152) throw new Error('Нужно согласие на обработку персональных данных: отметьте его на экране регистрации');
     ME = await api('POST', '/api/candidate/profile', {
       name: f.name, tg: f.tg || null, spec: f.spec, track: f.track, grade_claimed: f.grade, min_salary: f.min,
       formats: f.formats, city: f.city, skills_claimed: f.skills, years_exp: f.years,
-      consent_152: S.signup.c152, consent_external: !!(ACH && ACH.consent_external),
+      consent_152: first ? true : ME.consent_152, consent_publish: first ? !!S.signup.publish : null,  // null — не менять
     });
     if (first) await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
     toast('Профиль сохранён'); go('/c/quest');
   },
   async 'consent-ext'() {
-    if (ACH.consent_external && !confirm('Отозвать согласие? Привязки Codeforces и CTFtime и полученные из них достижения будут удалены.')) return;
-    await api('POST', '/api/achievements/consent', { value: !ACH.consent_external });
-    await reloadAch(); rerender();
+    const on = ACH ? ACH.consent_external : ME.consent_external;
+    if (on) { S.confirm = 'revokeExt'; rerender(); return; }
+    await api('POST', '/api/achievements/consent', { value: true });
+    await reloadAch(); if (ME) await loadMe(); rerender();
+  },
+  async reconsent() {
+    await api('PATCH', '/api/candidate/consents', { consent_152: true, consent_publish: !!ME.consent_publish });
+    await loadMe(); toast('Согласия подтверждены'); rerender();
+  },
+  async 'consent-152'() {
+    if (ME.consent_152) { S.confirm = 'revoke152'; rerender(); return; }
+    await api('PATCH', '/api/candidate/consents', { consent_152: true }); await loadMe(); toast('Согласие дано'); rerender();
+  },
+  async 'consent-publish'() {
+    await api('PATCH', '/api/candidate/consents', { consent_publish: !ME.consent_publish }); await loadMe();
+    toast(ME.consent_publish ? 'Карточка опубликована: работодатели вас видят' : 'Карточка скрыта от работодателей'); rerender();
+  },
+  async export() {
+    const data = await api('GET', '/api/candidate/me/export');
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = `fsp-career-${ME.id}.json`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Файл с вашими данными сформирован');
+  },
+  'hidden-edit': () => { S.hiddenEdit = !S.hiddenEdit; rerender(); },
+  async 'hidden-save'() {
+    const v = document.getElementById('hid-inns').value;
+    ME.hidden_from = (await api('PATCH', '/api/candidate/hidden-from', { inns: v.split(/[,;\s]+/).filter(Boolean) })).hidden_from;
+    S.hiddenEdit = false; rerender();
   },
   async 'cf-link'() {
-    await api('POST', '/api/achievements/codeforces/link', { handle: document.getElementById('cf-h').value.trim() });
+    S.cfCode = await api('POST', '/api/achievements/codeforces/link', { handle: document.getElementById('cf-h').value.trim() });
     await reloadAch(); toast('Хэндл сохранён: впишите код в профиль Codeforces и нажмите «Проверить»'); rerender();
   },
   async 'cf-verify'() {
-    ACH = await api('POST', '/api/achievements/codeforces/verify');
+    ACH = await api('POST', '/api/achievements/codeforces/verify');  // 400 — код истёк, 409 — согласие отозвано: текст сервера в тосте
+    if (ACH.codeforces && ACH.codeforces.verified) S.cfCode = null;
     toast(ACH.codeforces && ACH.codeforces.verified ? 'Код найден в профиле Codeforces. Владение подтверждено' : 'Код пока не найден');
     rerender();
   },
@@ -1534,6 +2254,8 @@ const ACT = {
   },
 
   // тест-квест
+  target: (a, d) => { S.target = d.v; rerender(); },
+  'quest-invite': (a, d) => { S.questInvite = +d.id; go('/c/quest'); },
   async story() {
     S.story = !S.story;
     if (route() === '/c/quest/go' && S.quest && !S.quest.done) { S.quest = await api('POST', '/api/quest/start', { story: S.story }); S.qAt = Date.now(); }
@@ -1550,18 +2272,16 @@ const ACT = {
     S.qAt = Date.now();
     render(); scrollTo(0, 0);
   },
-  async finish() { S.finish = await api('POST', '/api/quest/finish'); go('/c/result'); },
+  async finish() {
+    try { S.finish = await api('POST', '/api/quest/finish'); }
+    catch (e) { if (e.status !== 409) throw e; S.finish = null; toast(e.message); }  // повторный finish: тест уже завершён
+    go('/c/result');
+  },
 
   // кабинет кандидата
   async status(a, d) { await api('PATCH', '/api/candidate/status', { status: d.v }); ME.status = d.v; rerender(); },
   async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: !(ME.notif && ME.notif[d.k]) })).notif; rerender(); },
-  async hidden() {
-    const v = prompt('ИНН компаний, от которых скрыть профиль, через запятую', ME.hidden_from.join(', '));
-    if (v == null) return;
-    ME.hidden_from = (await api('PATCH', '/api/candidate/hidden-from', { inns: v.split(/[,;\s]+/).filter(Boolean) })).hidden_from;
-    rerender();
-  },
-  async accept(a, d) { D.inv = await api('POST', `/api/candidate/invites/${d.id}/accept`); toast('Приглашение принято. Контакты открыты'); rerender(); },
+  async accept(a, d) { D.inv = await api('POST', `/api/candidate/invites/${d.id}/accept`); toast('Приглашение принято. Компания получила ваши контакты'); rerender(); },
   'ask-decline': (a, d) => { S.declineFor = +d.id; S.declineReason = null; S.dcComment = ''; rerender(); },
   'cancel-decline': () => { S.declineFor = null; rerender(); },
   reason: (a, d) => { S.declineReason = d.v; rerender(); },
@@ -1570,29 +2290,51 @@ const ACT = {
     S.declineFor = null; toast('Отказ отправлен. Компания видит только причину'); rerender();
   },
 
+  // вакансии и задачи (кандидат)
+  async 'vf-apply'() { await loadVac(); rerender(); },
+  async 'vf-reset'() { S.vf = { spec: '', grade: '', format: '', city: '', q: '' }; await loadVac(); rerender(); },
+  async apply(a, d) {
+    try {
+      await api('POST', `/api/vacancies/${d.id}/apply`, { note: S.applyNote.trim() || null });
+    } catch (e) {
+      if ([403, 409, 429].includes(e.status)) { S.applyErr = e.message; rerender(); return; }
+      throw e;
+    }
+    toast('Отклик отправлен: компания видит ваши контакты'); await refresh();
+  },
+  async withdraw(a, d) { await api('POST', `/api/vacancies/applications/${d.id}/withdraw`); toast('Отклик отозван'); await refresh(); },
+  async 'task-submit'(a, d) {
+    if (!S.answer.trim()) throw new Error('Напишите решение');
+    await api('POST', `/api/tasks/${d.id}/submit`, { answer: S.answer.trim(), invitation_id: S.taskInv || null });
+    toast('Решение отправлено. Оценка появится в «Моих решениях»'); await refresh();
+  },
+
   // работодатель
   async 'co-save'() {
-    if (!TOK.e) await demoLogin('e');
     const v = id => document.getElementById(id).value.trim();
     D.company = await api('POST', '/api/employer/company', {
       inn: v('co-inn'), name: v('co-name'), recruiter_name: v('co-rec'), site_domain: v('co-site') || null,
       recruiter_email: v('co-mail') || null, about: v('co-about') || null,
     });
-    D.coName = D.company.name;
-    toast(D.company.verified ? 'Компания проверена' : 'Компания сохранена, но проверку не прошла: см. замечания');
+    D.co = D.company; D.coName = D.company.name;
+    toast(D.company.verified ? 'Компания проверена' : 'Компания сохранена без подтверждения: квота 3 приглашения в неделю');
     if (D.company.verified) go('/e/need'); else rerender();
   },
   async parse(a) {
     a.textContent = 'Разбираю…';
     S.need.parsed = await api('POST', '/api/employer/needs/parse', { text: S.need.text });
-    rerender();
+    S.plan = null; rerender();
   },
   'need-rm': (a, d) => { const l = S.need.parsed[d.k]; l.splice(l.indexOf(d.v), 1); rerender(); },
-  'need-add': (a, d) => {
-    const s = (prompt('Навык') || '').trim();
-    if (!s) return;
+  'need-add': (a, d) => { S.needAdd = d.k || null; rerender(); const el = document.getElementById('need-skill'); if (el) el.focus(); },
+  'need-add-ok': (a, d) => {
+    const s = (document.getElementById('need-skill').value || '').trim();
     const p = S.need.parsed, v = (META.skills.find(x => x.toLowerCase() === s.toLowerCase())) || s;
-    if (!p.must.includes(v) && !p.nice.includes(v)) p[d.k].push(v);
+    if (v && !p.must.includes(v) && !p.nice.includes(v)) p[d.k].push(v);
+    S.needAdd = null; rerender();
+  },
+  async plan() {
+    S.plan = await api('POST', '/api/quest/plan', S.need.parsed ? { text: S.need.text } : { need_id: S.needId });
     rerender();
   },
   async 'need-save'() {
@@ -1601,7 +2343,7 @@ const ACT = {
       text: S.need.text, spec: p.spec, track: p.track, grade: p.grade, must: p.must, nice: p.nice,
       salary_from: p.from, salary_to: p.to, format: p.format, city: p.city, parsed_by: p.parsed_by,
     });
-    S.needId = n.id; S.needObj = n; S.lot = null; S.filters.clear(); S.inviteForm = null; S.need.parsed = null;
+    S.needId = n.id; S.needObj = n; S.lot = null; S.filters.clear(); S.inviteForm = null; S.need.parsed = null; S.plan = null;
     go('/e/picks');
   },
   async filter(a, d) { S.filters.has(d.k) ? S.filters.delete(d.k) : S.filters.add(d.k); await loadPicks(); rerender(); },
@@ -1625,6 +2367,56 @@ const ACT = {
     await api('POST', `/api/employer/invites/${d.id}/feedback`, { value: d.v });
     toast('Спасибо. Отметка уйдёт в калибровку теста'); await refresh();
   },
+
+  // поиск по банку
+  async 'sf-apply'() { S.sf.page = 1; await loadSearch(); rerender(); },
+  async 'sf-reset'() { S.sf = { spec: '', track: '', grade: '', skills: '', q: '', fsp: false, cf: false, hackathon: false, format: '', city: '', page: 1 }; await loadSearch(); rerender(); },
+  async 'sf-flag'(a, d) { S.sf[d.k] = !S.sf[d.k]; S.sf.page = 1; await loadSearch(); rerender(); },
+  async 'sf-facet'(a, d) { S.sf[d.k] = S.sf[d.k] === d.v ? '' : d.v; if (d.k === 'spec') S.sf.track = ''; S.sf.page = 1; await loadSearch(); rerender(); },
+  async 'sf-page'(a, d) { S.sf.page = +d.v; await loadSearch(); render(); scrollTo(0, 0); },
+
+  // вакансии (работодатель)
+  'vac-new': () => { S.vform = vformFrom(null); rerender(); },
+  'vac-edit': (a, d) => { S.vform = vformFrom(D.myvac.find(v => v.id === +d.id)); rerender(); scrollTo(0, 0); },
+  'vac-cancel': () => { S.vform = null; rerender(); },
+  'vx-set': (a, d) => { S.vform[d.k] = d.v; S.vform.server = null; rerender(); },
+  async 'vac-save'() {
+    const f = S.vform;
+    const body = { title: f.title, description: f.description, spec: f.spec, track: f.track || null, grade: f.grade, must: skillList(f.must), nice: skillList(f.nice), salary_from: f.from, salary_to: f.to, format: f.format, city: f.city || null };
+    let r;
+    try {
+      r = f.id ? await api('PATCH', `/api/vacancies/${f.id}`, body) : await api('POST', '/api/vacancies', body);
+    } catch (e) {
+      if (e.status === 422 && e.detail && e.detail.errors) { f.server = e.detail; rerender(); return; }
+      throw e;
+    }
+    S.vform = null;
+    toast((f.id ? 'Вакансия сохранена' : 'Вакансия опубликована') + (r.warnings && r.warnings.length ? '. ' + r.warnings[0] : ''));
+    await refresh();
+  },
+  async 'vac-close'(a, d) { await api('POST', `/api/vacancies/${d.id}/close`); toast('Вакансия закрыта'); await refresh(); },
+  'app-decline': (a, d) => { S.appDecline = d.id ? +d.id : null; S.appReason = null; rerender(); },
+  'app-reason': (a, d) => { S.appReason = d.v; rerender(); },
+  async 'app-status'(a, d) {
+    await api('POST', `/api/vacancies/applications/${d.id}/status`, { status: d.v, reason: d.v === 'declined' ? S.appReason : null });
+    S.appDecline = null;
+    toast({ seen: 'Отмечено как просмотренное', accepted: 'Кандидат приглашён на интервью', declined: 'Отказ отправлен' }[d.v]); await refresh();
+  },
+
+  // задания (работодатель)
+  'task-new': () => { const n = S.needObj; S.tform = { title: '', text: '', spec: n ? n.spec : 'Backend', competency: '', kind: 'approach', minutes: 45, public: true, link: false }; rerender(); },
+  'task-cancel': () => { S.tform = null; rerender(); },
+  'tx-set': (a, d) => { S.tform[d.k] = d.k === 'public' || d.k === 'link' ? !S.tform[d.k] : d.v; rerender(); },
+  async 'task-save'() {
+    const f = S.tform;
+    await api('POST', '/api/tasks', { title: f.title, text: f.text, spec: f.spec, competency: f.competency || null, kind: f.kind, minutes: f.minutes, public: f.public, need_id: f.link && S.needObj ? S.needObj.id : null });
+    S.tform = null; toast('Задание создано'); await refresh();
+  },
+  async review(a, d) {
+    const c = document.getElementById('rvc-' + d.id);
+    await api('POST', `/api/tasks/submissions/${d.id}/review`, { review: d.v, comment: c && c.value.trim() ? c.value.trim() : null });
+    toast('Оценка сохранена'); await refresh();
+  },
 };
 
 addEventListener('hashchange', () => { closeMap(); show(); });
@@ -1634,7 +2426,7 @@ document.addEventListener('click', e => {
   const a = e.target.closest('[data-act]');
   if (a && a.dataset.act === 'close-map' && (e.target === a || a.tagName === 'BUTTON')) { closeMap(); return; }
   if (g && !g.disabled) { e.preventDefault(); if (route() === g.dataset.go) { closeMap(); } else go(g.dataset.go); return; }
-  if (!a || a.disabled || !ACT[a.dataset.act]) return;
+  if (!a || a.disabled || a.matches(':disabled') || !ACT[a.dataset.act]) return;
   e.preventDefault();
   capture();
   const p = ACT[a.dataset.act](a, a.dataset);
@@ -1644,6 +2436,9 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   const t = e.target;
   if (t.id === 'p-spec') { capture(); S.pf.track = ((META && META.tracks[t.value]) || [])[0] || null; rerender(); }
+  if (t.id === 'vx-spec') { capture(); S.vform.track = ''; rerender(); }
+  if (t.id === 'tx-spec') { capture(); S.tform.competency = ''; rerender(); }
+  if (t.id === 'sf-spec') { capture(); S.sf.track = ''; rerender(); }
   if (t.id === 'cv-file' && t.files[0]) {
     capture();
     const fd = new FormData();
@@ -1660,6 +2455,7 @@ document.addEventListener('change', async e => {
 });
 
 document.addEventListener('input', e => {
+  if (e.target.id === 'ap-note') { const el = document.getElementById('ap-left'); if (el) el.textContent = (300 - e.target.value.length) + ' символов'; }
   if (!S.inviteForm || !document.getElementById('inv-form')) return;
   const id = e.target.id;
   if (id === 'f-from' || id === 'f-to') {
