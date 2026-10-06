@@ -1992,7 +1992,7 @@ function eVacancyView() {
       <div class="chips">${c.skills.map(s => `<span class="chip ${v.must.includes(s) || v.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
       ${a.note ? `<p class="small">«${esc(a.note)}»</p>` : ''}
       ${a.chat_peer != null ? `<div class="row">${chatBtn('e', a.chat_peer)}</div>` : ''}
-      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : '<span class="muted">Кандидат отозвал отклик — контакты скрыты</span>'} <span class="muted">· ожидания от ${RUB(c.salary)} · ${DAYMON(a.created_at)}</span></p>
+      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : `<span class="muted">${a.status === 'withdrawn' ? 'Кандидат отозвал отклик — контакты скрыты' : 'Кандидат закрыл доступ к контактам'}</span>`} <span class="muted">· ожидания от ${RUB(c.salary)} · ${DAYMON(a.created_at)}</span></p>
       ${a.status === 'declined' && a.reason ? `<span class="small muted">причина отказа: ${esc(a.reason.toLowerCase())}</span>` : ''}
       ${a.status === 'sent' || a.status === 'seen' ? (S.appDecline === a.id ? `<div class="stack-s"><div class="chips">${reasons.map(([k, x]) => `<button class="chip ${S.appReason === k ? 'on' : ''}" data-act="app-reason" data-v="${k}">${esc(x)}</button>`).join('')}</div>
         <div class="row"><button class="btn danger small" data-act="app-status" data-id="${a.id}" data-v="declined" ${S.appReason ? '' : 'disabled'}>Отклонить</button><button class="btn ghost small" data-act="app-decline" data-id="">Отмена</button></div></div>`
