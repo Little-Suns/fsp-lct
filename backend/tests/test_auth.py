@@ -211,7 +211,7 @@ def test_token_ttl_logout_and_revoke(client):
     assert client.get("/api/vacancies", headers={"Authorization": "Bearer nope"}).status_code == 200
 
 
-def test_demo_and_fsp_logins(client, monkeypatch):
+def test_demo_logins(client, monkeypatch):
     # засеянных персонажей нет — 404
     assert client.post("/api/auth/demo/candidate").status_code == 404
     assert client.post("/api/auth/demo/admin").status_code == 404
@@ -221,12 +221,11 @@ def test_demo_and_fsp_logins(client, monkeypatch):
     r = client.post("/api/auth/demo/candidate")
     assert r.status_code == 200 and r.json()["role"] == "candidate"
     assert client.post("/api/auth/demo/employer").json()["role"] == "employer"
-    assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).json()["role"] == "candidate"
-    assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-0000"}).status_code == 404
-    # DEMO=0: демо-вход и ФСП ID закрыты, код в ответе не возвращается
+    # заглушки «ФСП ID без OAuth» больше нет: вход только через OIDC (tests/test_fsp_id.py)
+    assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).status_code in (404, 405)
+    # DEMO=0: демо-вход закрыт, код в ответе не возвращается
     monkeypatch.setattr(config, "DEMO", False)
     assert client.post("/api/auth/demo/candidate").status_code == 404
-    assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).status_code == 501
     assert client.post("/api/auth/email", json={"email": "prod@example.ru"}).status_code == 503  # без SMTP входа нет
     sent = []
     monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.ru")

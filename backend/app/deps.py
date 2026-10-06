@@ -1,4 +1,5 @@
-"""Авторизация: Bearer-токен, в БД — только его sha256. Вход — код на почту (в демо код возвращается в ответе) или ФСП ID."""
+"""Авторизация: Bearer-токен, в БД — только его sha256. Вход — код на почту (в демо код возвращается в ответе)
+или ФСП ID по OpenID Connect (routers/fsp_id.py)."""
 
 import hashlib
 import hmac
@@ -84,10 +85,6 @@ class VerifyIn(BaseModel):
     otp: str = Field(max_length=16)
 
 
-class FspIn(BaseModel):
-    fsp_id: str
-
-
 def _issue(user: User, db: Session) -> dict:
     return {"token": issue_token(db, user), "role": user.role}
 
@@ -163,17 +160,6 @@ def _has_profile(db: Session, user: User) -> bool:
     )
 
 
-@router.post("/fsp")
-def fsp_login(body: FspIn, db: Session = Depends(get_db)):
-    # ponytail: заглушка OAuth ФСП ID — пускает любого с известным fsp_id, поэтому только в DEMO; Keycloak OIDC, когда дадут доступ
-    if not config.DEMO:
-        raise HTTPException(501, "Вход через ФСП ID ещё не подключён")
-    user = db.scalar(select(User).where(User.fsp_id == body.fsp_id))
-    if not user:
-        raise HTTPException(404, "ФСП ID не найден")
-    return _issue(user, db)
-
-
 @router.post("/demo/{role}")
 def demo_login(role: str, db: Session = Depends(get_db)):
     """Вход за демо-персонажа из макета: candidate → Дмитрий Орлов (A-1042), employer → «Ладога Пэй»."""
@@ -196,4 +182,4 @@ def logout(user: User = Depends(current_user), db: Session = Depends(get_db)):
 
 @router.get("/me")
 def me(user: User = Depends(current_user)):
-    return {"id": user.id, "email": user.email, "role": user.role}
+    return {"id": user.id, "email": user.email, "role": user.role, "fsp_id": user.fsp_id}

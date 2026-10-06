@@ -27,6 +27,13 @@ services:
       SMTP_FROM: ${SMTP_FROM:-no-reply@fsp-career.local}
       # перец для HMAC кодов входа; задайте постоянный на стенде, иначе коды сгорают при рестарте
       SECRET_KEY: ${SECRET_KEY:-}
+      # адрес стенда в браузере: redirect_uri ФСП ID и issuer мок-провайдера
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
+      # ФСП ID (Keycloak OIDC): пусто + DEMO=1 → встроенный мок /mock-fsp-id; боевой — issuer realm, клиент и секрет
+      FSP_ID_ISSUER: ${FSP_ID_ISSUER:-}
+      FSP_ID_CLIENT_ID: ${FSP_ID_CLIENT_ID:-fsp-career}
+      FSP_ID_CLIENT_SECRET: ${FSP_ID_CLIENT_SECRET:-}
+      FSP_ID_MOCK: ${FSP_ID_MOCK:-}
       # локальная модель на хосте (ollama serve); недоступна → подбор на правилах
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:32b-instruct}

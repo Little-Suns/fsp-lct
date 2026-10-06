@@ -11,8 +11,7 @@ test('главная: герой, двери ролей и ссылка на в�
   await expect(page.getByText('У кандидата не больше 4 открытых приглашений')).toBeVisible();
   await page.getByRole('button', { name: 'Я разработчик' }).click();
   await expect(page.getByRole('heading', { name: 'Создайте профиль' })).toBeVisible();
-  await page.getByRole('button', { name: /Войти через ФСП ID/ }).click();
-  await expect(toast(page)).toContainText('Вход через ФСП ID (OIDC) подключится');
+  await expect(page.getByRole('button', { name: /Войти через ФСП ID/ })).toBeVisible();  // сам вход — 09-fsp-id.spec.js
   await page.locator('.brand').click();
   await page.getByRole('button', { name: 'Я нанимаю' }).click();
   await expect(page.getByRole('heading', { name: 'Вход для компаний' })).toBeVisible();
