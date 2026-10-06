@@ -48,6 +48,16 @@ jobs:
           uv run python -m app.services.irt
           uv run python -m seed.gold
 
+  sandbox:
+    # песочница задач на код против настоящего nsjail: вердикты, попытки выхода, эталоны банка на Python и TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Образ песочницы (target test)
+        run: docker build --target test -t fsp-sandbox-test sandbox
+      - name: Тесты песочницы (privileged, cgroup v2)
+        run: docker run --rm --privileged -v "$GITHUB_WORKSPACE/backend/app/services/code_items.py:/srv/code_items.py:ro" fsp-sandbox-test
+
   frontend-e2e:
     runs-on: ubuntu-latest
     services:
@@ -82,8 +92,21 @@ jobs:
         run: uv sync --frozen
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - name: Песочница для e2e (настоящий nsjail, порт только на 127.0.0.1)
+        run: |
+          docker build --target runtime -t fsp-sandbox ../sandbox
+          echo "SANDBOX_TOKEN=$(openssl rand -hex 16)" >> "$GITHUB_ENV"
+          echo "SANDBOX_URL=http://127.0.0.1:8091" >> "$GITHUB_ENV"
+      - name: Запуск песочницы
+        run: |
+          docker run -d --name sandbox --privileged -p 127.0.0.1:8091:8080 -e SANDBOX_TOKEN fsp-sandbox
+          for i in $(seq 60); do curl -fs "$SANDBOX_URL/health" && break; sleep 1; done
+          curl -fs "$SANDBOX_URL/health" || { docker logs sandbox; exit 1; }
       - name: E2E (Playwright, база fsp_e2e) и покрытие JS ≥ 80 %
         run: npm test
+      - name: Логи песочницы
+        if: failure()
+        run: docker logs sandbox || true
       - name: Сводка покрытия
         if: always()
         run: cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY" || true

@@ -64,7 +64,7 @@ def test_run_shape(db, tmp_path, monkeypatch):
     assert all({"no_limits", "with_limits"} <= r.keys() for r in res["market"]["rows"])
     assert {"no_limits", "with_limits"} <= res["market"]["top5_share"].keys()
     assert isinstance(res["market"]["blocked_by_cap"], int)
-    assert [r["key"] for r in res["cheater"]["rows"]] == ["choice", "review", "context", "mixed"]
+    assert [r["key"] for r in res["cheater"]["rows"]] == ["choice", "review", "context", "code", "mixed"]
     assert 0 <= res["cheater"]["caught"] <= 1 and 0 <= res["cheater"]["false_alarm"] <= 1
     assert {"retest_same_grade", "retest_same_grade_no_hysteresis", "cf_spearman", "cf_n", "clone_b_spread", "theta_corr"} <= res["stability"].keys()
     assert V.run(db, k=5, seed=1)["market"] == res["market"]  # детерминировано

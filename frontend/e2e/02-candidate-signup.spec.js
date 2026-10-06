@@ -137,6 +137,13 @@ test('кандидат: регистрация → профиль и PDF → т�
   let answered = 0;
   for (; answered < 60 && !(await finish.isVisible()); answered++) {
     const next = page.getByRole('button', { name: 'Дальше' });
+    if (await page.locator('#code-ed').count()) {  // задача на код (с песочницей, одна за тест): отправляем шаблон — разбор в 09-code
+      const sent = page.waitForResponse(r => r.url().endsWith('/api/quest/answer') && r.request().method() === 'POST');
+      await page.getByRole('button', { name: 'Отправить решение' }).click();
+      expect((await sent).ok()).toBe(true);
+      await expect(page.locator('#code-ed')).toHaveCount(0);
+      continue;
+    }
     await expect(next).toBeDisabled();
     const opts = page.locator('.opt');
     if (await opts.count()) await opts.nth(answered % (await opts.count())).click();
@@ -161,7 +168,7 @@ test('кандидат: регистрация → профиль и PDF → т�
     await next.click();
     expect((await answer).ok()).toBe(true);
     await expect(async () => {
-      expect(await finish.isVisible() || await next.isDisabled()).toBe(true);
+      expect(await finish.isVisible() || await page.locator('#code-ed').count() > 0 || await next.isDisabled()).toBe(true);
     }).toPass();
   }
   expect(answered).toBeGreaterThan(3);

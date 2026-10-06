@@ -23,3 +23,8 @@ SMTP_STARTTLS = os.environ.get("SMTP_STARTTLS", "1") == "1"
 
 # Серверный «перец» для HMAC кодов входа. Без него ключ случайный на процесс: коды сгорают при рестарте — для демо не страшно.
 SECRET_KEY = os.environ.get("SECRET_KEY") or __import__("secrets").token_hex(32)
+
+# Песочница задач на код (сервис sandbox в compose, только внутренняя сеть). Пусто — задачи на код не выдаются.
+SANDBOX_URL = os.environ.get("SANDBOX_URL", "").rstrip("/")
+SANDBOX_TOKEN = os.environ.get("SANDBOX_TOKEN", "")  # общий секрет API ↔ песочница (заголовок X-Sandbox-Token)
+SANDBOX_TIMEOUT = float(os.environ.get("SANDBOX_TIMEOUT", "90"))  # очередь песочницы ≤ 20 с + прогон ≤ 60 с

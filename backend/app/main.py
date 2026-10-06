@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app import catalog, config, deps
 from app.db import init_db
 from app.routers import achievements, candidate, chat, employer, lottery, quest, tasks, vacancies, validation
+from app.services import sandbox
 
 
 @asynccontextmanager
@@ -54,6 +55,7 @@ def meta():
         "cap": catalog.CANDIDATE_CAP,
         "invite_ttl_days": catalog.INVITE_TTL_DAYS,
         "fork_max_width": catalog.FORK_MAX_WIDTH,
+        "code_tasks": sandbox.enabled(),  # в тесте есть задача на код (песочница настроена)
     }
 
 

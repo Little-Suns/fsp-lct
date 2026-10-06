@@ -31,9 +31,35 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:32b-instruct}
       EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
+      # песочница задач на код; без SANDBOX_TOKEN задачи на код не выдаются (тест — без них)
+      SANDBOX_URL: http://sandbox:8080
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:-}
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: [./frontend:/srv/frontend:ro]
     ports: ["8000:8000"]
+    networks: [default, sandbox]
+
+  # исполнение кода кандидатов (nsjail на каждый тест): Python 3.11, TypeScript на Node 22.
+  # privileged нужен nsjail для пространств имён и cgroup v2 внутри контейнера — ядро общее с хостом, см. README «Песочница».
+  # Только внутренняя сеть sandbox: ни портов на хост, ни выхода наружу; говорит с ней только api по общему секрету.
+  sandbox:
+    build: ./sandbox
+    privileged: true
+    cgroup: private
+    read_only: true
+    tmpfs: ["/run/sbx:size=256m"]
+    environment:
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:-}
+      SANDBOX_WORKERS: ${SANDBOX_WORKERS:-4}  # одновременных прогонов; каждый — 1 CPU, до 256 МБ
+    cpus: ${SANDBOX_CPUS:-4}
+    mem_limit: 3g
+    pids_limit: 512
+    networks: [sandbox]
+    restart: on-failure:3
+
+networks:
+  sandbox:
+    internal: true
 
 volumes:
   pgdata:

@@ -2,13 +2,20 @@
 
 Ответ сохраняется сразу; правильность и текущий θ до конца теста не отдаются. Ключ задания (payload.key) наружу не уходит.
 Текущее (выданное, но не отвеченное) задание — последняя запись в QuestSession.answers с response = None.
+
+Задача на код (kind = code): ответ — {lang, code}; решение прогоняется в песочнице на скрытых тестах (пересоздаются из сида
+клона), засчитано — все тесты пройдены (2PL, как остальные). В сессию пишется сводка по тестам без входных данных.
+Песочница недоступна — 503, задание помечается void и не засчитывается ни в плюс, ни в минус.
 """
 
+import json
 import random
+import threading
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from functools import lru_cache
 
 from sqlalchemy import select
@@ -19,7 +26,7 @@ from app import catalog, config
 from app.db import get_db
 from app.deps import current_candidate, current_company
 from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession
-from app.services import irt
+from app.services import code_items, irt, sandbox
 from app.services.items import STORY, plan_for_need
 from app.services.parsing import parse_need
 
@@ -31,6 +38,11 @@ PERCENTILE_MIN_N = 10  # меньше кандидатов в категории
 PLAN_TEXT_MAX, PREVIEW_TEXT_MAX = 5000, 2000
 VERDICT = {"confirmed": "Заявленный грейд подтверждён", "below": "Ниже заявленного грейда", "above": "Выше заявленного грейда"}
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+CODE_LANGS = ("python", "typescript")
+CODE_MAX = 20_000  # байт решения (столько же принимает песочница)
+RUNS_MAX = 20  # запусков «на примерах» на одну задачу
+PASTE_SHARE = 0.5  # флаг code_pasted: верное решение, больше половины которого вставлено из буфера
+SANDBOX_DOWN = "Песочница для проверки кода сейчас недоступна. Задание не засчитано ни в плюс, ни в минус — переходим к следующему."
 
 # компетенция → навыки, которые она подтверждает (канон catalog.SKILLS)
 COMP_SKILLS = {
@@ -64,9 +76,18 @@ class PlanIn(BaseModel):
 
 class AnswerIn(BaseModel):
     item_id: int
-    response: int  # choice — индекс варианта с 0; mark/review — номер строки кода с 1
+    response: int | None = None  # choice — индекс варианта с 0; mark/review — номер строки кода с 1
     comment: str | None = None  # комментарий к ревью; на оценку пока не влияет
     ms: int | None = None  # время ответа по часам клиента
+    lang: str | None = None  # задача на код: python | typescript
+    code: str | None = Field(None, max_length=CODE_MAX)
+    pasted: int | None = None  # задача на код: сколько символов вставлено из буфера (по данным клиента, для флага)
+
+
+class RunIn(BaseModel):
+    item_id: int
+    lang: str
+    code: str = Field(max_length=CODE_MAX)
 
 
 def _now() -> datetime:
@@ -105,7 +126,45 @@ def _pending(sess: QuestSession) -> dict | None:
 
 
 def _answered(sess: QuestSession, bank: dict[int, Item]) -> list[dict]:
-    return [a for a in sess.answers if a["response"] is not None and a["item_id"] in bank]
+    """Отвеченные задания; void (песочница не проверила решение) не засчитываются никак."""
+    return [a for a in sess.answers if a["response"] is not None and not a.get("void") and a["item_id"] in bank]
+
+
+def _items(bank: dict[int, Item], live: bool = False) -> list[Item]:
+    """Задания, которые можно выдавать: задачи на код — только при настроенной песочнице (live — и живой сейчас)."""
+    if not any(it.kind == "code" for it in bank.values()):
+        return list(bank.values())
+    code_ok = sandbox.ready() if live else sandbox.enabled()
+    return [it for it in bank.values() if it.kind != "code" or code_ok]
+
+
+_checking: set[int] = set()
+_checking_lock = threading.Lock()
+
+
+@contextmanager
+def _one_check(session_id: int):
+    """Одна проверка кода на сессию за раз (двойной клик, «Запустить» во время «Отправить»).
+    ponytail: в памяти одного процесса; при нескольких воркерах — блокировка в Redis/Postgres."""
+    with _checking_lock:
+        if session_id in _checking:
+            raise HTTPException(429, "Решение уже проверяется — дождитесь результата")
+        _checking.add(session_id)
+    try:
+        yield
+    finally:
+        with _checking_lock:
+            _checking.discard(session_id)
+
+
+def _code_in(lang: str | None, code: str | None) -> tuple[str, str]:
+    if lang not in CODE_LANGS:
+        raise HTTPException(422, "Язык решения — python или typescript")
+    if not code or not code.strip():
+        raise HTTPException(422, "Пустое решение")
+    if len(code.encode("utf-8")) > CODE_MAX:
+        raise HTTPException(422, f"Решение длиннее {CODE_MAX // 1000} КБ")
+    return lang, code
 
 
 def _responses(sess: QuestSession, bank: dict[int, Item], comp: str | None = None) -> list[tuple]:
@@ -130,15 +189,15 @@ def _cooldown(cand: Candidate) -> dict:
 def _serve(sess: QuestSession, bank: dict[int, Item]) -> Item | None:
     """Выдать следующее задание (записывается в answers как ожидающее ответа) или None, если тест окончен."""
     rng = random.Random()
-    items = list(bank.values())
+    items = _items(bank, live=True)
     seen = {a["item_id"] for a in sess.answers}
     fams = {bank[i].family for i in seen if i in bank}
-    n_op = sum(1 for a in sess.answers if not a["pilot"])
+    n_op = sum(1 for a in sess.answers if not a["pilot"] and not a.get("void"))
     item = None
     if n_op == PILOT_AT and not any(a["pilot"] for a in sess.answers):
         item = irt.pick_pilot(items, seen, fams, rng)
     if item is None and not irt.should_stop(n_op, sess.se):
-        item = irt.next_item(sess.theta, items, seen, fams, rng, focus=sess.focus)
+        item = irt.choose(sess.theta, items, seen, fams, rng, n_op, focus=sess.focus)
     if item:
         sess.answers = [*sess.answers, {"item_id": item.id, "pilot": item.pilot, "served_at": _now().isoformat(),
                                         "response": None, "correct": None, "ms": None, "server_ms": None, "comment": None}]
@@ -155,8 +214,9 @@ def _public(item: Item, n: int) -> dict:
 
 def _state(sess: QuestSession, bank: dict[int, Item], spec: str) -> dict:
     pend = _pending(sess)
-    n_fam = len({it.family for it in bank.values() if not it.pilot})
-    total = min(irt.MAX_ITEMS, n_fam) + (1 if any(it.pilot for it in bank.values()) else 0)
+    items = _items(bank)
+    n_fam = len({it.family for it in items if not it.pilot and it.kind != "code"}) + any(it.kind == "code" and not it.pilot for it in items)
+    total = min(irt.MAX_ITEMS, n_fam) + (1 if any(it.pilot for it in items) else 0)
     out = {"session_id": sess.id, "quest_title": STORY.get(spec, ("Тест",))[0],
            "story": sess.story, "target_grade": sess.target_grade, "focus": sess.focus, "done": pend is None, "progress": {"n": len(sess.answers), "total": max(total, len(sess.answers))},
            "item": None, "time_limit_s": None, "remaining_s": None}
@@ -227,11 +287,13 @@ def answer(body: AnswerIn, cand: Candidate = Depends(current_candidate), db: Ses
     if not item:
         raise HTTPException(409, "Задание больше недоступно")
     p = item.payload
-    lo, n = (0, len(p["options"])) if item.kind == "choice" else (1, len(p["panel"]["lines"]))
-    if not lo <= body.response < lo + n:
-        raise HTTPException(422, "Некорректный ответ")
     server_ms = int((_now() - datetime.fromisoformat(pend["served_at"])).total_seconds() * 1000)
     timeout = server_ms > (p["time_limit_s"] + TIMEOUT_GRACE_S) * 1000
+    if item.kind == "code":
+        return _answer_code(db, cand, sess, pend, item, body, server_ms, timeout)
+    lo, n = (0, len(p["options"])) if item.kind == "choice" else (1, len(p["panel"]["lines"]))
+    if body.response is None or not lo <= body.response < lo + n:
+        raise HTTPException(422, "Некорректный ответ")
     key = p["key"] if isinstance(p["key"], list) else [p["key"]]
     done = {**pend, "response": body.response, "correct": not timeout and body.response in key, "timeout": timeout,
             "ms": body.ms, "server_ms": server_ms, "comment": (body.comment or "").strip()[:2000] or None}
@@ -241,6 +303,71 @@ def answer(body: AnswerIn, cand: Candidate = Depends(current_candidate), db: Ses
     _serve(sess, bank)
     db.commit()
     return {"saved": True, **_state(sess, bank, cand.spec)}
+
+
+def _answer_code(db: Session, cand: Candidate, sess: QuestSession, pend: dict, item: Item, body: AnswerIn, server_ms: int, timeout: bool):
+    """Решение задачи на код. Песочница работает до минуты — блокировку сессии на это время отпускаем,
+    после прогона берём снова и проверяем, что задание всё ещё текущее (served_at — отпечаток выдачи)."""
+    lang, code = _code_in(body.lang, body.code)
+    sid, served_at = sess.id, pend["served_at"]
+    db.commit()
+    res, down = None, False
+    if not timeout:  # опоздавший ответ — неверный, как у остальных заданий; песочницу не гоняем
+        with _one_check(sid):
+            try:
+                res = sandbox.run(lang, code, item.payload["code"]["entry"][lang], code_items.hidden_tests(item.family, item.payload["key"]["seed"]),
+                                  time_ms=code_items.TIME_MS, memory_mb=code_items.MEMORY_MB, fail_fast=True)
+            except sandbox.Unavailable:
+                down = True
+    sess = _active(db, cand, lock=True)
+    pend = _pending(sess) if sess else None
+    if not pend or pend["item_id"] != item.id or pend["served_at"] != served_at:
+        raise HTTPException(409, "Ответ на это задание уже сохранён")
+    bank = _bank(db, cand.spec)
+    rec = {**pend, "lang": lang, "code": code, "pasted": max(0, min(body.pasted or 0, len(code))), "ms": body.ms, "server_ms": server_ms,
+           "comment": None, "timeout": timeout}
+    if down:
+        sess.answers = [*sess.answers[:-1], {**rec, "response": "void", "void": True, "correct": None}]
+        _serve(sess, bank)
+        db.commit()
+        raise HTTPException(503, SANDBOX_DOWN)
+    tests = res and {"status": res["status"], "passed": res["passed"], "total": res["total"],
+                     "statuses": [r["status"] for r in res["results"]], "max_ms": max((r["time_ms"] for r in res["results"]), default=0)}
+    sess.answers = [*sess.answers[:-1], {**rec, "response": lang, "correct": bool(res) and res["status"] == "ok", "tests": tests}]
+    if not item.pilot:
+        sess.theta, sess.se = irt.eap(_responses(sess, bank), sess.prior_mean)
+    _serve(sess, bank)
+    db.commit()
+    return {"saved": True, **_state(sess, bank, cand.spec)}
+
+
+@router.post("/run")
+def run_examples(body: RunIn, cand: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
+    """«Запустить на примерах»: только открытые примеры из условия, на оценку не влияет, до RUNS_MAX раз на задачу.
+    Возвращает статусы, вывод функции и короткий фрагмент ошибки — по открытым примерам это ничего не раскрывает."""
+    sess = _active_or_404(db, cand, lock=True)
+    pend = _pending(sess)
+    if not pend or pend["item_id"] != body.item_id:
+        raise HTTPException(409, "Это не текущее задание")
+    item = db.get(Item, body.item_id)
+    if not item or item.kind != "code":
+        raise HTTPException(409, "Запуск на примерах — только для задач на код")
+    lang, code = _code_in(body.lang, body.code)
+    runs = pend.get("runs", 0)
+    if runs >= RUNS_MAX:
+        raise HTTPException(429, f"Запусков на примерах уже {RUNS_MAX} — отправьте решение")
+    sid = sess.id
+    sess.answers = [*sess.answers[:-1], {**pend, "runs": runs + 1}]
+    db.commit()
+    ex = item.payload["code"]["examples"]
+    with _one_check(sid):
+        try:
+            res = sandbox.run(lang, code, item.payload["code"]["entry"][lang], ex, time_ms=code_items.TIME_MS, memory_mb=code_items.MEMORY_MB, echo=True)
+        except sandbox.Unavailable:
+            raise HTTPException(503, "Песочница сейчас недоступна, запуск на примерах не удался. Решение можно отправить: при сбое проверки задание не засчитается.") from None
+    return {"status": res["status"], "passed": res["passed"], "total": res["total"], "stderr": res.get("stderr"), "runs_left": RUNS_MAX - runs - 1,
+            "results": [{"status": r["status"], "time_ms": r["time_ms"], "got": r.get("got"), "expected": json.dumps(e["expected"], ensure_ascii=False)}
+                        for r, e in zip(res["results"], ex)]}
 
 
 def _percentile(db: Session, cand: Candidate) -> tuple[int | None, str | None]:
@@ -333,6 +460,10 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     comps = irt.competency_estimates({n: _responses(sess, bank, n) for n in names}, names, theta)
     timings = [(a["server_ms"], bank[a["item_id"]].payload["time_limit_s"]) for a in _answered(sess, bank) if not a["pilot"]]
     flags = irt.suspicion_flags(theta, resp, timings)
+    # верное решение задачи на код, больше половины которого вставлено из буфера (данные клиента — обходится, только сигнал)
+    if any(a.get("correct") and a.get("pasted", 0) >= PASTE_SHARE * len(a.get("code") or "") > 0
+           for a in _answered(sess, bank) if bank[a["item_id"]].kind == "code"):
+        flags.append("code_pasted")
 
     now = _now()
     cooldown = _cooldown(cand)["active"]
@@ -353,7 +484,7 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
         note = f"Результат не ниже текущего, поэтому категория не изменилась. Повышение возможно с {_ru_date(_utc(cand.next_upgrade_at))}."
 
     senior_plus = catalog.GRADES.index(cand.grade) >= catalog.GRADES.index(catalog.REVIEW_REQUIRED_FROM)
-    if (senior_plus and not cand.review_passed) or {"inconsistent", "too_fast"} & set(flags):
+    if (senior_plus and not cand.review_passed) or {"inconsistent", "too_fast", "code_pasted"} & set(flags):
         flags.append("review_required")  # ponytail: только флаг; асинхронный «разбор решения» (3–4 вопроса LLM) — отдельный сервис
     # грейд попытки: присвоенный (с гистерезисом), а если не применён — измеренный самой попыткой
     sess.grade = cand.grade if applied else catalog.grade_from_theta(theta, se)
@@ -389,7 +520,7 @@ def history(cand: Candidate = Depends(current_candidate), db: Session = Depends(
             "grade": s.grade if done else None,
             "applied": s.applied if done else None,
             "flags": s.flags or [],
-            "items": sum(1 for a in s.answers if a["response"] is not None),
+            "items": sum(1 for a in s.answers if a["response"] is not None and not a.get("void")),
         })
     return out
 

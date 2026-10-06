@@ -9,19 +9,21 @@ panel — данные для отрисовки на фронте (не кар�
   {"type": "chart", "x": [...], "series": [{"name", "axis": "left"|"right", "max", "data"}], "marker": {"i", "label"}}
   {"type": "code",  "lang", "lines": [str], "caption"?}
 key: индекс варианта (choice) или номер строки кода с 1 (mark/review; может быть списком допустимых строк).
+Задача на код (kind = code, семейства — services/code_items.py): payload["code"] — сигнатуры, шаблоны, открытые примеры;
+key = {"seed"} — из него пересоздаются скрытые тесты, сами тесты и эталон в базе не лежат.
 Ключ наружу не отдаётся — см. routers/quest.py.
 """
 
 import random
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import catalog
 from app.models import Item
-from app.services import irt
+from app.services import code_items, irt, sandbox
 
-TIME_LIMIT = {"choice": 240, "mark": 300, "review": 360}
+TIME_LIMIT = {"choice": 240, "mark": 300, "review": 360, "code": 900}
 CLONES = {"Backend": 8}  # остальным специализациям — CLONES_DEFAULT
 CLONES_DEFAULT = 5
 CLONES_PILOT = 4
@@ -652,6 +654,12 @@ simple("Security", "Реверс", 1.8, "Проверка лицензии", "В
        "Что это значит?", "Ключ достаётся статическим анализом строк; проверку надо переносить на сервер",
        ["Защита надёжна, если бинарник обфусцирован", "Нужно заменить strcmp на memcmp", "Достаточно упаковать UPX"], {"app": ["агента", "десктоп-клиента", "плагина"]})
 
+# задачи на код — одни и те же семейства у всех специализаций с «Алгоритмами»; выдаются отдельным слотом (irt.choose)
+for _spec in code_items.SPECS:
+    for _f in code_items.FAMILIES.values():
+        FAMILIES.append({"family": _f["name"], "spec": _spec, "competency": code_items.COMPETENCY, "kind": "code", "a": _f["a"], "b": _f["b"],
+                         "pilot": _f["pilot"], "render": lambda rng, name=_f["name"]: code_items.render(name, rng)})
+
 # уникальные имена семейств для простых шаблонов
 for i, f in enumerate(FAMILIES):
     if not f["family"]:
@@ -674,10 +682,10 @@ def generate_bank() -> list[dict]:
 
 
 def seed_items(db: Session) -> int:
-    """Засеять банк, если он пуст. Возвращает число добавленных заданий."""
-    if db.scalar(select(func.count(Item.id))):
-        return 0
-    bank = generate_bank()
+    """Засеять банк: добавить семейства, которых в нём ещё нет (пустой банк — целиком; на старом стенде — новые семейства,
+    например задачи на код). Уже засеянные задания не трогаются: на них ссылаются ответы в сессиях. Возвращает число добавленных."""
+    have = {tuple(r) for r in db.execute(select(Item.family, Item.spec).distinct())}
+    bank = [row for row in generate_bank() if (row["family"], row["spec"]) not in have]
     db.add_all(Item(**row) for row in bank)
     db.commit()
     return len(bank)
@@ -721,7 +729,9 @@ def plan_for_need(spec: str, must: list[str], nice: list[str], grade: str) -> di
                     why[c].append(sk)
     c0 = irt.grade_anchor(grade)
     lo, hi = round(c0 - 1.0, 2), round(c0 + 1.0, 2)
-    fams = [f for f in FAMILIES if f["spec"] == spec and not f["pilot"]]
+    # задачи на код — только при включённой песочнице и одна на сессию (слот irt.CODE_AT)
+    fams = [f for f in FAMILIES if f["spec"] == spec and not f["pilot"] and (f["kind"] != "code" or sandbox.enabled())]
+    has_code = any(f["kind"] == "code" for f in fams)
     chosen = [f for f in fams if lo <= f["b"] <= hi] or sorted(fams, key=lambda f: abs(f["b"] - c0))[:6]
     chosen.sort(key=lambda f: (-w[f["competency"]], abs(f["b"] - c0)))
     families = []
@@ -729,8 +739,10 @@ def plan_for_need(spec: str, must: list[str], nice: list[str], grade: str) -> di
         sample = f["render"](random.Random(f"{f['family']}:preview"))  # отдельный сид: в банке такого клона нет
         families.append({"family": f["family"], "competency": f["competency"], "kind": f["kind"], "b": f["b"],
                          "scene_title": sample["scene_title"], "sample_prompt": f"{sample['story']} {sample['prompt']}"})
-    items_total = min(irt.MAX_ITEMS, len(fams))
-    avg_limit = sum(TIME_LIMIT[f["kind"]] for f in chosen) / max(len(chosen), 1)
+    plain = [f for f in chosen if f["kind"] != "code"]
+    items_total = min(irt.MAX_ITEMS, sum(f["kind"] != "code" for f in fams) + has_code)
+    avg_limit = (sum(TIME_LIMIT[f["kind"]] for f in plain) / max(len(plain), 1)) * (items_total - has_code) / max(items_total, 1) \
+        + TIME_LIMIT["code"] * has_code / max(items_total, 1)
     return {
         "spec": spec, "grade": grade,
         "competencies": sorted(({"n": n, "weight": round(w[n], 2), "why": why[n]} for n in names), key=lambda c: -c["weight"]),

@@ -284,6 +284,8 @@ button.chip:hover { border-color: var(--blue); }
 .code .kw { color: #A99BFF; } .code .st { color: #9FD8A8; } .code .cm { color: #6C6D78; }
 .quest-foot { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px 22px; border-top: 1px solid var(--dark-line); font-size: 12px; color: var(--on-dark-2); }
 .quest .chart text { fill: var(--on-dark-2); font-size: 10px; font-family: var(--mono); }
+.code-ed { width: 100%; min-height: 320px; resize: vertical; background: #0F1013; color: #E6E6EE; border: 1px solid var(--dark-line); border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 13px; line-height: 1.6; tab-size: 4; white-space: pre; overflow: auto; font-variant-ligatures: none; }
+.code-ed:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
 
 /* ---------- карточки кандидатов / приглашений ---------- */
 .cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 20px; padding: 18px 20px; background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; transition: border-color .15s; text-align: left; width: 100%; }
@@ -404,6 +406,7 @@ const NEED_TEXT = 'Ищем бэкендера на Python в команду п�
 const S = {
   story: true,
   quest: null, qAns: null, codeMark: null, qComment: '', qItem: null, qShownAt: 0, finish: null,
+  qLang: 'python', qCode: {}, qRun: null, qPasted: 0, edEsc: false,   // задача на код: язык, черновики по языкам, запуск на примерах, вставлено символов
   signup: { email: '', otp: '', sent: false, c152: false, publish: false, tg: true },
   esignup: { email: '', otp: '', sent: false },
   confirm: null,                     // ключ открытого инлайн-подтверждения (удаление аккаунта, отзыв согласий)
@@ -829,6 +832,7 @@ V['/c/quest'] = () => `
       <dl class="kv" style="color:var(--on-dark)">
         <dt style="color:var(--on-dark-2)">Длительность</dt><dd>40–60 минут, около 12 сцен, таймер на каждой</dd>
         <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация Python и PostgreSQL. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
+        ${META && META.code_tasks ? '<dt style="color:var(--on-dark-2)">Задача на код</dt><dd>Одна за тест, на Python или TypeScript: функция проверяется на скрытых тестах в изолированной песочнице, до отправки можно запустить её на примерах.</dd>' : ''}
         <dt style="color:var(--on-dark-2)">Без игровых очков</dt><dd>Нет жизней и рейтингов. Финал — экран категории.</dd>
         <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Повышение грейда — не чаще раза в 90 дней${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Повышение возможно с ${DATE(ME.next_upgrade_at)}: сейчас пересдача может только понизить результат` : ''}</dd>
       </dl>
@@ -872,17 +876,17 @@ function sceneView() {
     <button class="btn primary" data-act="finish">Посмотреть категорию</button>
   </div>`;
   const it = q.item, n = q.progress.n, total = q.progress.total, p = it.panel;
-  const isMark = it.kind !== 'choice';
-  if (S.qItem !== it.id) { S.qItem = it.id; S.qAns = null; S.codeMark = null; S.qComment = ''; S.qShownAt = Date.now(); }
-  const left = !p ? '' : p.type === 'logs' ? logsPanel(p) : p.type === 'chart' ? lineChart(p) : codePanel(p, isMark);
-  const right = isMark
+  const isMark = it.kind !== 'choice', isCode = it.kind === 'code';
+  if (S.qItem !== it.id) { S.qItem = it.id; S.qAns = null; S.codeMark = null; S.qComment = ''; S.qShownAt = Date.now(); S.qCode = {}; S.qRun = null; S.qPasted = 0; }
+  const left = isCode ? codeTask(it) : !p ? '' : p.type === 'logs' ? logsPanel(p) : p.type === 'chart' ? lineChart(p) : codePanel(p, isMark);
+  const right = isCode ? codeEditor(it) : isMark
     ? `<div class="stack">
          <p class="q">${esc(it.prompt)}</p>
          <p class="small" style="color:var(--on-dark-2)">${S.codeMark ? `Отмечена строка ${S.codeMark}.${it.comment ? ' Коротко объясните, что не так.' : ''}` : 'Пока ничего не отмечено.'}</p>
          ${it.comment ? `<textarea class="input" id="rv-comment" placeholder="Комментарий к ревью, 1–2 предложения" style="background:var(--dark-2);border-color:var(--dark-line);color:var(--on-dark);min-height:90px">${esc(S.qComment)}</textarea>` : ''}
        </div>`
     : `<div class="stack"><p class="q">${esc(it.prompt)}</p><div class="opts">${it.options.map((o, i) => `<button class="opt" data-act="ans" data-i="${i}" aria-pressed="${S.qAns === i}"><span class="k">${'ABCDEFGH'[i]}</span><span>${esc(o)}</span></button>`).join('')}</div></div>`;
-  const canNext = isMark ? !!S.codeMark : S.qAns != null;
+  const canNext = isCode ? true : isMark ? !!S.codeMark : S.qAns != null;
   const sec = q.remaining_s != null ? Math.max(0, q.remaining_s - Math.round((Date.now() - (S.qAt || Date.now())) / 1000)) : it.time_limit_s;
   return `
   ${crumbs([['Тест-квест', '/c/quest'], [(S.story ? 'Сцена ' : 'Задание ') + n]])}
@@ -902,14 +906,46 @@ function sceneView() {
       <div>${right}</div>
     </div>
     <div class="quest-foot">
-      <span>Ответ сохраняется сразу. Правильность не показываем до конца теста.</span>
+      <span>${isCode ? 'Решение проверяется на скрытых тестах после отправки, исправить его потом нельзя. Правильность не показываем до конца теста.' : 'Ответ сохраняется сразу. Правильность не показываем до конца теста.'}</span>
       <div class="row">
-        <button class="btn primary small" ${canNext ? '' : 'disabled'} data-act="qnext">Дальше</button>
+        <button class="btn primary small" ${canNext ? '' : 'disabled'} data-act="qnext">${isCode ? 'Отправить решение' : 'Дальше'}</button>
       </div>
     </div>
   </div>`;
 }
 V['/c/quest/go'] = sceneView;
+
+// задача на код: условие, открытые примеры, редактор (Python / TypeScript), «Запустить на примерах» — POST /api/quest/run
+const pyVal = v => v === true ? 'True' : v === false ? 'False' : v == null ? 'None' : Array.isArray(v) ? '[' + v.map(pyVal).join(', ') + ']' : JSON.stringify(v);
+const tsVal = v => Array.isArray(v) ? '[' + v.map(tsVal).join(', ') + ']' : JSON.stringify(v);
+const RUN_ST = { ok: 'верно', wrong: 'неверный ответ', tle: 'превышено время', mle: 'превышена память', re: 'ошибка выполнения', ce: 'ошибка компиляции', skip: 'не запускался' };
+const codeLang = () => S.qLang || 'python';
+function codeTask(it) {
+  const c = it.code, lang = codeLang(), fmt = lang === 'python' ? pyVal : tsVal, fn = c.entry[lang];
+  return `<p class="q">${esc(it.prompt)}</p>
+    <div class="stack-s">
+      <span class="label" style="color:var(--on-dark-2)">Примеры</span>
+      <div class="term">${c.examples.map(e => `${esc(fn)}(${esc(e.args.map(fmt).join(', '))}) → ${esc(fmt(e.expected))}`).join('\n')}</div>
+      <p class="small" style="color:var(--on-dark-2)">Ограничения: ${esc(c.constraints)}. Ожидаемая сложность — ${esc(c.complexity)}: в скрытых тестах есть большой.</p>
+      ${lang === 'typescript' ? `<p class="small" style="color:var(--on-dark-2)">${esc(c.ts_note)}</p>` : ''}
+    </div>`;
+}
+function codeEditor(it) {
+  const lang = codeLang(), code = S.qCode[lang] != null ? S.qCode[lang] : it.code.templates[lang], R = S.qRun;
+  const res = !R ? '' : `<div class="stack-s" id="run-res">
+      <b>Примеры: ${esc(R.passed)} из ${esc(R.total)}</b>
+      ${R.results.map((r, i) => `<span class="small">Пример ${i + 1} — ${esc(RUN_ST[r.status] || r.status)}${r.status === 'wrong' ? `: ожидалось ${esc(r.expected)}, получено ${esc(r.got == null ? '—' : r.got)}` : ''}${r.status === 'ok' ? ` · ${esc(r.time_ms)} мс` : ''}</span>`).join('')}
+      ${R.stderr ? `<div class="term">${esc(R.stderr)}</div>` : ''}
+      <span class="small" style="color:var(--on-dark-2)">Осталось запусков: ${esc(R.runs_left)}</span>
+    </div>`;
+  return `<div class="stack">
+    <div class="seg" role="group" aria-label="Язык решения">${[['python', 'Python'], ['typescript', 'TypeScript']].map(([v, t]) => `<button data-act="code-lang" data-v="${v}" aria-pressed="${v === lang}">${t}</button>`).join('')}</div>
+    <textarea class="code-ed" id="code-ed" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Решение">${esc(code)}</textarea>
+    <span class="hint" style="color:var(--on-dark-2)">Tab — отступ, Esc и затем Tab — выйти из редактора. Функция возвращает ответ, ввод и вывод не нужны.</span>
+    <div class="row"><button class="btn dark small" data-act="code-run">Запустить на примерах</button></div>
+    ${res}
+  </div>`;
+}
 
 V['/c/result'] = () => {
   const R = D.result;
@@ -2352,6 +2388,7 @@ function capture() {
   if (v('es-otp') != null) S.esignup.otp = v('es-otp').trim();
   if (v('need-text') != null) S.need.text = v('need-text');
   if (v('rv-comment') != null) S.qComment = v('rv-comment');
+  if (v('code-ed') != null) S.qCode[codeLang()] = v('code-ed');
   if (v('dc-comment') != null) S.dcComment = v('dc-comment');
   if (v('ap-note') != null) S.applyNote = v('ap-note');
   if (v('tk-answer') != null) S.answer = v('tk-answer');
@@ -2526,12 +2563,23 @@ const ACT = {
   },
   ans: (a, d) => { S.qAns = +d.i; rerender(); },
   mark: (a, d) => { S.codeMark = +d.line; rerender(); },
+  'code-lang': (a, d) => { S.qLang = d.v; S.qRun = null; rerender(); },
+  async 'code-run'() {
+    const it = S.quest.item, lang = codeLang();
+    S.qRun = await api('POST', '/api/quest/run', { item_id: it.id, lang, code: S.qCode[lang] != null ? S.qCode[lang] : it.code.templates[lang] });
+    rerender();
+  },
   async qnext() {
-    const it = S.quest.item;
-    S.quest = await api('POST', '/api/quest/answer', {
-      item_id: it.id, response: it.kind === 'choice' ? S.qAns : S.codeMark,
-      comment: it.comment ? S.qComment : null, ms: Date.now() - S.qShownAt,
-    });
+    const it = S.quest.item, lang = codeLang();
+    const body = it.kind === 'code'
+      ? { item_id: it.id, lang, code: S.qCode[lang] != null ? S.qCode[lang] : it.code.templates[lang], pasted: S.qPasted, ms: Date.now() - S.qShownAt }
+      : { item_id: it.id, response: it.kind === 'choice' ? S.qAns : S.codeMark, comment: it.comment ? S.qComment : null, ms: Date.now() - S.qShownAt };
+    try { S.quest = await api('POST', '/api/quest/answer', body); }
+    catch (e) {
+      if (e.status !== 503 || it.kind !== 'code') throw e;
+      toast(e.message);  // песочница недоступна: задание не засчитано, сервер уже выдал следующее
+      S.quest = await api('GET', '/api/quest/current');
+    }
     S.qAt = Date.now();
     render(); scrollTo(0, 0);
   },
@@ -2687,7 +2735,15 @@ Object.assign(ACT, { 'chat-send': chatSend, 'chat-more': chatMore });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) chatNudge(); });
 document.addEventListener('keydown', e => {
   if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
+  if (e.target.id === 'code-ed') {
+    // редактор кода: Tab — отступ; Esc, затем Tab — обычный переход фокуса (клавиатура не запирается в поле)
+    if (e.key === 'Escape') { S.edEsc = true; return; }
+    if (e.key === 'Tab' && !S.edEsc) { e.preventDefault(); e.target.setRangeText(codeLang() === 'python' ? '    ' : '  ', e.target.selectionStart, e.target.selectionEnd, 'end'); }
+    S.edEsc = false;
+  }
 });
+// вставка в редактор кода: сколько символов пришло из буфера (сигнал для флага code_pasted, на оценку не влияет)
+document.addEventListener('paste', e => { if (e.target.id === 'code-ed') S.qPasted += ((e.clipboardData && e.clipboardData.getData('text')) || '').length; });
 
 addEventListener('hashchange', () => { closeMap(); show(); });
 

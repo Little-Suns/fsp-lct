@@ -238,12 +238,14 @@ def _bank(db: Session, spec: str = "Backend") -> list[SimpleNamespace]:
             for it in db.scalars(select(Item).where(Item.spec == spec, Item.pilot.is_(False)).order_by(Item.id))]
 
 
-def _session(bank, p_correct, rng: random.Random):
-    """Адаптивная сессия как irt.simulate_session, но с произвольной моделью ответа p_correct(item)."""
+def _session(bank, p_correct, rng: random.Random, code_only: bool = False):
+    """Адаптивная сессия как irt.simulate_session, но с произвольной моделью ответа p_correct(item).
+    code_only — тест только из задач на код (сколько даст LLM, если бы тест был целиком из них)."""
     seen_ids, seen_fam, resp = set(), set(), []
     theta, se = 0.0, 1.0
     while not irt.should_stop(len(resp), se):
-        it = irt.next_item(theta, bank, seen_ids, seen_fam, rng)
+        it = (irt.next_item(theta, bank, seen_ids, seen_fam, rng, code=True) if code_only
+              else irt.choose(theta, bank, seen_ids, seen_fam, rng, len(resp)))
         if it is None:
             break
         seen_ids.add(it.id)
@@ -255,8 +257,11 @@ def _session(bank, p_correct, rng: random.Random):
 
 def _cheater_p(it) -> float:
     """LLM-«читер» (модель ответа, без реального прогона LLM): варианты без контекста — 0,9 независимо от b;
-    ревью/разметка кода с тонкими багами — как человек с θ = −0,5; логи и графики — как θ = −0,3.
+    ревью/разметка кода с тонкими багами — как человек с θ = −0,5; логи и графики — как θ = −0,3;
+    задачи на код (стандартные алгоритмы) — 0,95 независимо от b: их LLM решает почти всегда.
     # ponytail: вероятности заданы руками; заменить долями верных ответов реальной 32B-модели на банке"""
+    if irt.is_code(it):
+        return 0.95
     if it.kind in ("review", "mark"):
         return float(irt.prob(-0.5, it.a, it.b))
     if it.ctx:
@@ -269,12 +274,13 @@ def cheater(bank, seed: int) -> dict:
         ("choice", "Вопросы с вариантами", [it for it in bank if it.kind == "choice" and not it.ctx]),
         ("review", "Ревью кода с тонкими багами", [it for it in bank if it.kind in ("review", "mark")]),
         ("context", "Задачи с контекстом (логи, графики)", [it for it in bank if it.ctx]),
+        ("code", "Задачи на код (песочница)", [it for it in bank if irt.is_code(it)]),
         ("mixed", "Смешанный боевой тест", bank),
     ]
     rows, mixed = [], []
     for key, label, sub in subsets:
         rng = random.Random(f"{seed}:cheat:{key}")
-        runs = [_session(sub, _cheater_p, rng) for _ in range(N_CHEAT)]
+        runs = [_session(sub, _cheater_p, rng, code_only=key == "code") for _ in range(N_CHEAT)]
         t, se = float(np.mean([r[0] for r in runs])), float(np.mean([r[1] for r in runs]))
         rows.append({"key": key, "label": label, "grade": catalog.grade_from_theta(t, se), "theta": round(t, 2), "se": round(se, 2)})
         if key == "mixed":
