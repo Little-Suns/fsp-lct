@@ -63,12 +63,12 @@ def validate_fork(salary_from: int | None, salary_to: int | None, *, p25: int, c
     if salary_from > salary_to:
         errors.append("Нижняя граница больше верхней.")
     if salary_from < p25:
-        errors.append(f"Нижняя граница ниже 25-го перцентиля рынка для {grade} ({rub(p25)}).")
+        errors.append(f"Нижняя граница ниже 25-го перцентиля рынка для {grade} ({rub(p25)} на руки).")
     if (salary_to - salary_from) / salary_from > catalog.FORK_MAX_WIDTH:
         errors.append(f"Вилка слишком широкая: верхняя граница не больше нижней + {round(catalog.FORK_MAX_WIDTH * 100)} %.")
     if cand_min and salary_to < cand_min:
         p = f"{matching.accept_prob(salary_to, cand_min, True, 1.0):.2f}".replace(".", ",")
-        warnings.append(f"Верхняя граница ниже минимума кандидата ({rub(cand_min)}). Вероятность принятия упадёт примерно до {p}.")
+        warnings.append(f"Верхняя граница ниже минимума кандидата ({rub(cand_min)} на руки). Вероятность принятия упадёт примерно до {p}.")
     return errors, warnings
 
 
@@ -227,7 +227,8 @@ def _need_out(n: Need) -> dict:
 
 
 def _category_count(db: Session, spec: str, track: str | None, grade: str) -> int:
-    q = select(func.count()).select_from(Candidate).where(Candidate.spec == spec, Candidate.grade == grade, Candidate.status == "open", Candidate.theta.is_not(None), matching.published())
+    # вместе с не подтверждёнными тестом: они в выдаче, с пометкой и ниже прошедших
+    q = select(func.count()).select_from(Candidate).where(Candidate.spec == spec, matching.category_grade_sql() == grade, Candidate.status == "open", matching.published())
     if track:
         q = q.where(Candidate.track == track)
     return db.scalar(q)
@@ -237,10 +238,10 @@ def _market_hint(salary_to: int | None, mkt: dict) -> str | None:
     if not salary_to:
         return None
     if salary_to >= mkt["p50"]:
-        return f"Ваша вилка выше медианы рынка ({rub(mkt['p50'])})."
+        return f"Ваша вилка выше медианы рынка ({rub(mkt['p50'])} на руки)."
     if salary_to >= mkt["p25"]:
-        return f"Верхняя граница ниже медианы рынка ({rub(mkt['p50'])}): часть кандидатов откажет по зарплате."
-    return f"Верхняя граница ниже 25-го перцентиля рынка ({rub(mkt['p25'])}): приглашения не пройдут проверку вилки."
+        return f"Верхняя граница ниже медианы рынка ({rub(mkt['p50'])} на руки): часть кандидатов откажет по зарплате."
+    return f"Верхняя граница ниже 25-го перцентиля рынка ({rub(mkt['p25'])} на руки): приглашения не пройдут проверку вилки."
 
 
 @router.post("/needs/parse")
@@ -308,10 +309,11 @@ def _categories(db: Session, n: Need) -> list[dict]:
     """Рекомендованные категории: точная, соседние треки того же грейда, тот же трек грейдом выше/ниже."""
     gi = catalog.GRADES.index(n.grade)
     grades = catalog.GRADES[max(0, gi - 1) : gi + 2]
+    cg = matching.category_grade_sql()
     rows = db.execute(
-        select(Candidate.track, Candidate.grade, func.count())
-        .where(Candidate.spec == n.spec, Candidate.grade.in_(grades), Candidate.status == "open", Candidate.theta.is_not(None), matching.published())
-        .group_by(Candidate.track, Candidate.grade)
+        select(Candidate.track, cg, func.count())
+        .where(Candidate.spec == n.spec, cg.in_(grades), Candidate.status == "open", matching.published())
+        .group_by(Candidate.track, cg)
     ).all()
     counts = {(t, g): k for t, g, k in rows}
     picks = [(n.track, n.grade)]
@@ -408,10 +410,10 @@ def candidate_card(public_id: str, need_id: int | None = None, co: Company = Dep
     if r is None:
         out["load"] = matching.candidate_loads(db, [c.id])[c.id]
         out["busy"] = out["load"] >= catalog.CANDIDATE_CAP
-    out["competencies"] = c.competencies or []
+    out["competencies"] = (c.competencies or []) if matching.tested(c) else []
     out["explanation"] = r.explanation if r else None
     out["breakdown"] = r.explanation["parts"] if r else None
-    out["market"] = catalog.market(c.spec, c.grade, n.city if n else c.city)
+    out["market"] = catalog.market(c.spec, matching.category_grade(c), n.city if n else c.city)
     out["invited"] = _invited(db, co, [c.id]).get(c.id)
     out["chat_peer"] = c.public_id if peers_linked(db, "employer", co.id, [c.id]) and may_talk(c, co) else None
     out["cap"] = catalog.CANDIDATE_CAP
@@ -447,21 +449,23 @@ def search(
     co: Company = Depends(current_company),
     db: Session = Depends(get_db),
 ):
-    """Поиск по всему банку без потребности: фильтры + ранжирование по силе подтверждённого профиля (matching.strength).
+    """Поиск по всему банку без потребности: фильтры + ранжирование по силе подтверждённого профиля (matching.strength);
+    не подтверждённые тестом — после прошедших (matching.search_key), грейд у них — заявленный.
     q — свободный текст, из него берутся навыки справочника. Фасеты spec/grade считаются без своего фильтра."""
     want = list(dict.fromkeys(canon_skills(skills.split(",")) + extract_skills(q))) if skills or q else []
     base = db.scalars(
         select(Candidate)
-        .where(Candidate.status == "open", Candidate.theta.is_not(None), matching.published())
+        .where(Candidate.status == "open", matching.published())
         .options(selectinload(Candidate.achievements), selectinload(Candidate.accounts))
     ).all()
+    attr = {"spec": lambda c: c.spec, "grade": matching.category_grade}
 
     def ok(c: Candidate, skip: str | None = None) -> bool:
         have = set(c.skills_confirmed or []) | set(c.skills_claimed or [])
         return (
             matching.visible(c, co)
             and (skip == "spec" or not spec or c.spec == spec)
-            and (skip == "grade" or not grade or c.grade == grade)
+            and (skip == "grade" or not grade or matching.category_grade(c) == grade)
             and (not track or c.track == track)
             and (not want or bool(have & set(want)))
             and (not fsp or _has(c, "fsp"))
@@ -471,7 +475,7 @@ def search(
             and (not city or c.city == city)
         )
 
-    found = sorted((c for c in base if ok(c)), key=lambda c: (-matching.strength(c, want), c.public_id))
+    found = sorted((c for c in base if ok(c)), key=lambda c: matching.search_key(c, want))
     page_items = found[(page - 1) * limit : page * limit]
     loads = matching.candidate_loads(db, [c.id for c in page_items])
     invited = _invited(db, co, [c.id for c in page_items])
@@ -481,7 +485,7 @@ def search(
         card.update(rank=i, strength=round(matching.strength(c, want), 3), load=loads[c.id], busy=loads[c.id] >= catalog.CANDIDATE_CAP, invited=invited.get(c.id))
         card["matched"] = [k for k in want if k in (c.skills_confirmed or [])]
         items.append(card)
-    facet = lambda attr: dict(sorted(Counter(getattr(c, attr) for c in base if ok(c, skip=attr)).items()))  # noqa: E731
+    facet = lambda k: dict(sorted(Counter(attr[k](c) for c in base if ok(c, skip=k)).items()))  # noqa: E731
     return {"items": items, "total": len(found), "page": page, "limit": limit, "skills": want, "facets": {"spec": facet("spec"), "grade": facet("grade")}, "cap": catalog.CANDIDATE_CAP}
 
 
@@ -560,8 +564,9 @@ def send_invite(body: InviteIn, co: Company = Depends(current_company), db: Sess
     base_fmt = next((f for f in catalog.FORMATS if body.format.startswith(f)), None)
     if not base_fmt:
         raise HTTPException(422, {"errors": [f"Формат начинается с одного из: {', '.join(catalog.FORMATS)}"], "warnings": []})
-    mkt = catalog.market(c.spec, c.grade, (n.city if n else None) or c.city)
-    errors, warnings = validate_fork(body.salary_from, body.salary_to, p25=mkt["p25"], cand_min=c.min_salary, grade=c.grade)
+    grade = matching.category_grade(c)  # без теста — заявленный: вилка по рынку того грейда, о котором договариваются
+    mkt = catalog.market(c.spec, grade, (n.city if n else None) or c.city)
+    errors, warnings = validate_fork(body.salary_from, body.salary_to, p25=mkt["p25"], cand_min=c.min_salary, grade=grade)
     if errors:
         raise HTTPException(422, {"errors": errors, "warnings": warnings})
     if not matching.format_ok(c.formats, c.city, base_fmt, (n.city if n else None) or c.city):

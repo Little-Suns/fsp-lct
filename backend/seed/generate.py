@@ -413,6 +413,7 @@ CANDS = [
      2105, 320000, ["Гибрид"], "Москва", 3),
 ]
 COHORT = 30
+UNTESTED_SHARE = 0.08  # синтетика без пройденного теста: видна работодателям с пометкой «грейд не подтверждён», ниже прошедших
 PERSONA_LOAD = {"B-2318": 4, "D-3390": 2, "E-1187": 1}  # открытые приглашения от других компаний, как в макете
 LADOGA_NEED = {
     "text": "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. "
@@ -447,6 +448,13 @@ def persona(g: Gen, pid, pct, theta, se, skills, months, *, claimed=None, name=N
                   truth={"theta_true": theta, "skills_true": skills, "inflated": False, "spec": "Backend",
                          "track": "Python", "grade_true": "Middle"}, **kw)
     c.cv_text = g.cv("Backend", "Python", "Middle", c.years_exp, c.city, c.formats, c.skills_claimed)
+    return c
+
+
+def untest(c: Candidate) -> Candidate:
+    """Кандидат без пройденного теста: категория — по заявленному грейду, ни θ, ни перцентиля, ни компетенций."""
+    c.grade = c.theta = c.se = c.percentile = c.tested_at = c.next_upgrade_at = None
+    c.competencies, c.skills_confirmed, c.review_passed = [], [], False
     return c
 
 
@@ -497,6 +505,19 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
                     min_salary=sal, formats=["Гибрид", "Удалённо"], city="Москва", **kw)
         personas[pid] = c
     personas["F-0911"].email = "a.smirnova@example.ru"
+    # свой генератор (общие множества id, почт и handle): основной поток случайных чисел не сдвигается
+    gx = Gen(seed + 2)
+    gx.ids, gx.handles, gx.emails = g.ids, g.handles, g.emails
+    # тест не пройден: в подборке «Ладога Пэй» — с пометкой «грейд не подтверждён тестом», после прошедших
+    k = persona(gx, "K-2077", None, 0.0, 0.0, [], 0, claimed=["Python", "PostgreSQL", "Kafka", "Docker"], min_salary=240000,
+                formats=["Гибрид", "Удалённо"], city="Москва")
+    k.truth["skills_true"] = k.skills_claimed
+    # заявил Senior, тест показал Middle: в категории Middle, в карточке — «заявлен Senior»
+    lo = persona(gx, "L-3141", 64, 0.8, 0.22, ["Python", "PostgreSQL", "Kafka"], 2, claimed=["Python", "PostgreSQL", "Kafka", "Go"],
+                 min_salary=260000, formats=["Гибрид"], city="Москва")
+    lo.grade_claimed = "Senior"
+    lo.cv_text = gx.cv("Backend", "Python", "Senior", lo.years_exp, lo.city, lo.formats, lo.skills_claimed)
+    personas.update({"K-2077": untest(k), "L-3141": lo})
 
     # ── синтетические кандидаты ──
     cands = [g.candidate() for _ in range(n_cand - COHORT)]
@@ -514,10 +535,13 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
     rs = np.random.default_rng(seed + 1)
     for c in cands:
         c.roles, c.soft_skills = soft_profile(rs, c.grade_claimed, c.spec)
+    # без теста — из общей массы (не из когорты демо); поля теста стираются в конце, после истории приглашений и решений
+    untested = {id(c) for c in cands[: len(cands) - COHORT] if gx.rng.random() < UNTESTED_SHARE}
     by_spec: dict[str, list[Candidate]] = {}
     for c in cands:
         by_spec.setdefault(c.spec, []).append(c)
-    for group in by_spec.values():  # перцентиль θ внутри специализации
+    for group in by_spec.values():  # перцентиль θ внутри специализации — среди прошедших тест
+        group = [c for c in group if id(c) not in untested]
         ranks = np.argsort(np.argsort([c.theta for c in group]))
         for c, rk in zip(group, ranks):
             c.percentile = int(round(100 * (rk + 0.5) / len(group)))
@@ -642,7 +666,7 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
             reason = "salary" if c.min_salary > nd.salary_to else g.pick(["stack", "format", "not_looking", "company"], p=[.35, .3, .2, .15])
         fb = g.pick([None, "confirmed", "not_confirmed", "hired"], p=[.5, .3, .08, .12]) if st == "accepted" else None
         add(invitation(nd.company, c, nd, st, NOW - DAY * float(r.uniform(8, 150)), reason=reason, feedback=fb))
-    stars = sorted(open_c, key=lambda c: -c.theta)[:15]
+    stars = sorted((c for c in open_c if id(c) not in untested), key=lambda c: -c.theta)[:15]
     for c in stars:
         for _ in range(50):
             if load[id(c)] >= C.CANDIDATE_CAP:
@@ -656,6 +680,9 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
             add(invitation(nd.company, c, nd, g.pick(["sent", "seen"], p=[.6, .4]), NOW - DAY * float(r.uniform(0, 6.5))))
 
     more = extras(db, g, ladoga, kiprey, lad_need, companies, hq, orlov, cands)
+    for c in cands:
+        if id(c) in untested:
+            untest(c)
     for c in [*personas.values(), *cands]:  # версия текста — своя у каждой цели согласия
         c.consent_publish_version = C.CONSENT_VERSION if c.consent_publish else None
         c.consent_external_version = C.CONSENT_VERSION if c.consent_external else None
@@ -860,10 +887,11 @@ def summary(db, res: dict, secs: float) -> None:
     n = len(cands)
     cf_c, ratings, alg = res["cf"]
     rho = float(np.corrcoef(alg, ratings)[0, 1]) if len(cf_c) > 2 else float("nan")
-    gt = sum(c.grade == c.truth["grade_true"] for c in cands) / n
+    tested = [c for c in cands if c.theta is not None]
+    gt = sum(c.grade == c.truth["grade_true"] for c in tested) / max(1, len(tested))
     print(f"\nС достижениями: {sum(bool(c.achievements) for c in cands) / n:.0%} · с CF: {len(cf_c) / n:.0%} (ρ рейтинг~Алгоритмы = {rho:.2f})"
           f" · завышенные резюме: {sum(c.truth['inflated'] for c in cands) / n:.0%} · open: {sum(c.status == 'open' for c in cands) / n:.0%}")
-    print(f"Грейд теста = истинному: {gt:.0%} (остальные — ниже из-за θ − SE) · городов: {len({c.city for c in cands})} · "
+    print(f"Без теста: {1 - len(tested) / n:.0%} · грейд теста = истинному: {gt:.0%} (остальные — ниже из-за θ − SE) · городов: {len({c.city for c in cands})} · "
           f"Москва {sum(c.city == 'Москва' for c in cands) / n:.0%}")
     print(f"Потребности по типам: {dict(res['kinds'])}")
     print(f"Приглашения по статусам: {dict(Counter(i.status for i in res['invs']))}")

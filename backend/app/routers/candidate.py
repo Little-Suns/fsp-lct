@@ -49,6 +49,10 @@ class ProfileIn(BaseModel):
     consent_152: bool = False
     consent_publish: bool | None = None  # показывать обезличенную карточку работодателям; None — не менять
     consent_external: bool | None = None  # None — не менять; False — отзыв, внешние данные удаляются
+    # резюме, загруженное до создания профиля: POST /cv без профиля ничего не хранит и возвращает текст, клиент
+    # присылает его здесь — сохраняется только вместе с согласием на обработку; у существующего профиля игнорируется
+    cv_text: str | None = Field(default=None, max_length=CV_MAX_CHARS)
+    cv_filename: str | None = Field(default=None, max_length=255)
 
 
 class ConsentsIn(BaseModel):
@@ -191,6 +195,8 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
     if body.soft_skills is not None:
         c.soft_skills = canon_terms(body.soft_skills, catalog.SOFT_SKILLS)
     if new:
+        if body.cv_text and body.cv_text.strip():
+            c.cv_text, c.cv_filename = body.cv_text.strip(), body.cv_filename or "resume.pdf"
         db.flush()  # нужен id для журнала согласий
         _set_consent(db, c, "processing", True, force=True)
         _set_consent(db, c, "publish", bool(body.consent_publish), force=True)
@@ -267,8 +273,10 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
 
 
 @router.post("/cv")
-async def upload_cv(file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """PDF → текст → разбор. Возвращает распознанное для правки; профиль сам не меняет (кроме текста резюме)."""
+async def upload_cv(response: Response, file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """PDF → текст → разбор. Возвращает распознанное для правки; профиль сам не меняет (кроме текста резюме).
+    Профиля ещё нет (нет и согласия на обработку) — сервер ничего не хранит: текст уходит в ответе (`text`),
+    клиент передаёт его в POST /profile вместе с согласием, и резюме сохраняется уже у созданного кандидата."""
     c = db.scalar(select(Candidate).where(Candidate.user_id == user.id))
     _require_152(c)
     data = await file.read(CV_MAX_BYTES + 1)
@@ -282,10 +290,14 @@ async def upload_cv(file: UploadFile = File(...), user: User = Depends(current_u
         raise HTTPException(422, "Не удалось прочитать PDF") from e
     if not text:
         raise HTTPException(422, "В PDF нет текстового слоя (скан?). Заполните поля вручную")
+    out = {"filename": file.filename, "chars": len(text), "parsed": await run_in_threadpool(parse_cv, text)}
     if c:
         c.cv_filename, c.cv_text = file.filename, text
         db.commit()
-    return {"filename": file.filename, "chars": len(text), "parsed": await run_in_threadpool(parse_cv, text)}
+    else:
+        out["text"] = text  # своё же резюме — назад кандидату, до согласия ничего не храним
+        response.headers.update(NO_STORE)
+    return out
 
 
 @router.get("/profile.pdf")

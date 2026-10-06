@@ -495,6 +495,10 @@ const trace = (cls, w, h, d, dots) => `<svg class="trace ${cls}" width="${w}" he
 const catTag = (s = ME && ME.spec, t = ME && ME.track, g = ME && (ME.grade || ME.grade_claimed)) => `<span class="cat">${[s, t, g].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</span>`;
 const BADGE = { fsp: 'ФСП', hackathon: 'Хакатон', ctftime: 'CTF' };
 // бейджи достижений на анонимной карточке: ФСП / хакатон / CTF + рейтинг Codeforces
+// грейд категории без теста — со слов кандидата; тест показал не тот грейд, что заявлен, — видны оба
+const gradeNote = c => c.grade_tested === false ? '<span class="chip warn">грейд не подтверждён тестом</span>'
+  : c.grade_claimed && c.grade_claimed !== c.grade ? `<span class="chip dim">заявлен ${esc(c.grade_claimed)}, тест — ${esc(c.grade)}</span>` : '';
+const claimedChips = c => c.grade_tested === false ? (c.claimed || []).map(s => `<span class="chip dim">${esc(s)}</span>`).join('') : '';
 const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] : [])).filter((b, i, arr) => BADGE[b.source] && arr.findIndex(x => x.source === b.source) === i).map(b => `<span class="chip ok" title="${esc(b.title)}">${BADGE[b.source]}</span>`).join('') + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
 
 // разделы кабинета: одна строка чипов под хлебными крошками
@@ -988,7 +992,7 @@ V['/c/home'] = () => {
             <button data-act="status" data-v="off" aria-pressed="${ME.status === 'off'}">Не ищу</button>
           </div>
         </div>
-        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: без категории профиль не попадает в подборки. <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
+        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля. <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
         ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
           ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`
@@ -1002,7 +1006,7 @@ V['/c/home'] = () => {
           <span class="stack-s" style="gap:2px;min-width:0">
             <b>${esc(inv.role)}</b>
             <span class="small muted">${esc(inv.company)} · ${esc(inv.format)}</span>
-            <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)}</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
+            <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)} на руки</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
           </span>
           <span class="stack-s" style="align-items:flex-end">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
         </button>`).join('') || (invErr ? '' : '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>')}
@@ -1175,7 +1179,7 @@ V['/c/settings'] = () => {
 };
 
 /* ---------- вакансии (кандидат) ---------- */
-const vacMeta = v => `${K(v.from)} — ${K(v.to)} · ${esc([v.format, v.city].filter(Boolean).join(', '))}`;
+const vacMeta = v => `${K(v.from)} — ${K(v.to)} на руки · ${esc([v.format, v.city].filter(Boolean).join(', '))}`;
 const vacChips = v => `${coChip(v.company)}${v.fork_vs_min === false ? '<span class="chip warn">вилка ниже вашего минимума</span>' : ''}${v.applied ? appChip(v.applied) : ''}`;
 
 V['/c/vacancies'] = () => {
@@ -1234,7 +1238,7 @@ function cVacancyView() {
         <h2>${esc(v.title)}</h2>
         <div class="row">${catTag(v.spec, v.track, v.grade)}${v.status !== 'open' ? '<span class="status s-exp">закрыта</span>' : ''}</div>
         <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px">${RUB(v.from)} — ${RUB(v.to)}</b></div>
-        ${v.fork_vs_min === false ? `<div class="alert warn">Верхняя граница ниже вашего минимума (${RUB(ME.min)}).</div>` : v.fork_vs_min ? `<div class="alert ok">Вилка покрывает ваш минимум ${RUB(ME.min)}.</div>` : ''}
+        ${v.fork_vs_min === false ? `<div class="alert warn">Верхняя граница ниже вашего минимума (${RUB(ME.min)} на руки).</div>` : v.fork_vs_min ? `<div class="alert ok">Вилка покрывает ваш минимум ${RUB(ME.min)} на руки.</div>` : ''}
         <dl class="kv">
           <dt>Формат</dt><dd>${esc([v.format, v.city].filter(Boolean).join(', '))}</dd>
           <dt>Обязательно</dt><dd><div class="chips">${v.must.map(s => `<span class="chip ${(ME.skills_confirmed || []).includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('') || '—'}</div></dd>
@@ -1474,6 +1478,7 @@ V['/e/need'] = () => {
     <aside class="panel tight stack-s">
       ${mk ? `<span class="label">Рынок · ${esc(p.spec)} · ${esc(p.grade)} · ${esc(p.city || 'Москва')}</span>
       <dl class="kv small num" style="grid-template-columns:auto 1fr"><dt>25-й перцентиль</dt><dd>${RUB(mk.p25)}</dd><dt>медиана</dt><dd>${RUB(mk.p50)}</dd><dt>75-й перцентиль</dt><dd>${RUB(mk.p75)}</dd></dl>
+        <span class="hint">на руки</span>
       <span class="demo-tag">демо-данные</span>` : '<span class="label">Рынок</span><p class="small muted">Перцентили зарплат для категории появятся после разбора.</p>'}
     </aside>
   </div>`;
@@ -1492,7 +1497,7 @@ function lotteryPanel(n) {
       <div class="parsed">
         <span class="label">Категория</span>${th}
         <span class="label">Навыки, подтверждённые тестом</span><div class="chips">${n.must.map(s => `<button class="chip ${L.must.includes(s) ? 'on' : ''}" data-act="lot-skill" data-v="${esc(s)}">${esc(s)}</button>`).join('') || '<span class="small muted">не заданы</span>'}</div>
-        <span class="label">Ожидания не выше</span><div><input class="input num" id="lot-fork" value="${L.fork_to ? RUB(L.fork_to) : ''}" style="max-width:180px"></div>
+        <span class="label">Ожидания на руки не выше</span><div><input class="input num" id="lot-fork" value="${L.fork_to ? RUB(L.fork_to) : ''}" style="max-width:180px"></div>
         <span class="label">Сколько выбрать</span><div><input class="input num" id="lot-k" inputmode="numeric" value="${L.draw_count}" style="max-width:80px"></div>
       </div>
       <button class="switch" role="switch" aria-checked="${L.require_free}" data-act="lot-free"><i></i> Только без перегрузки (меньше ${CAP} открытых приглашений)</button>
@@ -1534,7 +1539,7 @@ V['/e/picks'] = () => {
   ${subnav('e')}
   ${unverifiedBanner()}
   <div class="row sb fade" style="margin-bottom:16px">
-    <div class="stack-s"><h2>${esc(roleTitle(n))}</h2><span class="small muted">${esc(n.must.join(', '))}${n.nice.length ? ' · желательно ' + esc(n.nice.join(', ')) : ''} · ${K(n.from)} — ${K(n.to)}${n.format ? ' · ' + esc([n.format.toLowerCase(), n.city].filter(Boolean).join(', ')) : ''}</span></div>
+    <div class="stack-s"><h2>${esc(roleTitle(n))}</h2><span class="small muted">${esc(n.must.join(', '))}${n.nice.length ? ' · желательно ' + esc(n.nice.join(', ')) : ''} · ${K(n.from)} — ${K(n.to)} на руки${n.format ? ' · ' + esc([n.format.toLowerCase(), n.city].filter(Boolean).join(', ')) : ''}</span></div>
     <div class="row"><button class="btn ghost small" data-go="/e/need">Изменить потребность</button><button class="btn ghost small" data-go="/e/pipeline">Приглашения</button></div>
   </div>
   <div class="grid side-l">
@@ -1565,18 +1570,18 @@ V['/e/picks'] = () => {
       <div class="row sb small muted"><span>${list.length} в топе из ${P.total} · сортировка по итоговой оценке</span><span>Без ФИО, пола, возраста, вуза и фото</span></div>
       ${list.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
           <div class="stack-s" style="min-width:0">
-            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
-            <div class="chips">${c.skills.map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
+            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
+            <div class="chips">${c.skills.map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${claimedChips(c)}${badgeChips(c)}</div>
           </div>
           <div class="score"><b class="num">${c.score.toFixed(2)}</b><span class="small muted">итог</span></div>
           <div class="facts">
             <div><span class="muted">Перцентиль</span><b class="num">${c.pct ?? '—'}</b></div>
             <div><span class="muted">Соответствие</span><b class="num">${c.match.toFixed(2)}</b></div>
-            <div><span class="muted">Примет</span><b class="num">${c.accept.toFixed(2)}</b><span style="color:${c.inFork ? 'var(--ok)' : 'var(--warn)'}">${c.inFork ? 'вилка ок' : 'ждёт ' + K(c.salary)}</span></div>
+            <div><span class="muted">Примет</span><b class="num">${c.accept.toFixed(2)}</b><span style="color:${c.inFork ? 'var(--ok)' : 'var(--warn)'}">${c.inFork ? 'вилка ок' : 'ждёт от ' + K(c.salary) + ' на руки'}</span></div>
             <div><span class="muted">Нагрузка</span><b class="num" style="color:${c.busy ? 'var(--red)' : 'inherit'}">${c.load} / ${CAP}</b>${c.busy ? '<span style="color:var(--red)">много предложений</span>' : ''}</div>
           </div>
         </button>`).join('') || '<div class="panel">Под фильтры никто не подходит. Снимите один из фильтров.</div>'}
-      <p class="small muted">Итог = соответствие × (0,5 + 0,5 · вероятность принятия) × поправка на нагрузку. Подробности — в карточке.</p>
+      <p class="small muted">Итог = соответствие × (0,5 + 0,5 · вероятность принятия) × поправка на нагрузку. Кандидаты без пройденного теста — в категории по заявленному грейду, с пометкой «грейд не подтверждён тестом» и всегда после прошедших тест. Подробности — в карточке.</p>
     </div>
   </div>`;
 };
@@ -1760,13 +1765,14 @@ function candView() {
     <div class="stack">
       <div class="panel stack">
         <div class="row sb">
-          <div class="stack-s"><h2>Кандидат ${esc(c.id)}</h2><div class="row">${catTag(c.spec, c.track, c.grade)}<span class="small muted">грейд подтверждён ${esc(c.confirmed || '—')}</span></div></div>
+          <div class="stack-s"><h2>Кандидат ${esc(c.id)}</h2><div class="row">${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${c.grade_tested === false ? '' : `<span class="small muted">грейд подтверждён ${esc(c.confirmed || '—')}</span>`}</div></div>
           <div class="row" style="gap:24px">
             <div class="stat"><span class="label">Перцентиль</span><b>${c.pct ?? '—'}</b></div>
             <div class="stat"><span class="label">θ</span><b class="num" style="font-size:20px">${esc(c.theta)}</b></div>
           </div>
         </div>
         <div class="chips">${badgeChips(c)}</div>
+        ${c.grade_tested === false ? `<div class="alert warn"><span>!</span><span>Тест не пройден: грейд ${esc(c.grade)} заявлен кандидатом. Перцентиля, θ и компетенций нет; в подборке и поиске такие кандидаты идут после прошедших тест, в лотерею не попадают. Навыки — со слов кандидата: ${esc((c.claimed || []).join(', ')) || '—'}.</span></div>` : ''}
       </div>
       <div class="panel stack">
         <h3>Почему в подборке</h3>
@@ -1774,15 +1780,15 @@ function candView() {
           ${e && e.why ? `<div class="alert info"><span>→</span><span>${esc(e.why)}</span></div>` : ''}
           <div class="alert ok"><span>✓</span><span>Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}</span></div>
           ${c.gaps.map(g => `<div class="alert warn"><span>!</span><span>${esc(g)}</span></div>`).join('')}
-          ${c.inFork != null ? `<div class="alert ${c.inFork ? 'ok' : 'warn'}"><span>${c.inFork ? '✓' : '!'}</span><span>Ожидания ${RUB(c.salary)} ${c.inFork ? 'внутри вашей вилки' : 'выше вашей вилки: вероятность принятия ниже'}</span></div>` : ''}
+          ${c.inFork != null ? `<div class="alert ${c.inFork ? 'ok' : 'warn'}"><span>${c.inFork ? '✓' : '!'}</span><span>Ожидания от ${RUB(c.salary)} на руки ${c.inFork ? '— внутри вашей вилки' : '— выше вашей вилки: вероятность принятия ниже'}</span></div>` : ''}
           <div class="alert ${c.fmtOk === false ? 'warn' : 'ok'}"><span>${c.fmtOk === false ? '!' : '✓'}</span><span>Формат: ${esc(c.format)}</span></div>
           ${ach.length ? `<div class="alert info"><span>★</span><span>${esc(ach.join(' · '))}</span></div>` : '<div class="alert info"><span>·</span><span>Внешних достижений нет. Это не снижает позицию: оценка по тесту.</span></div>'}
         </div>
       </div>
-      <div class="panel">
+      ${c.grade_tested === false ? '' : `<div class="panel">
         <div class="row sb"><h3>Компетенции</h3><span class="muted small">θ ± погрешность</span></div>
         <div style="margin-top:18px">${compRows(c.competencies)}</div>
-      </div>
+      </div>`}
     </div>
     <aside class="stack">
       ${b ? `<div class="panel tight stack-s">
@@ -1830,9 +1836,9 @@ function inviteFormView() {
   if (!f.from || !f.to) errs.push('Укажите обе границы вилки.');
   else {
     if (f.from > f.to) errs.push('Нижняя граница больше верхней.');
-    if (f.from < mk.p25) errs.push(`Нижняя граница ниже 25-го перцентиля рынка для ${c.grade} (${RUB(mk.p25)}).`);
+    if (f.from < mk.p25) errs.push(`Нижняя граница ниже 25-го перцентиля рынка для ${c.grade} (${RUB(mk.p25)} на руки).`);
     if ((f.to - f.from) / f.from > maxW) errs.push(`Вилка слишком широкая: верхняя граница не больше нижней + ${Math.round(maxW * 100)} %.`);
-    if (f.to < c.salary) warns.push(`Верхняя граница ниже минимума кандидата (${RUB(c.salary)}). Вероятность принятия упадёт примерно до ${DEC(acceptProb(f.to, c.salary))}.`);
+    if (f.to < c.salary) warns.push(`Верхняя граница ниже минимума кандидата (${RUB(c.salary)} на руки). Вероятность принятия упадёт примерно до ${DEC(acceptProb(f.to, c.salary))}.`);
   }
   if (f.server) { errs.push(...f.server.errors.filter(x => !errs.includes(x))); warns.push(...f.server.warnings.filter(x => !warns.includes(x))); }
   const q = D.quota || { used: 0, max: 1 };
@@ -1867,11 +1873,12 @@ function inviteFormView() {
       <div class="panel tight stack-s">
         <span class="label">Рынок · ${esc(c.spec)} · ${esc(c.grade)}</span>
         <dl class="kv small num" style="grid-template-columns:auto 1fr"><dt>25-й перцентиль</dt><dd>${RUB(mk.p25)}</dd><dt>медиана</dt><dd>${RUB(mk.p50)}</dd><dt>75-й перцентиль</dt><dd>${RUB(mk.p75)}</dd></dl>
+        <span class="hint">на руки</span>
         <span class="demo-tag">демо-данные</span>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Кандидат ожидает</span>
-        <p class="num"><b>от ${RUB(c.salary)}</b></p>
+        <p class="num"><b>от ${RUB(c.salary)} на руки</b></p>
         <span class="small muted">${esc(c.format)}</span>
       </div>
     </aside>
@@ -1895,7 +1902,7 @@ V['/e/pipeline'] = () => {
   <div class="row sb fade" style="margin-bottom:16px"><h2>Приглашения</h2><span class="small muted num">квота ${q.used} / ${q.max}${q.accepted_share != null ? ' · принято ' + PCT(q.accepted_share) : ''}</span></div>
   <div class="panel" style="padding:8px 12px">
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Кандидат</th><th>Роль</th><th class="num">Вилка</th><th>Отправлено</th><th>Статус</th><th>Контакты</th><th>После собеседования</th></tr></thead>
+      <thead><tr><th>Кандидат</th><th>Роль</th><th class="num">Вилка на руки</th><th>Отправлено</th><th>Статус</th><th>Контакты</th><th>После собеседования</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}">${esc(r.cid)}</button> ${chatBtn('e', r.chat_peer)}${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
         <td>${esc(r.role)}</td>
@@ -1942,16 +1949,16 @@ V['/e/search'] = () => {
       </div>
     </aside>
     <div class="stack">
-      <div class="row sb small muted"><span>Найдено ${R.total} · сортировка по силе подтверждённого профиля${R.skills.length ? ` · навыки: ${esc(R.skills.join(', '))}` : ''}</span><span>Только опубликованные анонимные карточки</span></div>
+      <div class="row sb small muted"><span>Найдено ${R.total} · сортировка по силе подтверждённого профиля, без пройденного теста — в конце${R.skills.length ? ` · навыки: ${esc(R.skills.join(', '))}` : ''}</span><span>Только опубликованные анонимные карточки</span></div>
       ${R.items.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
           <div class="stack-s" style="min-width:0">
-            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
-            <div class="chips">${c.skills.map(s => `<span class="chip ${c.matched.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
+            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
+            <div class="chips">${c.skills.map(s => `<span class="chip ${c.matched.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${claimedChips(c)}${badgeChips(c)}</div>
           </div>
           <div class="score"><b class="num">${DEC(c.strength)}</b><span class="small muted">сила профиля</span></div>
           <div class="facts">
             <div><span class="muted">Перцентиль</span><b class="num">${c.pct ?? '—'}</b></div>
-            <div><span class="muted">Ожидания</span><b class="num">от ${K(c.salary)}</b></div>
+            <div><span class="muted">Ожидания на руки</span><b class="num">от ${K(c.salary)}</b></div>
             <div><span class="muted">Формат</span><b>${esc(c.format)}</b></div>
             <div><span class="muted">Нагрузка</span><b class="num" style="color:${c.busy ? 'var(--red)' : 'inherit'}">${c.load} / ${CAP}</b></div>
           </div>
@@ -2037,7 +2044,7 @@ function eVacancyView() {
       <div class="chips">${c.skills.map(s => `<span class="chip ${v.must.includes(s) || v.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
       ${a.note ? `<p class="small">«${esc(a.note)}»</p>` : ''}
       ${a.chat_peer != null ? `<div class="row">${chatBtn('e', a.chat_peer)}</div>` : ''}
-      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : `<span class="muted">${a.status === 'withdrawn' ? 'Кандидат отозвал отклик — контакты скрыты' : 'Кандидат закрыл доступ к контактам'}</span>`} <span class="muted">· ожидания от ${RUB(c.salary)} · ${DAYMON(a.created_at)}</span></p>
+      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : `<span class="muted">${a.status === 'withdrawn' ? 'Кандидат отозвал отклик — контакты скрыты' : 'Кандидат закрыл доступ к контактам'}</span>`} <span class="muted">· ожидания от ${RUB(c.salary)} на руки · ${DAYMON(a.created_at)}</span></p>
       ${a.status === 'declined' && a.reason ? `<span class="small muted">причина отказа: ${esc(a.reason.toLowerCase())}</span>` : ''}
       ${a.status === 'sent' || a.status === 'seen' ? (S.appDecline === a.id ? `<div class="stack-s"><div class="chips">${reasons.map(([k, x]) => `<button class="chip ${S.appReason === k ? 'on' : ''}" data-act="app-reason" data-v="${k}">${esc(x)}</button>`).join('')}</div>
         <div class="row"><button class="btn danger small" data-act="app-status" data-id="${a.id}" data-v="declined" ${S.appReason ? '' : 'disabled'}>Отклонить</button><button class="btn ghost small" data-act="app-decline" data-id="">Отмена</button></div></div>`
@@ -2462,6 +2469,8 @@ const ACT = {
       name: f.name, tg: f.tg || null, spec: f.spec, track: f.track, grade_claimed: f.grade, min_salary: f.min,
       formats: f.formats, city: f.city, skills_claimed: f.skills, years_exp: f.years, roles: f.roles, soft_skills: f.soft,
       consent_152: first ? true : ME.consent_152, consent_publish: first ? !!S.signup.publish : null,  // null — не менять
+      // резюме, загруженное до профиля: сервер его не хранил, сохранит вместе с согласием
+      ...(first && S.cv && S.cv.text ? { cv_text: S.cv.text, cv_filename: S.cv.filename } : {}),
     });
     if (first) await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
     toast('Профиль сохранён'); go('/c/quest');
@@ -2614,7 +2623,7 @@ const ACT = {
   'lot-free': () => { S.lot.require_free = !S.lot.require_free; rerender(); },
   async 'lot-create'() {
     const n = S.needObj, L = S.lot;
-    if (!L.fork_to) throw new Error('Укажите верхнюю границу ожиданий');
+    if (!L.fork_to) throw new Error('Укажите верхнюю границу ожиданий на руки');
     L.created = await api('POST', '/api/lottery/', {
       need_id: n.id, draw_count: L.draw_count,
       threshold: { spec: n.spec, track: n.track, grade_min: n.grade, must_skills: L.must, fork_to: L.fork_to, require_free: L.require_free },
