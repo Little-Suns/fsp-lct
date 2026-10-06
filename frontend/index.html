@@ -2229,10 +2229,12 @@ const ACT = {
     // файл с авторизацией: обычная ссылка не передаст Bearer-токен
     const r = await fetch('/api/candidate/profile.pdf', { headers: { Authorization: 'Bearer ' + TOK.c } }).catch(() => null);
     if (!r) throw new Error('Сервер недоступен');
+    if (r.status === 401) { clearSide('c'); go('/c/signup'); throw new Error('Сессия истекла: войдите снова'); }  // как в api()
     if (!r.ok) { const d = await r.json().catch(() => null); throw new Error((d && typeof d.detail === 'string' && d.detail) || `Ошибка ${r.status}`); }
+    const name = ((r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) || [])[1] || 'fsp-career-profile.pdf';
     const url = URL.createObjectURL(await r.blob());
     const link = document.createElement('a');
-    link.href = url; link.download = `fsp-career-${ME.id}.pdf`;
+    link.href = url; link.download = name;
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast('PDF-профиль сформирован');

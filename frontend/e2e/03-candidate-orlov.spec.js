@@ -120,6 +120,12 @@ test('профиль и результат теста демо-кандидат�
   await page.getByRole('button', { name: 'Скачать PDF' }).click();
   await expect(toast(page)).toHaveText('Сервер недоступен');
   await page.unroute('**/api/candidate/profile.pdf');
+  // протухшая сессия — на вход, как в остальных запросах
+  await page.route('**/api/candidate/profile.pdf', r => r.fulfill({ status: 401, contentType: 'application/json', body: '{"detail":"Нужен вход"}' }));
+  await page.getByRole('button', { name: 'Скачать PDF' }).click();
+  await expect(toast(page)).toHaveText('Сессия истекла: войдите снова');
+  await expect(page).toHaveURL(/#\/c\/signup$/);
+  await page.unroute('**/api/candidate/profile.pdf');
 });
 
 test('вакансии: фильтры, отклик с заметкой, отзыв отклика', async ({ page }) => {

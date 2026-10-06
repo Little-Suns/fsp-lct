@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
@@ -26,6 +27,8 @@ from app.services.parsing import canon_skills, canon_terms, parse_cv
 router = APIRouter(prefix="/api/candidate", tags=["candidate"])
 
 CV_MAX_BYTES = 5 * 1024 * 1024
+CV_MAX_CHARS = 100_000  # резюме — это страницы, а не мегабайты: длиннее — мусор из PDF, разбирать и хранить незачем
+NO_STORE = {"Cache-Control": "no-store"}  # файлы с ПДн не оседают в кешах браузера и прокси
 
 
 class ProfileIn(BaseModel):
@@ -265,8 +268,8 @@ async def upload_cv(file: UploadFile = File(...), user: User = Depends(current_u
         raise HTTPException(413, "Резюме больше 5 МБ")
     if not data.startswith(b"%PDF"):
         raise HTTPException(422, "Нужен PDF-файл")
-    try:
-        text = "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages).strip()
+    try:  # разбор PDF и текста — CPU, в пуле потоков, чтобы не держать цикл событий для всех запросов
+        text = (await run_in_threadpool(lambda: "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)))[:CV_MAX_CHARS].strip()
     except (PdfReadError, ValueError) as e:
         raise HTTPException(422, "Не удалось прочитать PDF") from e
     if not text:
@@ -274,7 +277,7 @@ async def upload_cv(file: UploadFile = File(...), user: User = Depends(current_u
     if c:
         c.cv_filename, c.cv_text = file.filename, text
         db.commit()
-    return {"filename": file.filename, "chars": len(text), "parsed": parse_cv(text)}
+    return {"filename": file.filename, "chars": len(text), "parsed": await run_in_threadpool(parse_cv, text)}
 
 
 @router.get("/profile.pdf")
@@ -282,7 +285,7 @@ def profile_pdf_file(c: Candidate = Depends(current_candidate)):
     """PDF-профиль для самого кандидата: с ФИО и контактами (как /me), чтобы приложить к отклику или отправить самому.
     Чтение своих данных — доступно и после отзыва согласия, как выгрузка."""
     return Response(profile_pdf.render(c), media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="fsp-career-{c.public_id}.pdf"'})
+                    headers={"Content-Disposition": f'attachment; filename="fsp-career-{c.public_id}.pdf"', **NO_STORE})
 
 
 @router.patch("/status")
@@ -465,9 +468,10 @@ def _rows(objs, skip=()) -> list[dict]:
 
 
 @router.get("/me/export")
-def export(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
+def export(response: Response, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
     """Все свои данные одним JSON (право на доступ, ст. 14 152-ФЗ). Не выгружаются только секреты: хеши токена/OTP и код
     подтверждения внешнего профиля. Запись data_exported коммитится до снимка — и попадает в раздел audit выгрузки."""
+    response.headers.update(NO_STORE)
     db.add(AuditLog(actor_user_id=c.user_id, action="data_exported", subject_candidate_id=c.id, detail=None))
     db.commit()
     by_cand = lambda m: db.scalars(select(m).where(m.candidate_id == c.id).order_by(m.id)).all()  # noqa: E731

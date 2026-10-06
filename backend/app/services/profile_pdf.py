@@ -4,6 +4,7 @@
 отдаётся. Фирменный шрифт — JetBrains Mono из брендбука (TTF рядом, OFL), в PDF вшивается подмножество глифов.
 """
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from fpdf import FPDF
 
 from app.models import Candidate
 from app.services import matching
-from app.services.parsing import parse_cv
+from app.services.parsing import cv_experience
 
 FONTS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 BLUE, INK, INK2, LINE, MIST = (64, 47, 255), (27, 28, 33), (74, 75, 85), (200, 201, 202), (237, 235, 255)
@@ -25,6 +26,11 @@ def dec(v: float, n: int = 2) -> str:
 
 def rub(v: int) -> str:
     return f"{v:,}".replace(",", " ") + " ₽"
+
+
+def upper1(s: str) -> str:
+    """Заглавная только первая буква и только кириллица/латиница: θ остаётся θ, остальной регистр не трогаем."""
+    return s[:1].upper() + s[1:] if re.match(r"[а-яёa-z]", s) else s
 
 
 def day(dt: datetime | None) -> str:
@@ -135,10 +141,10 @@ def render(c: Candidate, *, now: datetime | None = None) -> bytes:
         facts = [f"перцентиль {c.percentile}" if c.percentile is not None else None,
                  f"θ {dec(c.theta)} ± {dec(c.se)}" if c.theta is not None and c.se is not None else None,
                  f"тест пройден {day(c.tested_at)}"]
-        pdf.para(" · ".join(x for x in facts if x).capitalize(), size=8.5)
+        pdf.para(upper1(" · ".join(x for x in facts if x)), size=8.5)
         trust = [f"разбор решения: {'пройден' if c.review_passed else 'нет'}",
                  f"подтверждений грейда от работодателей: {c.employer_confirmed or 0}"]
-        pdf.para("; ".join(trust).capitalize(), size=8)
+        pdf.para(upper1("; ".join(trust)), size=8)
     else:
         pdf.para(" · ".join(x for x in (c.spec, c.track, c.grade_claimed) if x), size=13, color=BLUE, bold=True, h=7)
         pdf.para(f"Тест ещё не пройден: грейд {c.grade_claimed} заявлен кандидатом и не подтверждён.", size=8.5)
@@ -167,7 +173,7 @@ def render(c: Candidate, *, now: datetime | None = None) -> bytes:
             pdf.para("Софт-скиллы", size=7.5)
             pdf.chips(c.soft_skills, fill=(240, 240, 241))
 
-    jobs = parse_cv(c.cv_text, use_llm=False)["experience"] if c.cv_text else []
+    jobs = cv_experience(c.cv_text)[:12] if c.cv_text else []
     if c.years_exp is not None or jobs:
         pdf.section("Опыт", f"  стаж {dec(c.years_exp, 1).removesuffix(',0')} г." if c.years_exp is not None else None)
         for j in jobs:

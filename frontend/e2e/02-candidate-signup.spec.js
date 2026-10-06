@@ -75,7 +75,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   const cv = api(page, 'POST', '/api/candidate/cv');
   await page.locator('#cv-file').setInputFiles({ name: 'eva_cv.pdf', mimeType: 'application/pdf',
     buffer: tinyPdf('Eva Testova. eva@example.ru, tg: eva_dev. 2021 - present Acme Corp. Python developer, 4 years of experience. '
-      + 'Django, PostgreSQL, Docker, Kafka. Team lead, mentor. Communication, ownership.') });
+      + 'Django, PostgreSQL, Docker, Kafka. Team lead, mentor. Communication skills, ownership.') });
   const parsed = (await (await cv).json()).parsed;
   expect(parsed.contacts).toEqual({ name: 'Eva Testova', email: 'eva@example.ru', tg: '@eva_dev' });
   expect([parsed.roles, parsed.soft_skills]).toEqual([['Тимлид', 'Ментор'], ['Коммуникация', 'Самостоятельность']]);

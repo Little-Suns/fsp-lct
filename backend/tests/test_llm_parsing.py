@@ -2,6 +2,7 @@
 проверяется по справочнику, а персональные признаки вырезаются до разбора. БД не нужна."""
 
 import json
+import time
 from datetime import datetime
 
 import httpx
@@ -221,10 +222,38 @@ def test_cv_extended_rules(no_llm):
         ("Резюме\nФИО: Анна-Мария Петрова-Водкина\nhttps://t.me/anna_m", {"name": "Анна-Мария Петрова-Водкина", "email": None, "tg": "@anna_m"}),
         ("Senior Backend Developer — Kafka Python", {"name": None, "email": None, "tg": None}),
         ("почта me@ex.ru; @mail.ru не ник; @ab — короткий", {"name": None, "email": "me@ex.ru", "tg": None}),
+        ("Name: Anna Petrova developer\nabout.me/anna_dev", {"name": "Anna Petrova", "email": None, "tg": None}),
+        ("Резюме\nCompany name: Yandex Cloud", {"name": None, "email": None, "tg": None}),  # подпись не в начале строки
     ],
 )
 def test_cv_contacts(no_llm, text, contacts):
     assert parse_cv(text)["contacts"] == contacts
+
+
+def test_cv_contacts_linear_on_long_text(no_llm):
+    """Слитная строка без пробелов (мусор из PDF) не должна давать квадратичный поиск почты."""
+    t0 = time.monotonic()
+    assert parsing._contacts("x" * 200_000 + " me@ex.ru")["email"] == "me@ex.ru"
+    assert parsing._contacts("@" + "a" * 200_000)["tg"] is None
+    assert parsing.cv_experience("dec" * 100_000 + "март" * 50_000) == []  # месяцы без границы слова не перебираются
+    assert time.monotonic() - t0 < 5
+
+
+def test_cv_no_false_roles_soft(no_llm):
+    """Слова из обязанностей и стека — не роли и не софт-скиллы: их иначе увидит работодатель «со слов кандидата»."""
+    cv = parse_cv("Responsibilities: microservice architecture, inter-service communication, open source libraries. Зона ответственности — платежи.")
+    assert cv["roles"] == [] and cv["soft_skills"] == []
+    cv = parse_cv("Architect. Contributed to Django. Ответственный, коммуникативный.")
+    assert cv["roles"] == ["Архитектор", "Контрибьютор open source"] and cv["soft_skills"] == ["Ответственность", "Коммуникация"]
+
+
+def test_cv_experience_sections():
+    text = ("Образование\n2010 — 2015 Технический институт\nКарьера\n2016 — 2019 Банк, Scrum Master\n"
+            "2019 —\n2021 Mastercard, разработчик\n" + "\n".join(f"{y} — {y + 1} Компания {y}" for y in range(2000, 2015)))
+    jobs = parsing.cv_experience(text)
+    assert jobs[:2] == [{"from": 2016, "to": 2019, "title": "Банк, Scrum Master"}, {"from": 2019, "to": 2021, "title": "Mastercard, разработчик"}]
+    assert len(jobs) == 17 and len(parse_cv(text)["experience"]) == 12  # в стаж — все периоды, в ответ — первые 12
+    assert parsing._years(text.lower()) == 20  # 2000–2015 и 2016–2021, разрыв в год не считается
 
 
 def test_canon_terms():
@@ -285,3 +314,7 @@ def test_cv_llm(model):
     assert cv["roles"] == ["Архитектор", "Тимлид"] and cv["soft_skills"] == ["Лидерство", "Коммуникация"]
     assert cv["contacts"]["name"] == "Анна Петрова"
     assert "ФИО, контакты" in model.calls[-1][1]["messages"][0]["content"]
+    # не списки от модели не роняют разбор: остаётся найденное правилами
+    model.reply = _chat({"skills": True, "roles": 5, "soft_skills": "Лидерство"})
+    cv = parse_cv("Python. Тимлид.")
+    assert cv["skills"] == ["Python"] and cv["roles"] == ["Тимлид"] and cv["soft_skills"] == []

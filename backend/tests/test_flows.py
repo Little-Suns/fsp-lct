@@ -258,7 +258,7 @@ def test_roles_soft_and_pdf_profile(client):
 
     r = client.get("/api/candidate/profile.pdf", headers=C)
     assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and r.content.startswith(b"%PDF")
-    assert 'filename="fsp-career-A-1042.pdf"' in r.headers["content-disposition"]
+    assert 'filename="fsp-career-A-1042.pdf"' in r.headers["content-disposition"] and r.headers["cache-control"] == "no-store"
     text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(r.content)).pages)
     for s in ("Дмитрий Орлов", "d.orlov@example.ru", "@dorlov_dev", "Backend · Python · Middle", "Перцентиль 78", "Ревью кода", "1,42 ± 0,25",
               "Kubernetes", "Тимлид", "Коммуникация", "стаж 4,5 г.", "2021 — н. в.", "Финтех, бэкенд", "Финал Кубка России ФСП 2025",
@@ -389,7 +389,7 @@ def test_consents_export_delete(client, monkeypatch):
         assert db.get(Candidate, n_id).consent_publish is False  # save_profile с consent_publish=True после отзыва ничего не включил
     # экспорт полный: с вектором эмбеддинга и собственной записью data_exported
     ex = client.get("/api/candidate/me/export", headers=N)
-    assert ex.status_code == 200 and {"account", "profile", "embedding", "consents", "audit", "achievements", "invitations", "applications", "task_submissions", "quest_sessions"} <= set(ex.json())
+    assert ex.status_code == 200 and ex.headers["cache-control"] == "no-store" and {"account", "profile", "embedding", "consents", "audit", "achievements", "invitations", "applications", "task_submissions", "quest_sessions"} <= set(ex.json())
     e = ex.json()
     assert e["account"]["email"] == "new@example.ru" and e["account"]["role"] == "candidate" and "token" not in e["account"]
     assert e["profile"]["name"] == "Новый" and e["profile"]["truth"] is None and "embedding" not in e["profile"]
