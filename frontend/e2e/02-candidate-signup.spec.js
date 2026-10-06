@@ -138,10 +138,13 @@ test('кандидат: регистрация → профиль и PDF → т�
       if (await opts.count()) await opts.first().click(); else await page.locator('.code button[data-act=mark]').nth(1).click();
     }
     await expect(next).toBeEnabled();
-    const crumb = await page.locator('.crumbs b').textContent();
+    // ждём ответ сервера и новое задание («Дальше» снова неактивна) или финал;
+    // заголовок сцены не годится: у соседних заданий он может совпасть — выбор адаптивный и случайный
+    const answer = page.waitForResponse(r => r.url().endsWith('/api/quest/answer') && r.request().method() === 'POST');
     await next.click();
+    expect((await answer).ok()).toBe(true);
     await expect(async () => {
-      expect(await finish.isVisible() || (await page.locator('.crumbs b').textContent()) !== crumb).toBe(true);
+      expect(await finish.isVisible() || await next.isDisabled()).toBe(true);
     }).toPass();
   }
   expect(answered).toBeGreaterThan(3);
