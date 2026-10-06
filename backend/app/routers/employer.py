@@ -504,10 +504,10 @@ def _row(inv: Invitation) -> dict:
     c = inv.candidate
     contact, reason = None, catalog.DECLINE_REASONS.get(inv.decline_reason)  # комментарий кандидата компании не показываем
     if inv.status == "accepted":
-        if matching.consent_ok(c, "processing"):
+        if may_talk(c, inv.company):  # согласие на обработку действует и компания не в «скрыть от» — как и чат
             contact = {"name": c.name, "email": c.email, "tg": c.tg, "text": " · ".join(x for x in (c.name, c.email, c.tg) if x)}
         else:
-            reason = "кандидат отозвал согласие"
+            reason = "кандидат отозвал согласие" if not matching.consent_ok(c, "processing") else "кандидат закрыл доступ к контактам"
     sent = inv.sent_at.astimezone(MSK)
     return {
         "id": inv.id,

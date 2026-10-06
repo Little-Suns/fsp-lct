@@ -231,9 +231,16 @@ def test_hidden_from_company_closes_dialog(client):
     assert client.get(f"/api/chat/{IDS['co1']}", headers=H["app"]).json()["can_write"] is False
     assert say(client, "app", IDS["co1"]).status_code == 403
     assert client.get("/api/vacancies/applications/mine", headers=H["app"]).json()["items"][0]["chat_peer"] is None
-    assert client.get(f"/api/vacancies/{IDS['vac']}/applications", headers=H["e1"]).json()["items"][0]["chat_peer"] is None
+    row = client.get(f"/api/vacancies/{IDS['vac']}/applications", headers=H["e1"]).json()["items"][0]
+    assert row["chat_peer"] is None and row["contacts"] is None  # контакты закрыты тем же правилом, что и чат
     with SessionLocal() as db:
         db.get(Candidate, IDS["app"]).hidden_from = []
+        db.get(Candidate, IDS["acc"]).hidden_from = [inn]
+        db.commit()
+    acc = next(x for x in client.get("/api/employer/pipeline", headers=H["e1"]).json()["items"] if x["cid"] == pid("acc"))
+    assert acc["contact"] is None and acc["chat_peer"] is None and acc["reason"] == "кандидат закрыл доступ к контактам"
+    with SessionLocal() as db:
+        db.get(Candidate, IDS["acc"]).hidden_from = []
         db.commit()
     assert client.get(f"/api/chat/{pid('app')}", headers=H["e1"]).status_code == 200
 

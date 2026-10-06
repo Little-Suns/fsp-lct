@@ -215,8 +215,9 @@ def _reveal(db: Session, co: Company, apps: list[Application]) -> None:
 
 
 def _shown(a: Application) -> bool:
-    """Контакты по основанию «отклик»: пока отклик не отозван и согласие на обработку ПДн не отозвано."""
-    return a.status != "withdrawn" and matching.consent_ok(a.candidate, "processing")
+    """Контакты по основанию «отклик»: пока отклик не отозван, согласие на обработку ПДн не отозвано и компании нет
+    в «скрыть профиль от» кандидата (may_talk — то же правило, что у чата)."""
+    return a.status != "withdrawn" and may_talk(a.candidate, a.vacancy.company)
 
 
 def _employer_row(a: Application, v: Vacancy) -> dict:
