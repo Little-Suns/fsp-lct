@@ -469,6 +469,8 @@ def card(c: Candidate, *, ranked: Ranked | None = None, need: Need | None = None
         "theta": f"{c.theta:.2f} ± {c.se:.2f}" if c.theta is not None and c.se is not None else None,
         "skills": skills,
         "claimed": [s for s in c.skills_claimed or [] if s not in confirmed],
+        "roles": c.roles or [],  # справочные: со слов кандидата, в ранжировании не участвуют
+        "soft": c.soft_skills or [],
         "gaps": e.get("gaps", gaps(c, need)),
         "fsp": fsp_title(c),
         "cf": cf.rating if cf else None,

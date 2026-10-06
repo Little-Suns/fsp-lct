@@ -74,12 +74,28 @@ test('кандидат: регистрация → профиль и PDF → т�
 
   const cv = api(page, 'POST', '/api/candidate/cv');
   await page.locator('#cv-file').setInputFiles({ name: 'eva_cv.pdf', mimeType: 'application/pdf',
-    buffer: tinyPdf('Python developer, 4 years of experience. Django, PostgreSQL, Docker, Kafka.') });
-  expect((await cv).status()).toBe(200);
+    buffer: tinyPdf('Eva Testova. eva@example.ru, tg: eva_dev. 2021 - present Acme Corp. Python developer, 4 years of experience. '
+      + 'Django, PostgreSQL, Docker, Kafka. Team lead, mentor. Communication skills, ownership.') });
+  const parsed = (await (await cv).json()).parsed;
+  expect(parsed.contacts).toEqual({ name: 'Eva Testova', email: 'eva@example.ru', tg: '@eva_dev' });
+  expect([parsed.roles, parsed.soft_skills]).toEqual([['Тимлид', 'Ментор'], ['Коммуникация', 'Самостоятельность']]);
   await expect(toast(page)).toHaveText('Резюме разобрано: проверьте поля');
   await expect(page.getByText('eva_cv.pdf')).toBeVisible();
   await expect(page.getByText(/Распознано: .*Python/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Заменить' })).toBeVisible();
+  // расширенный разбор: контакты и места работы видны, имя уже введено — не перетираем, пустой Telegram — заполняем
+  await expect(page.getByText('Контакты: Eva Testova · eva@example.ru · @eva_dev')).toBeVisible();
+  await expect(page.getByText('Места работы: 2021 — н. в. · Acme Corp')).toBeVisible();
+  await expect(page.getByLabel('Имя и фамилия')).toHaveValue('Ева Тестова');
+  await expect(page.getByLabel('Telegram')).toHaveValue('@eva_dev');
+  const chip = name => page.locator('button.chip[data-act=ptoggle]', { hasText: name });
+  await expect(chip('Тимлид')).toHaveClass(/on/);
+  await expect(chip('Коммуникация')).toHaveClass(/on/);
+  await chip('Коммуникация').click();
+  await expect(chip('Коммуникация')).not.toHaveClass(/on/);
+  await chip('Обучаемость').click();
+  await expect(chip('Обучаемость')).toHaveClass(/on/);
+  await expect(page.locator('aside')).toContainText('со слов кандидата');
   // не PDF — понятная ошибка
   await page.locator('#cv-file').setInputFiles({ name: 'cv.txt', mimeType: 'application/pdf', buffer: Buffer.from('hello') });
   await expect(toast(page)).toHaveText('Нужен PDF-файл');
@@ -101,7 +117,8 @@ test('кандидат: регистрация → профиль и PDF → т�
   const saved = api(page, 'POST', '/api/candidate/profile');
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
   const prof = await (await saved).json();
-  expect(prof).toMatchObject({ name: 'Ева Тестова', spec: 'Backend', track: 'Python', min: 150000, consent_152: true, consent_publish: false });
+  expect(prof).toMatchObject({ name: 'Ева Тестова', spec: 'Backend', track: 'Python', min: 150000, consent_152: true, consent_publish: false,
+    roles: ['Тимлид', 'Ментор'], soft_skills: ['Самостоятельность', 'Обучаемость'] });
   await expect(toast(page)).toHaveText('Профиль сохранён');
 
   // тест-квест: вводная, выбор грейда, сюжет
@@ -168,8 +185,13 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.getByRole('heading', { name: 'История тестов' })).toBeVisible();
   await expect(page.locator('table.tbl tbody tr')).toHaveCount(1);
   await expect(page.locator('table.tbl tbody tr').first()).toContainText('Middle');
+  // PDF-профиль: файл с авторизацией, имя по анонимному коду
+  const pdf = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PDF-профиль' }).click();
-  await expect(toast(page)).toHaveText('PDF-профиль пока не формируется');
+  const pdfFile = await pdf;
+  expect(pdfFile.suggestedFilename()).toMatch(/^fsp-career-[A-Z]-\d{4}\.pdf$/);
+  expect(fs.readFileSync(await pdfFile.path()).subarray(0, 5).toString()).toBe('%PDF-');
+  await expect(toast(page)).toHaveText('PDF-профиль сформирован');
   await page.getByRole('button', { name: 'Пройти тест ещё раз' }).click();
   await expect(page.getByRole('heading', { name: 'История тестов' })).toBeVisible();
   await expect(page.locator('table.tbl tbody tr').first()).toContainText(/категория обновлена|не применён/);

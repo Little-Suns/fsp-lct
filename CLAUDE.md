@@ -6,7 +6,7 @@
 
 - `frontend/` — один `index.html` (брендбук ФСП, без сборки), ходит в API через `fetch`. Раздаётся тем же сервером, что и API.
 - `backend/` — FastAPI + PostgreSQL (SQLAlchemy 2.0, sync, psycopg), Python ≥ 3.12, зависимости через `uv`.
-  - `app/routers/` — HTTP API по ролям и фичам; `app/services/` — логика (подбор, IRT, лотерея, валидация, LLM); `app/integrations/` — Codeforces, CTFtime, протоколы хакатонов/ФСП; `app/catalog.py` — справочники и правила рынка; `app/models.py` — схема; `migrations/` — ревизии Alembic (накатываются при старте, `app.db.migrate`).
+  - `app/routers/` — HTTP API по ролям и фичам; `app/services/` — логика (подбор, IRT, лотерея, валидация, LLM, разбор резюме, PDF-профиль); `app/integrations/` — Codeforces, CTFtime, протоколы хакатонов/ФСП; `app/catalog.py` — справочники и правила рынка; `app/models.py` — схема; `migrations/` — ревизии Alembic (накатываются при старте, `app.db.migrate`).
   - `seed/` — генератор синтетики и эталонная релевантность (`gold.py`).
   - `tests/` — pytest, у каждого набора своя база.
 - `docker-compose.yml` — `db` + `api`, всё поднимается `docker compose up -d --build`.

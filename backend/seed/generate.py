@@ -39,6 +39,14 @@ TRACK_P = {"Backend": [.35, .2, .2, .15, .1]}  # остальные специа
 GRADE_P = [.08, .25, .37, .22, .08]
 THETA_BAND = {"Intern": (-2.2, -0.5), "Junior": (-0.5, 0.5), "Middle": (0.5, 1.5), "Senior": (1.5, 2.3), "Lead": (2.3, 3.0)}
 YEARS = {"Intern": (0, 1), "Junior": (0.5, 2), "Middle": (2, 5), "Senior": (4, 9), "Lead": (6, 14)}
+# роли из резюме: вероятность по заявленному грейду (лидерские — с Senior); Исследователь — у ML / DS
+ROLE_P = {
+    "Intern": {"Контрибьютор open source": .05, "Капитан команды": .05},
+    "Junior": {"Контрибьютор open source": .08, "Капитан команды": .08, "Спикер": .03},
+    "Middle": {"Ментор": .2, "Капитан команды": .1, "Контрибьютор open source": .1, "Спикер": .08, "Преподаватель": .04},
+    "Senior": {"Ментор": .45, "Техлид": .3, "Архитектор": .15, "Спикер": .15, "Контрибьютор open source": .12, "Преподаватель": .06},
+    "Lead": {"Тимлид": .7, "Ментор": .55, "Техлид": .35, "Архитектор": .25, "Руководитель проекта": .2, "Спикер": .2},
+}
 
 CORE = {  # трек → навыки, которые есть у каждого в треке и подтверждаются модулем теста
     "Python": ["Python"], "Go": ["Go"], "Java / Kotlin": ["Java", "Kotlin"], "Node.js": ["Node.js", "TypeScript"],
@@ -416,6 +424,16 @@ LADOGA_INN = "7704123450"  # в задании 7704123456 — контрольн
 assert inn_ok(LADOGA_INN)
 
 
+def soft_profile(rng, grade: str, spec: str) -> tuple[list[str], list[str]]:
+    """Роли и софт-скиллы синтетического кандидата (справочные, «со слов кандидата»): роли — по грейду,
+    софт-скиллы — до 4 из справочника (у ~10 % — ни одного), лидерские роли тянут «Лидерство» / «Наставничество»."""
+    p = {**ROLE_P[grade], **({"Исследователь": .2} if spec == "ML / DS" else {})}
+    roles = [x for x in C.ROLES if x in p and rng.random() < p[x]]
+    soft = [x for x in C.SOFT_SKILLS if rng.random() < .2]
+    soft += ["Лидерство"] * bool({"Тимлид", "Техлид", "Капитан команды"} & set(roles)) + ["Наставничество"] * ("Ментор" in roles)
+    return roles, [x for x in C.SOFT_SKILLS if x in soft][:4]
+
+
 def persona(g: Gen, pid, pct, theta, se, skills, months, *, claimed=None, name=None, **kw) -> Candidate:
     g.ids.add(pid)
     n, e, tg = g.person(name)
@@ -449,6 +467,9 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
                     next_upgrade_at=datetime(2027, 1, 3, 12, tzinfo=UTC), consent_external=True,
                     cv_filename="orlov_cv.pdf")
     orlov.email, orlov.tg = "d.orlov@example.ru", "@dorlov_dev"
+    orlov.cv_text += ("\nОпыт работы\n2023 — н.в. Финтех «Волна Пэй», бэкенд-разработчик платёжного шлюза\n"
+                      "2021 — 2023 Интернет-магазин «Полка», Python-разработчик\nМенторил стажёров, капитан команды на Кубке ФСП.")
+    orlov.roles, orlov.soft_skills = ["Ментор", "Капитан команды"], ["Коммуникация", "Работа в команде", "Самостоятельность"]
     orlov.truth["skills_true"] = orlov.skills_confirmed + ["Docker"]  # Kubernetes заявлен, но не подтверждён тестом
     cup = ev["cup-2025-prod"]
     orlov.achievements.append(Achievement(event=cup, source="fsp", title=cup.title, place=12, team="Команда «Сапсан»",
@@ -489,6 +510,10 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
                 if sk not in lst:
                     lst.append(sk)
         cands.append(c)
+    # роли и софт-скиллы — свой генератор: основной поток случайных чисел не сдвигается, синтетика для валидации та же
+    rs = np.random.default_rng(seed + 1)
+    for c in cands:
+        c.roles, c.soft_skills = soft_profile(rs, c.grade_claimed, c.spec)
     by_spec: dict[str, list[Candidate]] = {}
     for c in cands:
         by_spec.setdefault(c.spec, []).append(c)

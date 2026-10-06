@@ -3,6 +3,7 @@
 
 import os
 import re
+from datetime import UTC, datetime
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_migr")
 
@@ -12,7 +13,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import inspect, text
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, MetaData, String, Table, inspect, text
 
 from app import models  # noqa: F401
 from app.db import ALEMBIC_INI, BASELINE, BASELINE_TABLES, Base, engine, init_db, migrate, reset_schema
@@ -92,8 +93,16 @@ def test_indexes_and_constraints_match_create_all():
             c.execute(text("DROP SCHEMA probe CASCADE"))
 
 
+def _legacy_main_db() -> None:
+    """База, созданная create_all схемы main до Alembic: это ровно baseline (сверено pg_dump), но без alembic_version.
+    create_all текущих моделей сюда не годится — в них уже колонки следующих ревизий."""
+    with engine.begin() as c:
+        command.upgrade(_cfg(c), BASELINE)
+        c.execute(text("DROP TABLE alembic_version"))
+
+
 def test_legacy_create_all_db_is_stamped():
-    Base.metadata.create_all(engine)
+    _legacy_main_db()
     with engine.begin() as c:
         c.execute(text("INSERT INTO retired_public_ids VALUES ('A-0001')"))
     init_db()  # таблицы есть, alembic_version нет → stamp baseline, upgrade heads, сверка
@@ -103,9 +112,33 @@ def test_legacy_create_all_db_is_stamped():
     assert _diff() == []
 
 
+def test_0002_candidate_profile_on_existing_candidates():
+    # ALTER на базе с кандидатами: NOT NULL-колонки получают пустые списки и включённый «Опыт» в PDF
+    with engine.begin() as c:
+        command.upgrade(_cfg(c), BASELINE)
+    cand = Table("candidates", MetaData(), autoload_with=engine)
+    filler = {String: "x", Integer: 0, Float: 0.0, Boolean: False, JSON: [], DateTime: datetime.now(UTC)}
+    row = {col.name: next(v for t, v in filler.items() if isinstance(col.type, t)) for col in cand.columns
+           if not col.nullable and col.server_default is None and not col.primary_key}
+    with engine.begin() as c:
+        c.execute(cand.insert().values(**row))
+    migrate()
+    with engine.connect() as c:
+        got = c.execute(text("SELECT roles::text, soft_skills::text, pdf_experience FROM candidates")).one()
+    assert tuple(got) == ("[]", "[]", True) and _diff() == []
+
+
+def test_chat_table_already_created_on_branch():
+    # база ветки чата до Alembic: messages создана create_all — 0002_chat_messages её не пересоздаёт
+    _legacy_main_db()
+    Base.metadata.tables["messages"].create(engine)
+    init_db()
+    assert _versions() == set(SCRIPT.get_heads()) and _diff() == []
+
+
 def test_legacy_main_db_gets_chat_table():
-    # база от create_all схемы main (без messages): stamp baseline, затем 0002_chat_messages создаёт таблицу чата
-    Base.metadata.create_all(engine, tables=[Base.metadata.tables[t] for t in BASELINE_TABLES])
+    # база схемы main до Alembic (без messages): stamp baseline, затем 0002_chat_messages создаёт таблицу чата
+    _legacy_main_db()
     init_db()
     assert "messages" in inspect(engine).get_table_names() and _diff() == []
 

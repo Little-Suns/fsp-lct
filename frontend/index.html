@@ -667,6 +667,17 @@ V['/c/signup'] = () => `
     </div>
   </div>`;
 
+// резюме: распознанные контакты и места работы (контакты — только для формы самого кандидата)
+function cvDetails(p) {
+  const c = p.contacts || {};
+  const who = [c.name, c.email, c.tg].filter(Boolean);
+  const jobs = (p.experience || []).map(jobLine);
+  return `${who.length ? `<p class="small muted">Контакты: ${esc(who.join(' · '))}</p>` : ''}${jobs.length ? `<p class="small muted">Места работы: ${jobs.join('; ')}</p>` : ''}`;
+}
+// роли и софт-скиллы: справочные, со слов кандидата
+const softChips = (roles, soft) => (roles && roles.length) || (soft && soft.length)
+  ? `<div class="chips">${[...(roles || []), ...(soft || [])].map(x => `<span class="chip">${esc(x)}</span>`).join('')}<span class="chip dim">со слов кандидата</span></div>` : '';
+
 function pfFromMe() {
   const m = ME || {};
   return {
@@ -674,7 +685,20 @@ function pfFromMe() {
     grade: m.grade_claimed || 'Middle', min: m.min || null, city: m.city || 'Москва',
     formats: m.formats && m.formats.length ? [...m.formats] : ['Гибрид', 'Удалённо'],
     skills: [...(m.skills_claimed || [])], years: m.years_exp == null ? null : m.years_exp,
+    roles: [...(m.roles || [])], soft: [...(m.soft_skills || [])],
   };
+}
+// места работы для PDF-профиля: ровно то, что сервер положит в раздел «Опыт» (ME.experience), — кандидат проверяет и может исключить
+const jobLine = j => `${j.from} — ${j.to || 'н. в.'}${j.title ? ' · ' + esc(j.title) : ''}`;
+function pdfExpField() {
+  const jobs = (ME && ME.experience) || [];
+  if (!jobs.length) return '';
+  const on = ME.pdf_experience !== false;
+  return `<div class="field"><span>Опыт в PDF-профиле</span>
+    <p class="small" style="${on ? '' : 'text-decoration:line-through;opacity:.6'}">${jobs.map(jobLine).join('<br>')}</p>
+    <span class="hint">Распознано из резюме автоматически — проверьте. PDF-профиль вы можете отправить работодателю; если места работы распознаны неверно, исключите их или замените резюме.</span>
+    <button class="switch" role="switch" aria-checked="${on}" data-act="pdfexp"><i></i> Включать места работы в PDF-профиль</button>
+  </div>`;
 }
 
 // одна строка достижения: название, место, команда/роль, вес в сигнале, подтверждено ли
@@ -740,7 +764,8 @@ V['/c/profile'] = () => {
             <b>${cvName ? esc(cvName) : 'Резюме не загружено'}</b>
             <p class="small muted">${parsed
               ? `Распознано: ${parsed.years_exp != null ? DEC(parsed.years_exp, 0) + ' г. опыта, ' : ''}${esc(parsed.skills.join(', ') || 'навыки не найдены')}. Проверьте поля ниже.`
-              : cvName ? `Навыки из резюме: ${esc(f.skills.join(', ') || '—')}` : 'PDF до 5 МБ. Разберём опыт и навыки, поля можно поправить.'}</p>
+              : cvName ? `Навыки из резюме: ${esc(f.skills.join(', ') || '—')}` : 'PDF до 5 МБ. Разберём контакты, опыт, навыки, роли и софт-скиллы — поля можно поправить.'}</p>
+            ${parsed ? cvDetails(parsed) : ''}
           </div>
           <input type="file" id="cv-file" accept="application/pdf" hidden>
           <button class="btn ghost small" data-act="cv-pick">${cvName ? 'Заменить' : 'Загрузить'}</button>
@@ -759,6 +784,14 @@ V['/c/profile'] = () => {
           <div class="seg" role="group">${((META && META.grades) || ['Intern', 'Junior', 'Middle', 'Senior', 'Lead']).map(g => `<button data-act="pgrade" data-v="${g}" aria-pressed="${g === f.grade}">${g}</button>`).join('')}</div>
           <span class="hint">Тест проверит грейд. Если он окажется ниже — категория обновится сразу, выше — через 90 дней.</span>
         </div>
+        <div class="field"><span>Роли</span>
+          <div class="chips">${((META && META.roles) || []).map(x => `<button class="chip ${f.roles.includes(x) ? 'on' : ''}" data-act="ptoggle" data-k="roles" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+        </div>
+        <div class="field"><span>Софт-скиллы</span>
+          <div class="chips">${((META && META.soft_skills) || []).map(x => `<button class="chip ${f.soft.includes(x) ? 'on' : ''}" data-act="ptoggle" data-k="soft" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+          <span class="hint">Со слов кандидата: работодатель видит их в карточке, на грейд и место в подборке не влияют.</span>
+        </div>
+        ${pdfExpField()}
         <div class="divider"></div>
         <h3>Условия</h3>
         <div class="grid g2">
@@ -779,6 +812,7 @@ V['/c/profile'] = () => {
       ${catTag(f.spec, f.track, (ME && ME.grade) || f.grade)}
       <p class="small muted">${ME && ME.pct != null ? `Перцентиль ${ME.pct}` : 'Перцентиль появится после теста'}</p>
       <div class="chips">${confirmed.map(s => `<span class="chip on">${esc(s)}</span>`).join('')}${claimedOnly.map(s => `<span class="chip">${esc(s)}</span>`).join('')}${claimedOnly.length ? '<span class="chip dim">не подтверждено</span>' : ''}</div>
+      ${softChips(f.roles, f.soft)}
       <div class="chips">${ACH ? badgeChips({ badges: [...ACH.fsp, ...ACH.hackathons, ...(ACH.ctftime ? ACH.ctftime.achievements : [])].filter(a => a.verified), cf: ACH.codeforces && ACH.codeforces.verified ? ACH.codeforces.rating : null }) : ''}</div>
     </aside>
   </div>`;
@@ -922,7 +956,7 @@ V['/c/result'] = () => {
       </div>
       <button class="btn primary block" data-go="/c/home">Готово, жду приглашений</button>
       <button class="btn ghost block" data-go="/c/quest">Пройти тест ещё раз</button>
-      <button class="btn ghost block" data-act="noop" data-msg="PDF-профиль пока не формируется">PDF-профиль</button>
+      <button class="btn ghost block" data-act="pdf">PDF-профиль</button>
     </aside>
   </div>
   ${historyPanel()}`;
@@ -995,6 +1029,12 @@ V['/c/home'] = () => {
         <span class="label">Приватность</span>
         <p class="small">${ME.hidden_from.length ? `Скрыт от компаний с ИНН: <b class="num">${ME.hidden_from.map(esc).join(', ')}</b>` : 'Профиль виден всем компаниям'}</p>
         <button class="btn ghost small" data-go="/c/settings">Настройки и согласия</button>
+      </div>
+      <div class="panel tight stack-s">
+        <span class="label">PDF-профиль</span>
+        <p class="small">Категория, компетенции, навыки, опыт и достижения одним файлом — с вашими контактами, чтобы отправить самому.</p>
+        ${ME.experience && ME.experience.length ? `<span class="hint">${ME.pdf_experience ? 'Места работы распознаны из резюме автоматически — проверьте их в профиле.' : 'Места работы из резюме исключены — включить можно в профиле.'}</span>` : ''}
+        <button class="btn ghost small" data-act="pdf">Скачать PDF</button>
       </div>
     </aside>
   </div>`;
@@ -1758,6 +1798,11 @@ function candView() {
           <div><span class="dot ${c.task_signal ? 'on' : ''}"></span><div>${c.task_signal ? `Решил задачу ${c.task_signal.days_ago ? c.task_signal.days_ago + ' дн. назад' : 'сегодня'} · оценка работодателя: ${esc(c.task_signal.review_text)}${c.task_signal.company_verified ? '' : ' <span class="muted small">(компания не прошла проверку)</span>'}` : 'Задачи компаний: оценённых решений нет'}<br><span class="muted small">свежий сигнал, на скор не влияет</span></div></div>
         </div>
       </div>
+      ${softChips(c.roles, c.soft) ? `<div class="panel tight stack-s">
+        <span class="label">Роли и софт-скиллы</span>
+        ${softChips(c.roles, c.soft)}
+        <span class="hint">со слов кандидата, в оценке не участвуют</span>
+      </div>` : ''}
       <div class="panel tight stack-s">
         <span class="label">Нагрузка</span>
         <p class="small num">${c.load} из ${c.cap} открытых приглашений${c.busy ? '. Ответ может задержаться.' : ''}</p>
@@ -2386,6 +2431,25 @@ const ACT = {
   // профиль, резюме, достижения
   pgrade: (a, d) => { S.pf.grade = d.v; rerender(); },
   pfmt: (a, d) => { const f = S.pf.formats; f.includes(d.v) ? f.splice(f.indexOf(d.v), 1) : f.push(d.v); rerender(); },
+  async pdfexp() {  // сохраняется сразу, как переключатели уведомлений: к сохранению профиля и тесту не привязано
+    Object.assign(ME, await api('PATCH', '/api/candidate/pdf', { experience: ME.pdf_experience === false }));
+    toast(ME.pdf_experience ? 'Места работы будут в PDF-профиле' : 'Места работы исключены из PDF-профиля'); rerender();
+  },
+  ptoggle: (a, d) => { const f = S.pf[d.k]; f.includes(d.v) ? f.splice(f.indexOf(d.v), 1) : f.push(d.v); rerender(); },
+  async pdf() {
+    // файл с авторизацией: обычная ссылка не передаст Bearer-токен
+    const r = await fetch('/api/candidate/profile.pdf', { headers: { Authorization: 'Bearer ' + TOK.c } }).catch(() => null);
+    if (!r) throw new Error('Сервер недоступен');
+    if (r.status === 401) { clearSide('c'); go('/c/signup'); throw new Error('Сессия истекла: войдите снова'); }  // как в api()
+    if (!r.ok) { const d = await r.json().catch(() => null); throw new Error((d && typeof d.detail === 'string' && d.detail) || `Ошибка ${r.status}`); }
+    const name = ((r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) || [])[1] || 'fsp-career-profile.pdf';
+    const url = URL.createObjectURL(await r.blob());
+    const link = document.createElement('a');
+    link.href = url; link.download = name;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('PDF-профиль сформирован');
+  },
   'cv-pick': () => document.getElementById('cv-file').click(),
   async psave() {
     const f = S.pf;
@@ -2396,7 +2460,7 @@ const ACT = {
     if (first && !S.signup.c152) throw new Error('Нужно согласие на обработку персональных данных: отметьте его на экране регистрации');
     ME = await api('POST', '/api/candidate/profile', {
       name: f.name, tg: f.tg || null, spec: f.spec, track: f.track, grade_claimed: f.grade, min_salary: f.min,
-      formats: f.formats, city: f.city, skills_claimed: f.skills, years_exp: f.years,
+      formats: f.formats, city: f.city, skills_claimed: f.skills, years_exp: f.years, roles: f.roles, soft_skills: f.soft,
       consent_152: first ? true : ME.consent_152, consent_publish: first ? !!S.signup.publish : null,  // null — не менять
     });
     if (first) await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
@@ -2655,6 +2719,11 @@ document.addEventListener('change', async e => {
       if (p.spec) { S.pf.spec = p.spec; S.pf.track = p.track || ((META && META.tracks[p.spec]) || [])[0] || null; }
       if (p.skills.length) S.pf.skills = p.skills;
       if (p.years_exp != null) S.pf.years = p.years_exp;
+      if (p.roles.length) S.pf.roles = p.roles;
+      if (p.soft_skills.length) S.pf.soft = p.soft_skills;
+      if (!S.pf.name && p.contacts.name) S.pf.name = p.contacts.name;  // своё не перетираем
+      if (!S.pf.tg && p.contacts.tg) S.pf.tg = p.contacts.tg;
+      if (ME) ME.experience = p.experience;  // профиль уже есть — сервер сохранил текст резюме, PDF возьмёт новые места работы
       toast('Резюме разобрано: проверьте поля'); rerender();
     } catch (err) { fail(err); }
   }
