@@ -398,6 +398,9 @@ def test_consents_export_delete(client, monkeypatch):
         assert db.query(ExternalAccount).filter(ExternalAccount.candidate_id == n_id).count() == 0
     assert client.post(f"/api/candidate/invites/{inv_id}/accept", headers=N).status_code == 403  # принять после отзыва нельзя
     assert client.patch("/api/candidate/consents", json={"consent_publish": True}, headers=N).status_code == 422
+    # места работы из PDF исключить можно и после отзыва (сужение обработки), вернуть — нет
+    assert client.patch("/api/candidate/pdf", json={"experience": False}, headers=N).json() == {"pdf_experience": False}
+    assert client.patch("/api/candidate/pdf", json={"experience": True}, headers=N).status_code == 403
     # после отзыва — никакой записи ПДн
     body = {"name": "Новый", "spec": "Backend", "grade_claimed": "Junior", "min_salary": 150000, "formats": ["Удалённо"], "city": "Казань", "consent_152": True, "consent_publish": True}
     for r in (

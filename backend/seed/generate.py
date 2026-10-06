@@ -426,7 +426,7 @@ assert inn_ok(LADOGA_INN)
 
 def soft_profile(rng, grade: str, spec: str) -> tuple[list[str], list[str]]:
     """Роли и софт-скиллы синтетического кандидата (справочные, «со слов кандидата»): роли — по грейду,
-    софт-скиллы — 1–4 из справочника, лидерские роли тянут «Лидерство» / «Наставничество»."""
+    софт-скиллы — до 4 из справочника (у ~10 % — ни одного), лидерские роли тянут «Лидерство» / «Наставничество»."""
     p = {**ROLE_P[grade], **({"Исследователь": .2} if spec == "ML / DS" else {})}
     roles = [x for x in C.ROLES if x in p and rng.random() < p[x]]
     soft = [x for x in C.SOFT_SKILLS if rng.random() < .2]

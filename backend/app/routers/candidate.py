@@ -97,7 +97,8 @@ OUTDATED = "Текст согласия обновился — подтверд�
 
 def _require_152(c: Candidate | None) -> None:
     """Без действующего согласия (отозвано или дано на старую редакцию) запись ПДн запрещена;
-    из записи доступны только /consents и DELETE /me, чтение своих данных — /me, /me/export и /profile.pdf."""
+    без него остаются только действия, сужающие обработку (/consents, DELETE /me, PATCH /status, отказ от приглашения,
+    отзыв отклика, исключение мест работы из PDF), и чтение своих данных — /me, /me/export, /profile.pdf."""
     if c is not None and not matching.consent_ok(c, "processing"):
         raise HTTPException(403, WITHDRAWN if not c.consent_152 else OUTDATED)
 
@@ -296,8 +297,10 @@ def profile_pdf_file(c: Candidate = Depends(current_candidate)):
 
 @router.patch("/pdf")
 def set_pdf(body: PdfIn, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
-    """Кандидат видит в профиле распознанные места работы (`experience` в /me) и решает, класть ли их в PDF."""
-    _require_152(c)
+    """Кандидат видит в профиле распознанные места работы (`experience` в /me) и решает, класть ли их в PDF.
+    Исключить можно и без действующего согласия (PDF скачивается и после отзыва), включить — только с ним."""
+    if body.experience:
+        _require_152(c)
     c.pdf_experience = body.experience
     db.commit()
     return {"pdf_experience": c.pdf_experience}
