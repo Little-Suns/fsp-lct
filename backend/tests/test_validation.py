@@ -1,7 +1,6 @@
 """Валидация: метрики на посчитанных руками примерах + run() на маленькой засеянной БД (своя база fsp_validtest)."""
 
 import math
-import os
 
 import pytest
 from fastapi import FastAPI
@@ -9,14 +8,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-from app.db import Base, get_db
+from app.config import DATABASE_URL
+from app.db import get_db, reset_schema
 from app.routers import validation as router_mod
 from app.services import validation as V
 from app.services.items import seed_items
 from seed.generate import build
 
-# сервер — тот же, что у набора (test.sh задаёт DATABASE_URL через PG), база — своя
-URL = os.environ.get("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_valid").rsplit("/", 1)[0] + "/fsp_validtest"
+URL = DATABASE_URL.rsplit("/", 1)[0] + "/fsp_validtest"  # тот же сервер, что у набора (PG из test.sh)
 
 
 def test_metrics_by_hand():
@@ -46,8 +45,7 @@ def db():
             c.execute(text("create database fsp_validtest"))
     admin.dispose()
     eng = create_engine(URL)
-    Base.metadata.drop_all(eng)
-    Base.metadata.create_all(eng)
+    reset_schema(eng)  # пустая схема + миграции
     with Session(eng, expire_on_commit=False) as s:
         build(s, 150, 18, 1)
         seed_items(s)

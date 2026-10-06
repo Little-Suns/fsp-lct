@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app import catalog, config, deps
-from app.db import Base, SessionLocal, engine
+from app.db import Base, SessionLocal, engine, reset_schema
 from app.deps import hash_secret, issue_token, otp_hash
 from app.main import app
 from app.models import Candidate, Company, LoginChallenge, User
@@ -27,9 +27,9 @@ config.LLM_BASE_URL = ""
 def client():
     if "fsp_auth" not in str(engine.url):
         pytest.skip("тест пересоздаёт схему — нужен отдельный DATABASE_URL (fsp_auth)")
-    Base.metadata.drop_all(engine)
+    reset_schema()
     resend, deps.OTP_RESEND = deps.OTP_RESEND, timedelta(0)  # паузу между отправками проверяет отдельный тест
-    with TestClient(app) as cl:  # lifespan → init_db → create_all
+    with TestClient(app) as cl:  # lifespan → init_db → миграции (уже применены — no-op) и сверка схемы
         yield cl
     deps.OTP_RESEND = resend
 
@@ -253,12 +253,17 @@ def test_schema_check(monkeypatch):
     from app import db as dbmod
 
     class Insp:
+        def get_table_names(self):
+            return [t for t in Base.metadata.tables if t != "audit_log"]
+
         def get_columns(self, name):
             return [] if name == "users" else [{"name": c.name} for c in Base.metadata.tables[name].columns]
 
     monkeypatch.setattr("sqlalchemy.inspect", lambda e: Insp())
-    with pytest.raises(RuntimeError, match="users.email"):
+    with pytest.raises(RuntimeError) as e:
         dbmod.check_schema()
+    msg = str(e.value)  # нет таблицы целиком и нет колонок; подсказка — ревизия Alembic
+    assert "audit_log" in msg and "users.email" in msg and "ревизии Alembic" in msg
 
 
 def test_verified_company_guard():
