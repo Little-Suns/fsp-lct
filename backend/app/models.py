@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text, true
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -59,6 +59,8 @@ class Candidate(Base):
     # заявлены (резюме / анкета), значения catalog.ROLES и SOFT_SKILLS; в подборе и грейде не участвуют
     roles: Mapped[list[str]] = mapped_column(JSON, default=list)
     soft_skills: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # места работы, распознанные из cv_text, в разделе «Опыт» PDF-профиля; кандидат видит их в профиле и может исключить
+    pdf_experience: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # результат теста: категория = spec × track × grade
     grade: Mapped[str | None] = mapped_column(String(16))
     theta: Mapped[float | None] = mapped_column(Float)

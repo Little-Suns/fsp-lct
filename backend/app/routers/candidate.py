@@ -59,6 +59,10 @@ class StatusIn(BaseModel):
     status: str
 
 
+class PdfIn(BaseModel):
+    experience: bool  # места работы, распознанные из резюме, в разделе «Опыт» PDF-профиля
+
+
 class NotifIn(BaseModel):
     mail: bool | None = None
     tg: bool | None = None
@@ -232,6 +236,8 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
         "skills_confirmed": c.skills_confirmed or [],
         "roles": c.roles or [],
         "soft_skills": c.soft_skills or [],
+        "experience": profile_pdf.jobs(c),  # распознано из резюме — ровно то, что попадёт в «Опыт» PDF-профиля
+        "pdf_experience": c.pdf_experience,
         "competencies": c.competencies or [],
         "cv_filename": c.cv_filename,
         "tested_at": c.tested_at,
@@ -286,6 +292,15 @@ def profile_pdf_file(c: Candidate = Depends(current_candidate)):
     Чтение своих данных — доступно и после отзыва согласия, как выгрузка."""
     return Response(profile_pdf.render(c), media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="fsp-career-{c.public_id}.pdf"', **NO_STORE})
+
+
+@router.patch("/pdf")
+def set_pdf(body: PdfIn, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
+    """Кандидат видит в профиле распознанные места работы (`experience` в /me) и решает, класть ли их в PDF."""
+    _require_152(c)
+    c.pdf_experience = body.experience
+    db.commit()
+    return {"pdf_experience": c.pdf_experience}
 
 
 @router.patch("/status")

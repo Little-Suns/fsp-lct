@@ -264,7 +264,18 @@ def test_roles_soft_and_pdf_profile(client):
               "Kubernetes", "Тимлид", "Коммуникация", "стаж 4,5 г.", "2021 — н. в.", "Финтех, бэкенд", "Финал Кубка России ФСП 2025",
               "Codeforces: dorlov, рейтинг 1912", "230 000 ₽"):
         assert s in text, s
-    assert "Университет" not in text
+    assert "Университет" not in text and "распознаны автоматически" in text
+    # в профиле кандидат видит ровно то, что попадёт в «Опыт», и может исключить: стаж остаётся, места работы — нет
+    me = client.get("/api/candidate/me", headers=C).json()
+    assert me["experience"] == [{"from": 2021, "to": None, "title": "Финтех, бэкенд"}] and me["pdf_experience"] is True
+    assert client.patch("/api/candidate/pdf", json={"experience": False}, headers=C).json() == {"pdf_experience": False}
+    me = client.get("/api/candidate/me", headers=C).json()
+    assert me["pdf_experience"] is False and me["experience"]  # список виден и после исключения — можно вернуть
+    assert client.post("/api/candidate/profile", json={**body, "years_exp": 4.5}, headers=C).json()["pdf_experience"] is False  # профиль флаг не трогает
+    text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(client.get("/api/candidate/profile.pdf", headers=C).content)).pages)
+    assert "стаж 4,5 г." in text and "Финтех" not in text and "распознаны автоматически" not in text
+    assert client.patch("/api/candidate/pdf", json={"experience": True}, headers=E).status_code == 403
+    client.patch("/api/candidate/pdf", json={"experience": True}, headers=C)
     # работодателю и тому, у кого нет профиля, — нельзя
     assert client.get("/api/candidate/profile.pdf", headers=E).status_code == 403
     assert client.get("/api/candidate/profile.pdf", headers=N).status_code == 403
@@ -281,6 +292,17 @@ def test_profile_pdf_render_edge_cases():
     text = "\n".join(p.extract_text() for p in pages)
     assert len(pages) >= 2 and "Тест ещё не пройден: грейд Middle заявлен" in text and "не подтверждено" in text and "Ментор" in text
     assert "Опыт" not in text and "Софт-скиллы" not in text
+
+
+def test_profile_pdf_fallback_glyphs(caplog):
+    """Эмодзи, арабица, грузинский — из фолбэк-шрифта; CJK нет ни в одном шрифте — видимый «□», а не пропуск.
+    В лог — только счётчик и анонимный код, не сами символы (они из ФИО)."""
+    c = _cand("X-0002", name="Иван 😀 李 Петров", tg="@ivan_محمد", city="Тбилиси ა", skills_claimed=["Python"], cv_text="2020 — н.в. 株式会社 Акме")
+    with caplog.at_level("WARNING", logger="app.services.profile_pdf"):
+        text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(profile_pdf.render(c))).pages)
+    assert "Иван 😀 □ Петров" in text and "□□□□ Акме" in text and "ა" in text, text
+    assert [r.getMessage() for r in caplog.records] == ["PDF-профиль X-0002: 5 символ(ов) вне шрифтов заменены на «□»"]
+    assert "李" not in caplog.text
 
 
 def test_reconsent(client, monkeypatch):

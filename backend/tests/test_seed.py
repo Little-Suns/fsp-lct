@@ -53,6 +53,10 @@ def test_generate_cli(seeded, capsys):
         assert c.truth and {"theta_true", "skills_true"} <= c.truth.keys()
     for co in db.scalars(select(Company)):
         assert inn_valid(co.inn), co.inn
+    # роли и софт-скиллы у синтетики — из справочников и у заметной части кандидатов
+    gen = [c for c in synth if c.is_synthetic]
+    assert all(set(c.roles) <= set(catalog.ROLES) and set(c.soft_skills) <= set(catalog.SOFT_SKILLS) and len(c.soft_skills) <= 4 for c in gen)
+    assert sum(bool(c.roles) for c in gen) >= len(gen) // 5 and sum(bool(c.soft_skills) for c in gen) >= len(gen) // 2
     # вилка в каждом приглашении обязательна и не перевёрнута
     for inv in db.scalars(select(Invitation)):
         assert inv.salary_from and inv.salary_to and inv.salary_from <= inv.salary_to and inv.expires_at > inv.sent_at

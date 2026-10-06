@@ -1,10 +1,17 @@
 """PDF-профиль кандидата: категория, компетенции, навыки, роли и софт-скиллы, опыт, достижения, ожидания.
 
 Это документ самого кандидата (его право на доступ к своим данным) — с ФИО и контактами; работодателю он не
-отдаётся. Фирменный шрифт — JetBrains Mono из брендбука (TTF рядом, OFL), в PDF вшивается подмножество глифов.
+отдаётся платформой, но кандидат может сам отправить его работодателю. Поэтому раздел «Опыт» — ровно то, что
+показано кандидату в профиле (`jobs`), с пометкой «распознано из резюме», и кандидат может его исключить (`pdf_experience`).
+
+Фирменный шрифт — JetBrains Mono из брендбука (OFL, `assets/fonts/OFL.txt`); чего в нём нет (арабица, грузинский,
+иврит, эмодзи) — из DejaVu Sans (лицензия `assets/fonts/DejaVu-LICENSE.txt`). Символ вне обоих шрифтов (CJK и т. п.)
+заменяется видимым «□», а не пропадает. В PDF вшивается подмножество глифов.
 """
 
+import logging
 import re
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,8 +23,16 @@ from app.services.parsing import cv_experience
 
 FONTS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 BLUE, INK, INK2, LINE, MIST = (64, 47, 255), (27, 28, 33), (74, 75, 85), (200, 201, 202), (237, 235, 255)
+MISSING = "□"  # видимая замена символа, которого нет ни в одном шрифте
 THETA_MIN, THETA_MAX = -3.0, 3.0  # шкала полос компетенций
 SOURCES = {"fsp": "ФСП", "hackathon": "Хакатон", "ctftime": "CTFtime", "codeforces": "Codeforces"}
+log = logging.getLogger(__name__)
+
+
+def jobs(c: Candidate) -> list[dict]:
+    """Места работы из текста резюме — ровно то, что попадёт в раздел «Опыт» (если кандидат не исключил).
+    Тот же список отдаётся в /me, чтобы кандидат видел и проверял его до отправки PDF."""
+    return cv_experience(c.cv_text)[:12] if c.cv_text else []
 
 
 def dec(v: float, n: int = 2) -> str:
@@ -43,10 +58,29 @@ class _Doc(FPDF):
         self.pid, self.generated = pid, generated
         self.add_font("mono", "", FONTS / "JetBrainsMono-Regular.ttf")
         self.add_font("mono", "B", FONTS / "JetBrainsMono-Bold.ttf")
+        self.add_font("fallback", "", FONTS / "DejaVuSans.ttf")
+        # ponytail: один фолбэк без CJK (Noto CJK — десятки МБ) и без шейпинга арабицы (uharfbuzz); нужно — добавить шрифт и set_text_shaping
+        self.set_fallback_fonts(["fallback"], exact_match=False)  # и для жирного: у DejaVu берём только обычное начертание
+        self.missing: set[str] = set()
         self.set_margins(16, 16, 16)
         self.set_auto_page_break(True, 18)
         self.set_title(f"Профиль кандидата {pid}")
         self.set_creator("ФСП Карьера")
+
+    def normalize_text(self, text: str) -> str:
+        """Символ, которого нет ни в текущем шрифте, ни в фолбэке, fpdf2 молча рисует пустым — меняем на «□».
+        Невидимые форматирующие (ZWJ, селекторы вариантов эмодзи) просто убираем."""
+        text = unicodedata.normalize("NFC", super().normalize_text(text))
+        have, extra = self.current_font.cmap, self.fonts["fallback"].cmap
+        out = []
+        for ch in text:
+            cp = ord(ch)
+            if cp < 32 or cp in have or cp in extra:
+                out.append(ch)
+            elif unicodedata.category(ch) not in ("Cf", "Mn"):
+                self.missing.add(ch)
+                out.append(MISSING)
+        return "".join(out)
 
     def header(self):
         self.set_font("mono", "B", 9)
@@ -173,10 +207,12 @@ def render(c: Candidate, *, now: datetime | None = None) -> bytes:
             pdf.para("Софт-скиллы", size=7.5)
             pdf.chips(c.soft_skills, fill=(240, 240, 241))
 
-    jobs = cv_experience(c.cv_text)[:12] if c.cv_text else []
-    if c.years_exp is not None or jobs:
+    places = jobs(c) if c.pdf_experience is not False else []  # None — объект ещё не сохранён, по умолчанию включено
+    if c.years_exp is not None or places:
         pdf.section("Опыт", f"  стаж {dec(c.years_exp, 1).removesuffix(',0')} г." if c.years_exp is not None else None)
-        for j in jobs:
+        if places:
+            pdf.para("Места работы — из резюме кандидата, распознаны автоматически", size=7.5)
+        for j in places:
             period = f"{j['from']} — {j['to'] or 'н. в.'}"
             pdf.para(f"{period:<14}{j['title'] or ''}", size=8.5, color=INK)
 
@@ -199,4 +235,7 @@ def render(c: Candidate, *, now: datetime | None = None) -> bytes:
     pdf.para("Грейд и компетенции — по адаптивному тесту ФСП Карьера (IRT): θ — оценка уровня, ± — погрешность. "
              "Грейд повышается, только когда вся полоса погрешности выше порога. Заявленные навыки, роли и софт-скиллы — со слов кандидата.",
              size=7, h=3.8)
-    return bytes(pdf.output())
+    out = bytes(pdf.output())
+    if pdf.missing:  # сами символы не пишем: они из ФИО и текста кандидата (ПДн)
+        log.warning("PDF-профиль %s: %d символ(ов) вне шрифтов заменены на «%s»", c.public_id, len(pdf.missing), MISSING)
+    return out

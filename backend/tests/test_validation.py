@@ -1,6 +1,7 @@
 """Валидация: метрики на посчитанных руками примерах + run() на маленькой засеянной БД (своя база fsp_validtest)."""
 
 import math
+import os
 
 import pytest
 from fastapi import FastAPI
@@ -14,7 +15,8 @@ from app.services import validation as V
 from app.services.items import seed_items
 from seed.generate import build
 
-URL = "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_validtest"
+# сервер — тот же, что у набора (test.sh задаёт DATABASE_URL через PG), база — своя
+URL = os.environ.get("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_valid").rsplit("/", 1)[0] + "/fsp_validtest"
 
 
 def test_metrics_by_hand():
