@@ -17,16 +17,25 @@ URL = "http://llm.test/v1"
 
 @pytest.fixture
 def model(monkeypatch):
-    """Подменяет httpx.post: ответ задаётся через model.reply (dict | Exception | httpx.Response)."""
+    """Подменяет httpx.post: ответ задаётся через model.reply (dict | Exception | httpx.Response | обработчик)."""
+    monkeypatch.setattr(config, "LLM_PROVIDER", "openai_compatible")
     monkeypatch.setattr(config, "LLM_BASE_URL", URL + "/")
+    monkeypatch.setattr(config, "LLM_API_KEY", "")
+    monkeypatch.setattr(config, "LLM_MODEL", "test-chat")
+    monkeypatch.setattr(config, "EMBED_MODEL", "test-embed")
+    monkeypatch.setattr(config, "LLM_CA_BUNDLE", "")
     monkeypatch.setattr(llm, "_down_until", 0.0)
+    monkeypatch.setattr(llm, "_token", ("", 0.0))
 
     class Fake:
         reply: object = None
         calls: list = []
 
-        def __call__(self, url, json=None, timeout=None):
+        def __call__(self, url, json=None, timeout=None, headers=None, data=None, verify=None):
             self.calls.append((url, json, timeout))
+            self.kw.append({"headers": headers or {}, "data": data, "verify": verify})
+            if callable(self.reply):  # обработчик: (url, json, headers, data) → httpx.Response
+                return self.reply(url, json, headers or {}, data)
             if isinstance(self.reply, Exception):
                 raise self.reply
             if isinstance(self.reply, httpx.Response):
@@ -34,7 +43,7 @@ def model(monkeypatch):
             return httpx.Response(200, json=self.reply, request=httpx.Request("POST", url))
 
     fake = Fake()
-    fake.calls = []
+    fake.calls, fake.kw = [], []
     monkeypatch.setattr(llm.httpx, "post", fake)
     return fake
 
@@ -53,6 +62,7 @@ def test_chat_json_success(model):
     assert url == URL + "/chat/completions" and timeout == config.LLM_TIMEOUT
     assert body["model"] == config.LLM_MODEL and body["temperature"] == 0 and body["response_format"] == {"type": "json_object"}
     assert [m["role"] for m in body["messages"]] == ["system", "user"]
+    assert model.kw[0]["headers"] == {} and model.kw[0]["verify"] is True  # без ключа — без Authorization; TLS проверяется
 
 
 @pytest.mark.parametrize("reply", [_chat("не json"), _chat([1, 2]), {"choices": []}, {"oops": 1}])
@@ -97,6 +107,159 @@ def test_embed(model):
     for bad in ({"data": [{"index": 0}]}, {"data": None}, {}):
         model.reply = bad
         assert llm.embed(["a"]) is None
+
+
+def test_embeddings_off_and_providers_off(model, monkeypatch):
+    monkeypatch.setattr(config, "EMBED_MODEL", "")  # эмбеддинги выключены — подбор по навыкам, без запроса
+    assert llm.embed(["a"]) is None and model.calls == []
+    for p in ("none", "qwerty"):  # none — правила; неизвестный провайдер тоже ничего не шлёт
+        monkeypatch.setattr(config, "LLM_PROVIDER", p)
+        assert llm.chat_json("s", "u") is None
+    assert model.calls == []
+
+
+def test_openai_compatible_bearer_key_and_fenced_json(model, monkeypatch):
+    monkeypatch.setattr(config, "LLM_API_KEY", "k-123")
+    model.reply = _chat('Вот ответ:\n```json\n{"spec": "QA"}\n```')
+    assert llm.chat_json("s", "u") == {"spec": "QA"}
+    assert model.kw[0]["headers"] == {"Authorization": "Bearer k-123"}
+    model.reply = _chat("```json {не json} ```")
+    assert llm.chat_json("s", "u") is None
+    model.reply = {"choices": [{"message": {"content": None}}]}
+    assert llm.chat_json("s", "u") is None
+
+
+def test_ca_bundle_adds_roots_without_disabling_tls(model, monkeypatch):
+    import ssl
+
+    import certifi
+
+    monkeypatch.setattr(config, "LLM_CA_BUNDLE", certifi.where())  # любой валидный PEM вместо Russian Trusted Root CA
+    model.reply = _chat({"ok": 1})
+    assert llm.chat_json("s", "u") == {"ok": 1}
+    ctx = model.kw[0]["verify"]
+    assert isinstance(ctx, ssl.SSLContext) and ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname
+
+
+@pytest.fixture
+def yandex(model, monkeypatch):
+    monkeypatch.setattr(config, "LLM_PROVIDER", "yandexgpt")
+    monkeypatch.setattr(config, "LLM_BASE_URL", "https://llm.api.cloud.yandex.net/v1")
+    monkeypatch.setattr(config, "LLM_MODEL", "yandexgpt-lite/latest")
+    monkeypatch.setattr(config, "EMBED_MODEL", "text-search-doc/latest")
+    monkeypatch.setattr(config, "LLM_API_KEY", "AQVN-secret")
+    monkeypatch.setattr(config, "YANDEX_FOLDER_ID", "b1gfolder")
+    return model
+
+
+def test_yandexgpt(yandex, monkeypatch):
+    yandex.reply = _chat({"spec": "Backend"})
+    assert llm.chat_json("s", "u") == {"spec": "Backend"}
+    url, body, _ = yandex.calls[0]
+    assert url == "https://llm.api.cloud.yandex.net/v1/chat/completions" and body["model"] == "gpt://b1gfolder/yandexgpt-lite/latest"
+    assert yandex.kw[0]["headers"] == {"Authorization": "Api-Key AQVN-secret", "x-folder-id": "b1gfolder", "x-data-logging-enabled": "false"}
+    yandex.reply = {"data": [{"index": 0, "embedding": [0.5]}]}
+    assert llm.embed(["a"]) == [[0.5]] and yandex.calls[1][1]["model"] == "emb://b1gfolder/text-search-doc/latest"
+    monkeypatch.setattr(config, "LLM_MODEL", "gpt://other/yandexgpt/rc")  # полный URI не трогаем
+    yandex.reply = _chat({})
+    llm.chat_json("s", "u")
+    assert yandex.calls[2][1]["model"] == "gpt://other/yandexgpt/rc"
+    monkeypatch.setattr(config, "YANDEX_FOLDER_ID", "")  # без каталога (или ключа) — выключено, правила
+    n = len(yandex.calls)
+    assert llm.chat_json("s", "u") is None and len(yandex.calls) == n
+
+
+OAUTH = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+
+
+@pytest.fixture
+def giga(model, monkeypatch):
+    """GigaChat: OAuth-токен по ключу авторизации, затем chat/completions с Bearer. Сеть замокана."""
+    monkeypatch.setattr(config, "LLM_PROVIDER", "gigachat")
+    monkeypatch.setattr(config, "LLM_BASE_URL", "https://gigachat.devices.sberbank.ru/api/v1")
+    monkeypatch.setattr(config, "GIGACHAT_AUTH_KEY", "Y2xpZW50OnNlY3JldA==")
+    monkeypatch.setattr(config, "GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
+    monkeypatch.setattr(config, "GIGACHAT_OAUTH_URL", OAUTH)
+    state = {"n": 0, "expires": (time.time() + 1800) * 1000, "reject": set(), "oauth": 200}
+
+    def handler(url, body, headers, data):
+        req = httpx.Request("POST", url)
+        if url == OAUTH:
+            state["n"] += 1
+            if state["oauth"] != 200:
+                return httpx.Response(state["oauth"], json={"message": "bad key"}, request=req)
+            return httpx.Response(200, json={"access_token": f"tok{state['n']}", "expires_at": state["expires"]}, request=req)
+        if headers.get("Authorization") in state["reject"]:
+            return httpx.Response(401, json={"message": "token expired"}, request=req)
+        if url.endswith("/embeddings"):
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0]}]}, request=req)
+        return httpx.Response(200, json=_chat({"auth": headers.get("Authorization")}), request=req)
+
+    model.reply = handler
+    model.state = state
+    return model
+
+
+def test_gigachat_token_fetch_and_reuse(giga):
+    assert llm.chat_json("s", "u") == {"auth": "Bearer tok1"}
+    url, _, _ = giga.calls[0]
+    kw = giga.kw[0]
+    assert url == OAUTH and kw["data"] == {"scope": "GIGACHAT_API_PERS"}
+    assert kw["headers"]["Authorization"] == "Basic Y2xpZW50OnNlY3JldA==" and len(kw["headers"]["RqUID"]) == 36
+    body = giga.calls[1][1]
+    assert "response_format" not in body and body["temperature"] > 0 and body["model"] == "test-chat"
+    assert llm.embed(["a"]) == [[1.0]]
+    assert giga.state["n"] == 1  # токен живёт 30 минут — повторно не запрашиваем
+
+
+def test_gigachat_token_refresh_on_expiry_and_401(giga):
+    giga.state["expires"] = (time.time() + 30) * 1000  # истекает меньше чем через минуту → обновим заранее
+    assert llm.chat_json("s", "u") == {"auth": "Bearer tok1"}
+    giga.state["expires"] = (time.time() + 1800) * 1000
+    assert llm.chat_json("s", "u") == {"auth": "Bearer tok2"}
+    giga.state["reject"].add("Bearer tok2")  # отозван раньше срока → один повтор с новым токеном
+    assert llm.chat_json("s", "u") == {"auth": "Bearer tok3"} and llm._down_until == 0.0
+
+
+def test_gigachat_oauth_failure_falls_back(giga):
+    giga.state["oauth"] = 401
+    assert llm.chat_json("s", "u") is None and llm._down_until > 0
+    assert llm._token == ("", 0.0)
+
+
+def test_gigachat_oauth_garbage_falls_back(giga):
+    giga.reply = lambda url, *a: httpx.Response(200, json={"no_token": 1}, request=httpx.Request("POST", url))
+    assert llm.chat_json("s", "u") is None and llm._down_until > 0
+
+
+def test_gigachat_disabled_without_key(giga, monkeypatch):
+    monkeypatch.setattr(config, "GIGACHAT_AUTH_KEY", "")
+    assert llm.chat_json("s", "u") is None and giga.calls == []
+
+
+@pytest.mark.parametrize(
+    "env, want",
+    [
+        ({}, ("none", "", "", "")),
+        ({"LLM_PROVIDER": "ollama"}, ("ollama", "http://localhost:11434/v1", "mistral:7b", "bge-m3")),
+        ({"LLM_PROVIDER": "Ollama", "OLLAMA_URL": "http://host.docker.internal:11434/v1", "LLM_BASE_URL": "", "EMBED_MODEL": "none"},
+         ("ollama", "http://host.docker.internal:11434/v1", "mistral:7b", "")),
+        ({"LLM_PROVIDER": "yandexgpt"}, ("yandexgpt", "https://llm.api.cloud.yandex.net/v1", "yandexgpt-lite/latest", "text-search-doc/latest")),
+        ({"LLM_PROVIDER": "gigachat", "LLM_MODEL": "GigaChat-2-Max"}, ("gigachat", "https://gigachat.devices.sberbank.ru/api/v1", "GigaChat-2-Max", "Embeddings")),
+        ({"LLM_PROVIDER": "openai_compatible", "LLM_BASE_URL": "http://vllm:8000/v1"}, ("openai_compatible", "http://vllm:8000/v1", "", "")),
+    ],
+)
+def test_config_presets(env, want):
+    """Пресеты читаются при импорте config — проверяем в отдельном процессе с чистым окружением."""
+    import os
+    import subprocess
+    import sys
+
+    base = {k: v for k, v in os.environ.items() if not k.startswith(("LLM_", "EMBED_", "OLLAMA_", "YANDEX_", "GIGACHAT_"))}
+    code = "from app import config as c; print(repr((c.LLM_PROVIDER, c.LLM_BASE_URL, c.LLM_MODEL, c.EMBED_MODEL)))"
+    out = subprocess.run([sys.executable, "-c", code], env={**base, **env}, capture_output=True, text=True, check=True,
+                         cwd=os.path.dirname(os.path.dirname(__file__)))
+    assert out.stdout.strip() == repr(want)
 
 
 # ---------- parsing.py: правила (LLM недоступна) ----------
@@ -177,7 +340,8 @@ def test_fill_fork():
 
 
 def test_cv_rules(no_llm):
-    empty = {"roles": [], "soft_skills": [], "contacts": {"name": None, "email": None, "tg": None}, "experience": [], "parsed_by": "rules"}
+    empty = {"roles": [], "soft_skills": [], "contacts": {"name": None, "email": None, "tg": None}, "experience": [], "parsed_by": "rules",
+             "grade_hint": None}
     cv = parse_cv("Резюме. Kotlin, Swift, разработка мобильных приложений")
     assert cv == {"skills": ["Kotlin", "Swift"], "years_exp": None, "spec": "Mobile", "track": "Android", **empty}
     assert parse_cv("просто текст") == {"skills": [], "years_exp": None, "spec": None, "track": None, **empty}
@@ -323,3 +487,89 @@ def test_cv_llm(model):
     model.reply = _chat({"skills": True, "roles": 5, "soft_skills": "Лидерство"})
     cv = parse_cv("Python. Тимлид.")
     assert cv["skills"] == ["Python"] and cv["roles"] == ["Тимлид"] and cv["soft_skills"] == []
+
+
+# ---------- ПДн не уходят в модель ----------
+
+CV_PII = """РЕЗЮМЕ
+Кузнецова Мария Андреевна
+Senior Backend Developer
+Телефон: +7 (916) 555-12-34 | E-mail: m.kuznetsova@example.ru | Telegram: @mkuz_dev
+GitHub: mkuznetsova · https://www.linkedin.com/in/m-kuznetsova · gitlab.com/mkuz · 8 903 777 88 99 · 9031112233
+Адрес: г. Москва, ул. Тверская, д. 7, кв. 15
+Дата рождения: 14.05.1993
+Гражданство: РФ
+Опыт работы
+2019 — н.в. ООО «Ромашка», ведущий разработчик. Python, FastAPI, PostgreSQL, Kafka.
+2016 — 2019 Банк, разработчик. Рекомендации: Смирнов Алексей, руководитель отдела.
+О себе: Мария, ответственная; портфолио — mkuz.dev/projects"""
+PII = ["Кузнецова", "Мария", "Андреевна", "Кузнецов", "916", "555-12-34", "m.kuznetsova", "example.ru", "mkuz", "linkedin", "gitlab",
+       "903 777", "9031112233", "Тверская", "14.05.1993", "Гражданство", "Смирнов", "Алексей"]
+
+
+def test_cv_pii_not_sent_to_model(model):
+    model.reply = _chat({"skills": ["Python"], "years_exp": 7})
+    cv = parse_cv(CV_PII)
+    sent = json.dumps(model.calls[0][1], ensure_ascii=False)
+    assert [p for p in PII if p.lower() in sent.lower()] == []
+    # полезное для разбора остаётся: навыки, места работы, грейд в должности
+    for keep in ("Python", "FastAPI", "PostgreSQL", "Kafka", "ООО «Ромашка», ведущий разработчик", "2016 — 2019", "Senior"):
+        assert keep in sent, keep
+    # контакты распознаны правилами локально — для предзаполнения формы самого кандидата
+    assert cv["contacts"] == {"name": "Кузнецова Мария Андреевна", "email": "m.kuznetsova@example.ru", "tg": "@mkuz_dev"}
+
+
+def test_need_pii_not_sent_to_model(model):
+    model.reply = _chat({})
+    parse_need("Ищем бэкендера на Python, мидл, до 300к.\nКонтакт: Ольга Сергеевна Белова, hr@ladoga.example, +7 999 000-11-22, t.me/olga_hr")
+    sent = json.dumps(model.calls[0][1], ensure_ascii=False)
+    assert not any(p in sent for p in ("Ольга", "Белова", "hr@", "ladoga", "000-11-22", "olga_hr")), sent
+    assert "Python" in sent and "300к" in sent
+
+
+@pytest.mark.parametrize(
+    "text, gone, kept",
+    [
+        ("Иванов С. П., Python", ["Иванов"], ["Python"]),
+        ("Меня зовут Пётр Сидоров. Kotlin", ["Пётр", "Сидоров"], ["Kotlin"]),
+        ("Name: Ivan Petrov\nGo, gRPC", ["Ivan", "Petrov"], ["Go, gRPC"]),
+        ("ФИО: Ли Ван\nk8s", ["Ли", "Ван"], ["k8s"]),
+        ("phone - 89161234567, skype: ivan.p", ["89161234567", "ivan.p"], ["phone"]),
+        # не ПДн: годы, суммы, периоды, индексы БД, IP-адрес, GitHub Actions, стек через «/»
+        ("2019-2021, 150000-200000 руб, оптимизировал индексы, IP-адрес, GitHub Actions, github-actions, Node.js/TypeScript", [],
+         ["2019-2021", "150000-200000", "индексы", "IP-адрес", "GitHub Actions", "github-actions", "Node.js/TypeScript"]),
+    ],
+)
+def test_mask_pii(text, gone, kept):
+    out = parsing.mask_pii(text)
+    assert not [g for g in gone if g in out] and all(k in out for k in kept), out
+
+
+# ---------- подсказка грейда ----------
+
+
+@pytest.mark.parametrize(
+    "text, grade, why",
+    [
+        (CV_FULL, "Senior", "в шапке резюме — «senior»"),  # «Senior Python Developer» в шапке
+        ("Python\n2018 — н.в. Ozon, ведущий разработчик\n2015 — 2018 Банк, junior", "Senior", "в последней должности — «ведущий»"),
+        ("Python\n2015 — 2018 Банк, junior\n2018 — н.в. Ozon, ведущий разработчик", "Senior", "в последней должности — «ведущий»"),
+        ("Анна Петрова\nТимлид, менторила джунов.", "Lead", "«тимлид»"),
+        ("Python. Руководил командой из 5 человек. Опыт 6 лет", "Lead", "руководство командой"),
+        ("Python, Go. Менторил джунов и мидлов. Опыт 1,5 года", "Junior", "опыт 1,5 г."),  # чужие грейды — не про себя
+        ("Go. Опыт 3 года", "Middle", "опыт 3 г."),
+        ("Go. Опыт 7 лет", "Senior", "опыт 7 г."),
+        ("Стажёр-аналитик. SQL", "Intern", "«стажёр»"),
+        ("Python. Сейчас работаю как junior developer в стартапе. Опыт 4 года", "Junior", "скорее Middle"),
+    ],
+)
+def test_grade_hint(no_llm, text, grade, why):
+    h = parse_cv(text)["grade_hint"]
+    assert h["grade"] == grade and why in h["why"], h
+
+
+def test_grade_hint_absent_and_llm_years(model):
+    model.reply = _chat({"years_exp": 0.5})
+    assert parse_cv("Python")["grade_hint"] == {"grade": "Intern", "why": "опыт 0,5 г."}  # стаж от модели тоже идёт в подсказку
+    model.reply = _chat({})
+    assert parse_cv("просто текст")["grade_hint"] is None

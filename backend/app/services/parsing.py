@@ -6,8 +6,11 @@
 и вырезаются из текста до разбора — подбору они не нужны и запрещены к использованию.
 
 Из резюме дополнительно достаются контакты (имя, почта, Telegram) — только чтобы предзаполнить форму самого
-кандидата; в подбор и в модель они не попадают. Роли, софт-скиллы и места работы — для профиля и PDF-профиля,
-в ранжировании и грейде не участвуют.
+кандидата; в подбор они не попадают. Роли, софт-скиллы и места работы — для профиля и PDF-профиля,
+в ранжировании и грейде не участвуют. Подсказка грейда (`grade_hint`) — только предвыбор в форме кандидата.
+
+В модель (возможно, облачную) текст уходит только после `mask_pii`: ФИО, почта, телефон, Telegram, ссылки на
+профили, адрес и дата рождения заменяются метками. Контакты распознаются правилами локально, до маскировки.
 """
 
 import math
@@ -313,7 +316,7 @@ def parse_need(text: str, *, use_llm: bool = True) -> dict:
     clean, ignored = _strip_personal(text)
     out = _rules_need(clean)
     parsed_by = "rules"
-    got = llm.chat_json(_NEED_SYSTEM, clean) if use_llm else None
+    got = llm.chat_json(_NEED_SYSTEM, mask_pii(clean)) if use_llm else None  # контакты HR в тексте — тоже ПДн
     if got:
         parsed_by = "llm"
         if got.get("spec") in catalog.SPECS:
@@ -468,9 +471,116 @@ def _contacts(text: str) -> dict:
     return {"name": _name(text), "email": email[0].lower() if email else None, "tg": "@" + tg[1] if tg else None}
 
 
+# ---------- ПДн: маскировка перед моделью ----------
+
+_URL_RX = (r"(?:https?://|www\.)[^\s<>\"'«»()]+|(?<![\w.@-])(?:[a-z0-9-]+\.)*(?:github\.com|gitlab\.com|linkedin\.com|vk\.com|hh\.ru|"
+           r"habr\.com|leetcode\.com|codeforces\.com|kaggle\.com|stackoverflow\.com|facebook\.com|instagram\.com|ok\.ru|about\.me|"
+           r"t\.me)(?:/[^\s<>\"'«»()]*)?|(?<![\w.@-])[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,4}\.(?:ru|com|me|io|dev|рф|su|pro)/[^\s<>\"'«»()]+")
+# +7 / 8 / +375 … и 10 цифр с разделителями; голые 10 цифр с 9 — мобильный без кода страны. Годы и суммы не трогаем.
+_PHONE_RX = r"(?<![\d+])(?:(?:\+\s?\d{1,3}|8)[\s(-]{0,2}\d{3}[\s)-]{0,2}\d{3}[\s-]?\d{2}[\s-]?\d{2}|9\d{9})(?!\d)"
+_LABELED_RX = (r"(?<![\w-])(телефон|тел\.?|моб\.?|phone|mobile|whatsapp|viber|skype|github|gitlab|linkedin|vk|вконтакте|habr|хабр|"
+               r"leetcode|codeforces|сайт|site|website|portfolio|портфолио)(?:[ \t]{0,3}:|[ \t]{1,3}[—–-])[ \t]{0,3}[^\s|,;·•]+")
+# строки с адресом, датой рождения, гражданством и семейным положением в модель не идут целиком
+_PERSONAL_LINE_RX = (r"(?<![\w-])(?:адрес\w*[ \t]*(?::|прожив|регистр)|(?:home )?address[ \t]*:|ул\.|улиц[аеы] |проспект|пр-т|"
+                     r"переул\w*|бульвар|шоссе|набережн\w*|кв\.|квартир\w*|дата рождения|д\.[ \t]?р\.|родил(?:ся|ась)|date of birth|"
+                     r"гражданств\w*|citizenship|семейн\w* положен\w*|marital)")
+_PATRONYMIC = r"[А-ЯЁ][а-яё]+(?:ович|евич|ьич|овна|евна|ична|инична)(?:а|у|ем|ом|е|ой|ы)?"
+_NAME_RXS = [
+    rf"(?im)^[ \t]*(?:фио|ф\.и\.о\.?|имя|фамилия|full name|name)[ \t]*[:—–-][ \t]*([^\n]+)",  # подпись поля → всё значение
+    rf"(?i:меня зовут|my name is)[ \t]+({_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{0,2}})",
+    rf"((?:{_NAME_WORD}[ \t]+){{1,2}}{_PATRONYMIC}(?:[ \t]+{_NAME_WORD})?)",  # Иванов Сергей Петрович / Сергей Петрович Иванов
+    r"([А-ЯЁ][а-яё]{2,}[ \t]+[А-ЯЁ]\.[ \t]?(?:[А-ЯЁ]\.)?|[А-ЯЁ]\.[ \t]?(?:[А-ЯЁ]\.[ \t]?)?[А-ЯЁ][а-яё]{2,})",  # Иванов С. П. / С. П. Иванов
+    # пара слов с заглавной, одно — с типичным окончанием фамилии: «Петров Иван», «Ivan Petrov»
+    r"([А-ЯЁ][а-яё]+[ \t]+[А-ЯЁ][а-яё]*(?:ов|ев|ёв|ин|ын|ский|цкий|ова|ева|ёва|ина|ына|ская|цкая|енко|ук|юк)"
+    r"|[А-ЯЁ][а-яё]*(?:ов|ев|ёв|ин|ын|ский|цкий|ова|ева|ёва|ина|ына|ская|цкая|енко|ук|юк)[ \t]+[А-ЯЁ][а-яё]+"
+    r"|[A-Z][a-z]+[ \t]+[A-Z][a-z]*(?:ov|ev|ova|eva|ina|sky|skiy|skaya|enko|uk)|[A-Z][a-z]*(?:ov|ev|ova|eva|ina|sky|skiy|skaya|enko|uk)[ \t]+[A-Z][a-z]+)(?![\w-])",
+]
+
+
+def _name_words(text: str) -> set[str]:
+    """Слова, похожие на ФИО: имя из шапки (как в контактах) + подписи, отчества, инициалы, «Фамилия Имя»."""
+    found = [n] if (n := _name(text)) else []
+    for rx in _NAME_RXS:
+        found += [m[1] for m in re.finditer(rx, text)]
+    words = {w for f in found for w in re.findall(r"[A-Za-zА-Яа-яЁё]{2,}", f)}
+    return {w for w in words if w.lower() not in _NOT_NAME and _spec(w.lower(), []) is None}
+
+
+def mask_pii(text: str) -> str:
+    """Текст для внешней модели: ПДн заменены метками, навыки, стаж и места работы остаются.
+    ponytail: правила, а не NER — редкие имена вне шапки без отчества и «фамильного» окончания пройдут; NER (Natasha), если понадобится."""
+    names = _name_words(text)
+    lines = ["[личное]" if re.search(_PERSONAL_LINE_RX, ln, re.IGNORECASE) else ln for ln in text.split("\n")]
+    text = "\n".join(lines)
+    text = re.sub(_EMAIL_RX, "[почта]", text, flags=re.IGNORECASE)
+    text = re.sub(_URL_RX, "[ссылка]", text, flags=re.IGNORECASE)
+    text = re.sub(_TG_RX, "[telegram]", text, flags=re.IGNORECASE)
+    text = re.sub(_PHONE_RX, "[телефон]", text)  # до подписей: иначе «Телефон: +7 (999)…» съест только «+7»
+    text = re.sub(_LABELED_RX, r"\1: [контакт]", text, flags=re.IGNORECASE)
+    if names:  # и все упоминания тех же слов дальше по тексту, с падежным окончанием
+        alt = "|".join(re.escape(w) for w in sorted(names, key=len, reverse=True))
+        text = re.sub(rf"{_B}(?:{alt})[а-яёa-z]{{0,3}}(?![{_W}])", "[имя]", text, flags=re.IGNORECASE)
+    return text
+
+
+# ---------- подсказка грейда ----------
+
+_HINT_RX = {  # явные маркеры уровня в должности; «ведущий» — Senior, руководство командой — Lead
+    "Lead": rf"тимлид|техлид|лид(?![а-яё])|team ?lead|tech ?lead|lead(?![{_W}])|руководител\w* (?:команд|групп|отдел|разработ)",
+    "Senior": r"senior|с[еи]нь[её]?о?р|старш\w*|ведущ\w*",
+    "Middle": rf"middle|мидл|миддл",
+    "Junior": r"junior|джун(?:иор)?(?![а-яё])|младш\w*",
+    "Intern": r"стаж[её]р\w*|интерн(?![а-яё]{2})|intern(?:ship)?(?![a-z])|trainee|практикант\w*",
+}
+# «менторил джунов», «нанимал мидлов» — про других людей, а не про себя
+_OTHERS_RX = r"(?:ментор\w*|менторил\w*|наставля\w*|наставник\w*|обучал\w*|курировал\w*|нанимал\w*|собеседовал\w*|mentor\w*|coach\w*|hir\w*|interview\w*)\W+(?:\w+\W+){0,2}$"
+
+
+def _years_grade(y: float) -> str:
+    """Стаж → грейд по рыночной сетке (как в синтетике, seed.generate.YEARS); Lead по стажу не ставим — это роль."""
+    return "Intern" if y < 1 else "Junior" if y < 2 else "Middle" if y < 5 else "Senior"
+
+
+def _marker(s: str) -> tuple[str, str] | None:
+    hits = []
+    for g, rx in _HINT_RX.items():
+        for m in re.finditer(rf"{_B}(?:{rx})", s):
+            if not re.search(_OTHERS_RX, s[max(0, m.start() - 40) : m.start()]):
+                hits.append((m.start(), g, m[0]))
+                break
+    if not hits:
+        return None
+    _, g, word = min(hits)
+    return g, word
+
+
+def grade_hint(text: str, years: float | None, roles: list[str], experience: list[dict]) -> dict | None:
+    """Предполагаемый грейд по резюме: {"grade", "why"} или None. Только предвыбор в форме — кандидат выбирает
+    сам, тест подтверждает. Порядок: маркер в шапке или последней должности → роль тимлида → маркер в тексте → стаж.
+    Достижения ФСП сюда не входят: по инварианту они меняют место в категории, но не грейд."""
+    # шапка — первые строки без периодов работы: «2015 — 2018 Банк, junior» — прошлая должность, а не текущий уровень
+    head = " ".join(ln for ln in [ln.strip() for ln in text.splitlines() if ln.strip()][:3] if len(ln) <= 80 and not _RANGE_RX.search(ln))
+    latest = max(experience, key=lambda e: (e["to"] is None, e["to"] or 0, e["from"]), default=None)
+    why, grade = [], None
+    for where, s in (("в шапке резюме", head), ("в последней должности", (latest or {}).get("title") or "")):
+        if m := _marker(s.lower()):
+            grade, why = m[0], [f"{where} — «{m[1]}»"]
+            break
+    if not grade and {"Тимлид", "Техлид"} & set(roles):
+        grade, why = "Lead", ["в резюме — руководство командой"]
+    if not grade and (m := _marker(text.lower())):
+        grade, why = m[0], [f"в тексте резюме — «{m[1]}»"]
+    if years is not None:
+        by_years = _years_grade(years)
+        if not grade:
+            grade = by_years
+        why.append("опыт " + f"{years:g}".replace(".", ",") + " г." + (f" (по стажу — скорее {by_years})" if by_years != grade else ""))
+    return {"grade": grade, "why": "; ".join(why)} if grade else None
+
+
 def parse_cv(text: str, *, use_llm: bool = True) -> dict:
     """Резюме → навыки, стаж, категория (для подбора) + контакты, роли, софт-скиллы, места работы (для профиля).
-    В модель уходит текст, но обратно от неё берутся только поля справочников — не ФИО и не контакты."""
+    В модель уходит текст без ПДн (`mask_pii`), обратно от неё берутся только поля справочников."""
     s = text.lower()
     skills = extract_skills(s, skip=frozenset({"cv"}))  # «CV» в резюме — заголовок, а не Computer Vision
     spec = _spec(s, skills)
@@ -480,7 +590,8 @@ def parse_cv(text: str, *, use_llm: bool = True) -> dict:
         "roles": _by_dict(s, _ROLE_RX), "soft_skills": _by_dict(s, _SOFT_RX),
         "contacts": _contacts(text), "experience": experience[:12], "parsed_by": "rules",
     }
-    got = llm.chat_json(_CV_SYSTEM, text[:8000]) if use_llm else None
+    # маскируем с запасом и режем потом: обрезанная на границе почта не должна уйти в модель частично
+    got = llm.chat_json(_CV_SYSTEM, mask_pii(text[:9000])[:8000]) if use_llm else None
     if got:
         out["parsed_by"] = "llm"
         out["skills"] = list(dict.fromkeys(canon_skills(got.get("skills")) + skills))
@@ -493,6 +604,7 @@ def parse_cv(text: str, *, use_llm: bool = True) -> dict:
             out["track"] = got.get("track") if got.get("track") in catalog.TRACKS[out["spec"]] else _track(s, out["spec"], out["skills"])
         out["roles"] = canon_terms(canon_terms(got.get("roles"), catalog.ROLES) + out["roles"], catalog.ROLES)
         out["soft_skills"] = canon_terms(canon_terms(got.get("soft_skills"), catalog.SOFT_SKILLS) + out["soft_skills"], catalog.SOFT_SKILLS)
+    out["grade_hint"] = grade_hint(text, out["years_exp"], out["roles"], experience)
     return out
 
 
@@ -523,4 +635,7 @@ if __name__ == "__main__":
     cv = parse_cv("Анна Петрова\nanna.p@example.ru · t.me/anna_dev\nТимлид, менторила джунов. Коммуникабельна, ответственна.", use_llm=False)
     assert cv["contacts"] == {"name": "Анна Петрова", "email": "anna.p@example.ru", "tg": "@anna_dev"}, cv
     assert cv["roles"] == ["Тимлид", "Ментор"] and cv["soft_skills"] == ["Коммуникация", "Ответственность"], cv
+    assert cv["grade_hint"] == {"grade": "Lead", "why": "в шапке резюме — «тимлид»"}, cv
+    masked = mask_pii("Анна Петрова\nanna.p@example.ru · t.me/anna_dev · +7 999 123-45-67\nТимлид. Python")
+    assert masked == "[имя] [имя]\n[почта] · [ссылка] · [телефон]\nТимлид. Python", masked
     print("ok")

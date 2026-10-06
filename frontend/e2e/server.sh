@@ -13,6 +13,6 @@ c = psycopg.connect(sys.argv[2].replace("+psycopg", "") + "/fsp", autocommit=Tru
 if not c.execute("SELECT 1 FROM pg_database WHERE datname = %s", (sys.argv[1],)).fetchone():
     c.execute(f'CREATE DATABASE "{sys.argv[1]}"')
 PY
-export DATABASE_URL="$PG/$DB" DEMO=1 LLM_BASE_URL=
+export DATABASE_URL="$PG/$DB" DEMO=1 LLM_PROVIDER=none LLM_BASE_URL=
 uv run python -m seed.generate --reset --candidates 200 --needs 20 > /dev/null
 exec uv run uvicorn app.main:app --host 127.0.0.1 --port "$PORT"
