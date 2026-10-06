@@ -656,7 +656,7 @@ V['/c/signup'] = () => `
 function cvDetails(p) {
   const c = p.contacts || {};
   const who = [c.name, c.email, c.tg].filter(Boolean);
-  const jobs = (p.experience || []).map(j => `${j.from} — ${j.to || 'н. в.'}${j.title ? ' · ' + esc(j.title) : ''}`);
+  const jobs = (p.experience || []).map(jobLine);
   return `${who.length ? `<p class="small muted">Контакты: ${esc(who.join(' · '))}</p>` : ''}${jobs.length ? `<p class="small muted">Места работы: ${jobs.join('; ')}</p>` : ''}`;
 }
 // роли и софт-скиллы: справочные, со слов кандидата
@@ -672,6 +672,18 @@ function pfFromMe() {
     skills: [...(m.skills_claimed || [])], years: m.years_exp == null ? null : m.years_exp,
     roles: [...(m.roles || [])], soft: [...(m.soft_skills || [])],
   };
+}
+// места работы для PDF-профиля: ровно то, что сервер положит в раздел «Опыт» (ME.experience), — кандидат проверяет и может исключить
+const jobLine = j => `${j.from} — ${j.to || 'н. в.'}${j.title ? ' · ' + esc(j.title) : ''}`;
+function pdfExpField() {
+  const jobs = (ME && ME.experience) || [];
+  if (!jobs.length) return '';
+  const on = ME.pdf_experience !== false;
+  return `<div class="field"><span>Опыт в PDF-профиле</span>
+    <p class="small" style="${on ? '' : 'text-decoration:line-through;opacity:.6'}">${jobs.map(jobLine).join('<br>')}</p>
+    <span class="hint">Распознано из резюме автоматически — проверьте. PDF-профиль вы можете отправить работодателю; если места работы распознаны неверно, исключите их или замените резюме.</span>
+    <button class="switch" role="switch" aria-checked="${on}" data-act="pdfexp"><i></i> Включать места работы в PDF-профиль</button>
+  </div>`;
 }
 
 // одна строка достижения: название, место, команда/роль, вес в сигнале, подтверждено ли
@@ -764,6 +776,7 @@ V['/c/profile'] = () => {
           <div class="chips">${((META && META.soft_skills) || []).map(x => `<button class="chip ${f.soft.includes(x) ? 'on' : ''}" data-act="ptoggle" data-k="soft" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
           <span class="hint">Со слов кандидата: работодатель видит их в карточке, на грейд и место в подборке не влияют.</span>
         </div>
+        ${pdfExpField()}
         <div class="divider"></div>
         <h3>Условия</h3>
         <div class="grid g2">
@@ -1003,6 +1016,7 @@ V['/c/home'] = () => {
       <div class="panel tight stack-s">
         <span class="label">PDF-профиль</span>
         <p class="small">Категория, компетенции, навыки, опыт и достижения одним файлом — с вашими контактами, чтобы отправить самому.</p>
+        ${ME.experience && ME.experience.length ? `<span class="hint">${ME.pdf_experience ? 'Места работы распознаны из резюме автоматически — проверьте их в профиле.' : 'Места работы из резюме исключены — включить можно в профиле.'}</span>` : ''}
         <button class="btn ghost small" data-act="pdf">Скачать PDF</button>
       </div>
     </aside>
@@ -2224,6 +2238,10 @@ const ACT = {
   // профиль, резюме, достижения
   pgrade: (a, d) => { S.pf.grade = d.v; rerender(); },
   pfmt: (a, d) => { const f = S.pf.formats; f.includes(d.v) ? f.splice(f.indexOf(d.v), 1) : f.push(d.v); rerender(); },
+  async pdfexp() {  // сохраняется сразу, как переключатели уведомлений: к сохранению профиля и тесту не привязано
+    Object.assign(ME, await api('PATCH', '/api/candidate/pdf', { experience: ME.pdf_experience === false }));
+    toast(ME.pdf_experience ? 'Места работы будут в PDF-профиле' : 'Места работы исключены из PDF-профиля'); rerender();
+  },
   ptoggle: (a, d) => { const f = S.pf[d.k]; f.includes(d.v) ? f.splice(f.indexOf(d.v), 1) : f.push(d.v); rerender(); },
   async pdf() {
     // файл с авторизацией: обычная ссылка не передаст Bearer-токен
@@ -2505,6 +2523,7 @@ document.addEventListener('change', async e => {
       if (p.soft_skills.length) S.pf.soft = p.soft_skills;
       if (!S.pf.name && p.contacts.name) S.pf.name = p.contacts.name;  // своё не перетираем
       if (!S.pf.tg && p.contacts.tg) S.pf.tg = p.contacts.tg;
+      if (ME) ME.experience = p.experience;  // профиль уже есть — сервер сохранил текст резюме, PDF возьмёт новые места работы
       toast('Резюме разобрано: проверьте поля'); rerender();
     } catch (err) { fail(err); }
   }

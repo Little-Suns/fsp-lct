@@ -90,6 +90,18 @@ test('профиль и результат теста демо-кандидат�
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Ментор' })).toHaveClass(/on/);
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Работа в команде' })).toHaveClass(/on/);
   await expect(card.locator('.chip', { hasText: 'Капитан команды' })).toBeVisible();
+  // «Опыт» PDF-профиля: ровно распознанное из резюме, с пометкой; исключение сохраняется сразу, без сохранения профиля
+  const exp = page.locator('.field', { hasText: 'Опыт в PDF-профиле' });
+  await expect(exp).toContainText('2023 — н. в. · Финтех «Волна Пэй», бэкенд-разработчик платёжного шлюза');
+  await expect(exp).toContainText('2021 — 2023 · Интернет-магазин «Полка», Python-разработчик');
+  await expect(exp).toContainText('Распознано из резюме автоматически — проверьте');
+  const sw = exp.getByRole('switch', { name: 'Включать места работы в PDF-профиль' });
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  const off = api(page, 'PATCH', '/api/candidate/pdf');
+  await sw.click();
+  expect(await (await off).json()).toEqual({ pdf_experience: false });
+  await expect(toast(page)).toHaveText('Места работы исключены из PDF-профиля');
+  await expect(sw).toHaveAttribute('aria-checked', 'false');
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
   await expect(toast(page)).toHaveText('Профиль сохранён');
   await expect(page.getByRole('heading', { name: 'Ночь, пейджер, падает приём платежей' })).toBeVisible();
@@ -102,6 +114,7 @@ test('профиль и результат теста демо-кандидат�
   await expect(page.getByText('Codeforces · 1912')).toBeVisible();
   await page.getByRole('button', { name: 'Готово, жду приглашений' }).click();
   await expect(page).toHaveURL(/#\/c\/home$/);
+  await expect(page.getByText('Места работы из резюме исключены — включить можно в профиле.')).toBeVisible();
 
   // PDF-профиль из кабинета: файл; ошибка сервера и обрыв сети — понятный тост
   const dl = page.waitForEvent('download');
@@ -126,6 +139,13 @@ test('профиль и результат теста демо-кандидат�
   await expect(toast(page)).toHaveText('Сессия истекла: войдите снова');
   await expect(page).toHaveURL(/#\/c\/signup$/);
   await page.unroute('**/api/candidate/profile.pdf');
+  // вернуть места работы в PDF: состояние Орлова для следующих сценариев — как в сиде
+  await demo(page, 'c');
+  await open(page, '/c/profile');
+  await page.getByRole('switch', { name: 'Включать места работы в PDF-профиль' }).click();
+  await expect(toast(page)).toHaveText('Места работы будут в PDF-профиле');
+  await open(page, '/c/home');
+  await expect(page.getByText('Места работы распознаны из резюме автоматически — проверьте их в профиле.')).toBeVisible();
 });
 
 test('вакансии: фильтры, отклик с заметкой, отзыв отклика', async ({ page }) => {
