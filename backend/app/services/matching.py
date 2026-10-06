@@ -487,5 +487,6 @@ def card(c: Candidate, *, ranked: Ranked | None = None, need: Need | None = None
         "accept": round(ranked.accept, 3) if ranked else None,
         "score": round(ranked.score, 3) if ranked else None,
         "confirmed": months_ago(c.tested_at),
+        "express": bool(c.grade_express),  # грейд — предварительная экспресс-оценка (5 заданий, SE больше)
         "trust": {"test": c.tested_at is not None, "review": c.review_passed, "employer_confirmed": c.employer_confirmed},
     }

@@ -2,6 +2,12 @@
 
 Ответ сохраняется сразу; правильность и текущий θ до конца теста не отдаются. Ключ задания (payload.key) наружу не уходит.
 Текущее (выданное, но не отвеченное) задание — последняя запись в QuestSession.answers с response = None.
+
+Экспресс-режим (mode="express") — знакомство за 3–5 минут, например для жюри: irt.EXPRESS_ITEMS заданий без ревью,
+EXPRESS_TIME_LIMIT_S на каждое, тот же адаптивный выбор, без пилотного. SE честно больше, грейд — тем же правилом θ − SE.
+Экспресс даёт только предварительную категорию (Candidate.grade_express): ставится, лишь если у кандидата ещё нет грейда,
+не запускает кулдаун и не повышает и не понижает грейд — ни свой прошлый экспресс, ни полный тест (попытка уходит в историю
+с applied = False). Полный тест после экспресса считается первым присвоением грейда: нейтральный априор, кулдаун с него.
 """
 
 import random
@@ -26,6 +32,9 @@ from app.services.parsing import parse_need
 router = APIRouter(prefix="/api/quest", tags=["quest"])
 
 PILOT_AT = 3  # пилотное задание выдаётся после трёх рабочих
+MODES = ("full", "express")
+EXPRESS_TIME_LIMIT_S = 60  # на задание в экспресс-режиме: 5 × 60 с — не дольше 5 минут
+EXPRESS_LABEL = "экспресс-оценка"
 TIMEOUT_GRACE_S = 30  # запас на сеть; позже — ответ засчитывается как неверный
 PERCENTILE_MIN_N = 10  # меньше кандидатов в категории → перцентиль по специализации
 PLAN_TEXT_MAX, PREVIEW_TEXT_MAX = 5000, 2000
@@ -53,6 +62,7 @@ TRACK_SKILLS = {
 
 class StartIn(BaseModel):
     story: bool = True
+    mode: str = "full"  # full | express; у продолжаемой сессии режим не меняется
     target_grade: str | None = None  # грейд, на который проходит тест; по умолчанию — заявленный в профиле
     invitation_id: int | None = None  # тест по приглашению: выбор заданий смещается к компетенциям вакансии
 
@@ -127,17 +137,27 @@ def _cooldown(cand: Candidate) -> dict:
             "note": f"Повышение грейда возможно с {_ru_date(until)}. Сейчас пересдача может только понизить результат." if active else None}
 
 
+def _express(sess: QuestSession) -> bool:
+    return sess.mode == "express"
+
+
+def _limit(sess: QuestSession, item: Item) -> int:
+    """Лимит времени на задание: из банка, в экспресс-режиме — EXPRESS_TIME_LIMIT_S."""
+    return EXPRESS_TIME_LIMIT_S if _express(sess) else item.payload["time_limit_s"]
+
+
 def _serve(sess: QuestSession, bank: dict[int, Item]) -> Item | None:
     """Выдать следующее задание (записывается в answers как ожидающее ответа) или None, если тест окончен."""
     rng = random.Random()
-    items = list(bank.values())
+    express = _express(sess)
+    items = [it for it in bank.values() if not express or it.kind in irt.EXPRESS_KINDS]
     seen = {a["item_id"] for a in sess.answers}
     fams = {bank[i].family for i in seen if i in bank}
     n_op = sum(1 for a in sess.answers if not a["pilot"])
     item = None
-    if n_op == PILOT_AT and not any(a["pilot"] for a in sess.answers):
+    if not express and n_op == PILOT_AT and not any(a["pilot"] for a in sess.answers):
         item = irt.pick_pilot(items, seen, fams, rng)
-    if item is None and not irt.should_stop(n_op, sess.se):
+    if item is None and not irt.should_stop(n_op, sess.se, express):
         item = irt.next_item(sess.theta, items, seen, fams, rng, focus=sess.focus)
     if item:
         sess.answers = [*sess.answers, {"item_id": item.id, "pilot": item.pilot, "served_at": _now().isoformat(),
@@ -156,15 +176,18 @@ def _public(item: Item, n: int) -> dict:
 def _state(sess: QuestSession, bank: dict[int, Item], spec: str) -> dict:
     pend = _pending(sess)
     n_fam = len({it.family for it in bank.values() if not it.pilot})
-    total = min(irt.MAX_ITEMS, n_fam) + (1 if any(it.pilot for it in bank.values()) else 0)
-    out = {"session_id": sess.id, "quest_title": STORY.get(spec, ("Тест",))[0],
+    if _express(sess):
+        total = min(irt.EXPRESS_ITEMS, n_fam)
+    else:
+        total = min(irt.MAX_ITEMS, n_fam) + (1 if any(it.pilot for it in bank.values()) else 0)
+    out = {"session_id": sess.id, "quest_title": STORY.get(spec, ("Тест",))[0], "mode": sess.mode,
            "story": sess.story, "target_grade": sess.target_grade, "focus": sess.focus, "done": pend is None, "progress": {"n": len(sess.answers), "total": max(total, len(sess.answers))},
            "item": None, "time_limit_s": None, "remaining_s": None}
     if pend and pend["item_id"] in bank:
         item = bank[pend["item_id"]]
         elapsed = (_now() - datetime.fromisoformat(pend["served_at"])).total_seconds()
-        lim = item.payload["time_limit_s"]
-        out |= {"item": _public(item, len(sess.answers)), "time_limit_s": lim, "remaining_s": max(0, round(lim - elapsed))}
+        lim = _limit(sess, item)
+        out |= {"item": {**_public(item, len(sess.answers)), "time_limit_s": lim}, "time_limit_s": lim, "remaining_s": max(0, round(lim - elapsed))}
     return out
 
 
@@ -176,6 +199,8 @@ def start(body: StartIn, cand: Candidate = Depends(current_candidate), db: Sessi
     bank = _bank(db, cand.spec)
     if not bank:
         raise HTTPException(503, "Банк заданий пуст: запустите seed")
+    if body.mode not in MODES:
+        raise HTTPException(422, f"mode — одно из: {', '.join(MODES)}")
     target = body.target_grade or (cand.grade_claimed if cand.grade_claimed in catalog.GRADES else None)
     if target not in catalog.GRADES:
         raise HTTPException(422, f"target_grade — одно из: {', '.join(catalog.GRADES)}")
@@ -192,7 +217,7 @@ def start(body: StartIn, cand: Candidate = Depends(current_candidate), db: Sessi
         # старт выбора — у порога заявленного грейда (+ CF); итоговая оценка — с нейтральным априором, см. finish
         prior = irt.start_prior(target, _cf_rating(db, cand))
         sess = QuestSession(candidate_id=cand.id, story=body.story, prior_mean=prior, theta=prior, se=1.0, answers=[], flags=[],
-                            target_grade=target, focus=focus)
+                            target_grade=target, focus=focus, mode=body.mode)
         db.add(sess)
         try:
             db.flush()
@@ -231,7 +256,7 @@ def answer(body: AnswerIn, cand: Candidate = Depends(current_candidate), db: Ses
     if not lo <= body.response < lo + n:
         raise HTTPException(422, "Некорректный ответ")
     server_ms = int((_now() - datetime.fromisoformat(pend["served_at"])).total_seconds() * 1000)
-    timeout = server_ms > (p["time_limit_s"] + TIMEOUT_GRACE_S) * 1000
+    timeout = server_ms > (_limit(sess, item) + TIMEOUT_GRACE_S) * 1000
     key = p["key"] if isinstance(p["key"], list) else [p["key"]]
     done = {**pend, "response": body.response, "correct": not timeout and body.response in key, "timeout": timeout,
             "ms": body.ms, "server_ms": server_ms, "comment": (body.comment or "").strip()[:2000] or None}
@@ -307,6 +332,9 @@ def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
         },
         "flags": (sess.flags if sess else None) or [],
         "target": _target(sess, cand),
+        "mode": sess.mode if sess else "full",  # режим последней попытки
+        "express": bool(cand.grade_express),  # категория — предварительная экспресс-оценка
+        "assessment_label": EXPRESS_LABEL if cand.grade_express else None,
         "tested_at": _utc(cand.tested_at).isoformat() if cand.tested_at else None,
         "review_passed": cand.review_passed,
     }
@@ -331,26 +359,37 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     theta, se = irt.eap(resp)
     names = catalog.COMPETENCIES[cand.spec]
     comps = irt.competency_estimates({n: _responses(sess, bank, n) for n in names}, names, theta)
-    timings = [(a["server_ms"], bank[a["item_id"]].payload["time_limit_s"]) for a in _answered(sess, bank) if not a["pilot"]]
+    timings = [(a["server_ms"], _limit(sess, bank[a["item_id"]])) for a in _answered(sess, bank) if not a["pilot"]]
     flags = irt.suspicion_flags(theta, resp, timings)
 
     now = _now()
+    express, provisional = _express(sess), bool(cand.grade_express)
     cooldown = _cooldown(cand)["active"]
-    prev = cand.grade if cand.tested_at else None
-    # в кулдаун пересдача может только понизить результат
-    applied = not cooldown or cand.theta is None or theta < cand.theta
+    # предварительный экспресс-грейд не считается присвоенным: полный тест после него — первое присвоение
+    prev = cand.grade if cand.tested_at and not provisional else None
     note = None
+    if express:
+        # экспресс — только предварительная категория тому, у кого грейда ещё нет; существующий не меняет ни вверх, ни вниз
+        applied = not cand.tested_at
+        if not applied:
+            note = ("Предварительная категория уже выставлена по экспресс-тесту, повторный экспресс её не меняет. Уточнить грейд — полным тестом."
+                    if provisional else "Экспресс-оценка не меняет категорию, подтверждённую полным тестом.")
+    else:
+        # в кулдаун пересдача может только понизить результат
+        applied = not cooldown or cand.theta is None or theta < cand.theta
+        if not applied:
+            note = f"Результат не ниже текущего, поэтому категория не изменилась. Повышение возможно с {_ru_date(_utc(cand.next_upgrade_at))}."
     if applied:
         grade = irt.decide_grade(prev, theta, se, upgrade_allowed=not cooldown)
-        # кулдаун 90 дней — только с первого присвоения грейда или фактического повышения
-        if prev is None or catalog.GRADES.index(grade) > catalog.GRADES.index(prev):
+        # кулдаун 90 дней — только с первого присвоения грейда полным тестом или фактического повышения
+        if not express and (prev is None or catalog.GRADES.index(grade) > catalog.GRADES.index(prev)):
             cand.next_upgrade_at = now + timedelta(days=catalog.UPGRADE_COOLDOWN_DAYS)
         cand.theta, cand.se, cand.grade, cand.competencies = theta, se, grade, comps
-        cand.skills_confirmed = _skills(cand, comps, grade)
+        # по одному заданию на компетенцию навыки не подтверждаются: в экспресс-оценке — только заявленные
+        cand.skills_confirmed = [] if express else _skills(cand, comps, grade)
+        cand.grade_express = express
         cand.tested_at = now
         cand.percentile = _percentile(db, cand)[0]
-    else:
-        note = f"Результат не ниже текущего, поэтому категория не изменилась. Повышение возможно с {_ru_date(_utc(cand.next_upgrade_at))}."
 
     senior_plus = catalog.GRADES.index(cand.grade) >= catalog.GRADES.index(catalog.REVIEW_REQUIRED_FROM)
     if (senior_plus and not cand.review_passed) or {"inconsistent", "too_fast"} & set(flags):
@@ -382,6 +421,7 @@ def history(cand: Candidate = Depends(current_candidate), db: Session = Depends(
             "started_at": _utc(s.started_at).isoformat() if s.started_at else None,
             "finished_at": _utc(s.finished_at).isoformat() if done else None,
             "target_grade": s.target_grade,
+            "mode": s.mode,
             "story": s.story,
             "focus": bool(s.focus),
             "theta": round(s.theta, 2) if done else None,

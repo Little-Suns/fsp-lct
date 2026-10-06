@@ -222,6 +222,7 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
         "spec": c.spec,
         "track": c.track,
         "grade": c.grade,  # по тесту; None — тест не пройден
+        "grade_express": bool(c.grade_express),  # грейд — предварительная экспресс-оценка
         "grade_claimed": c.grade_claimed,
         "pct": c.percentile,
         "theta": c.theta,

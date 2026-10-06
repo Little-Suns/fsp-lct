@@ -494,6 +494,8 @@ const trace = (cls, w, h, d, dots) => `<svg class="trace ${cls}" width="${w}" he
 
 const catTag = (s = ME && ME.spec, t = ME && ME.track, g = ME && (ME.grade || ME.grade_claimed)) => `<span class="cat">${[s, t, g].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</span>`;
 const BADGE = { fsp: 'ФСП', hackathon: 'Хакатон', ctftime: 'CTF' };
+// грейд по экспресс-тесту (5 заданий) — предварительный, SE больше
+const expressChip = c => c.express ? '<span class="chip dim" title="Грейд по экспресс-тесту из 5 заданий: предварительный, погрешность больше">экспресс-оценка</span>' : '';
 // бейджи достижений на анонимной карточке: ФСП / хакатон / CTF + рейтинг Codeforces
 const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] : [])).filter((b, i, arr) => BADGE[b.source] && arr.findIndex(x => x.source === b.source) === i).map(b => `<span class="chip ok" title="${esc(b.title)}">${BADGE[b.source]}</span>`).join('') + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
 
@@ -554,7 +556,8 @@ function compRows(list, showTh = true) {
 function lineChart(p) {
   // panel {type:'chart', x, series:[{name, axis, max, data}], marker:{i, label}}
   const t = p.x, W = 520, H = 210, L = 44, R = 40, T = 16, B = 28;
-  const left = p.series.find(s => s.axis !== 'right') || p.series[0];
+  const lefts = p.series.filter(s => s.axis !== 'right'), left = lefts[0] || p.series[0];
+  const LC = ['#EDEDED', '#F2B84B'];  // серии слева делят одну шкалу
   const right = p.series.find(s => s.axis === 'right');
   const x = i => L + i * (W - L - R) / Math.max(1, t.length - 1);
   const yOf = s => v => T + (H - T - B) * (1 - v / (s.max || Math.max(...s.data, 1)));
@@ -567,11 +570,11 @@ function lineChart(p) {
     ${m ? `<line x1="${x(m.i)}" x2="${x(m.i)}" y1="${T}" y2="${H - B}" stroke="#EC1D35" stroke-dasharray="3 3"/>
     <text x="${x(m.i) - 6}" y="${T + 10}" text-anchor="end" style="fill:#FF7A8A">${esc(m.label)}</text>` : ''}
     ${right ? `<path d="${path(right.data, yOf(right))}" fill="none" stroke="#8C84FF" stroke-width="1.5" stroke-dasharray="4 3"/>` : ''}
-    <path d="${path(left.data, y1)}" fill="none" stroke="#EDEDED" stroke-width="2"/>
+    ${lefts.map((s, k) => `<path d="${path(s.data, y1)}" fill="none" stroke="${LC[k % 2]}" stroke-width="2"/>`).join('')}
     ${t.map((s, i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(s)}</text>`).join('')}
   </svg>
   <div class="row small" style="color:var(--on-dark-2);margin-top:6px;gap:18px">
-    <span><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="#EDEDED" stroke-width="2"/></svg> ${esc(left.name)}${right ? ' (слева)' : ''}</span>
+    ${lefts.map((s, k) => `<span><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="${LC[k % 2]}" stroke-width="2"/></svg> ${esc(s.name)}${right ? ' (слева)' : ''}</span>`).join('')}
     ${right ? `<span><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="#8C84FF" stroke-width="1.5" stroke-dasharray="4 3"/></svg> ${esc(right.name)} (справа)</span>` : ''}
   </div>`;
 }
@@ -818,17 +821,31 @@ V['/c/profile'] = () => {
   </div>`;
 };
 
-V['/c/quest'] = () => `
+// вводная теста по специализации: сюжет (как items.STORY), заголовок, суть; документация — по стеку
+const QUEST_INTRO = {
+  'Backend': ['Смена дежурного', 'Ночь, пейджер, падает приём платежей', 'Вы дежурный инженер в финтех-компании. За смену разберёте инцидент, решите, что делать первым, и проверите фикс от ИИ-ассистента.', 'Python и PostgreSQL'],
+  'Frontend': ['Неделя до релиза', 'Пять дней до релиза, а интерфейс сыпется', 'Вы фронтенд-разработчик продуктовой команды. За неделю разберёте баги вёрстки и состояния, медленные экраны, доступность и чужие PR.', 'MDN и вашего фреймворка'],
+  'Mobile': ['Релиз в сторах', 'Сборка ушла на ревью, а краши растут', 'Вы мобильный разработчик. За день релиза разберёте краши, жизненный цикл, офлайн-режим, производительность и чужие PR.', 'платформы и вашего фреймворка'],
+  'ML / DS': ['Модель деградирует', 'Метрика модели падает третью неделю', 'Вы ML-инженер. Разберёте постановку, валидацию, дрейф, признаки и выкатку модели — по графикам, логам и коду.', 'библиотек ML'],
+  'Data Eng / Analytics': ['Квартальный отчёт', 'Завтра квартальный отчёт, а цифры не сходятся', 'Вы инженер данных или аналитик. Разберёте запросы, модели данных, пайплайны, качество данных и графики для отчёта.', 'SQL и вашего стека данных'],
+  'DevOps / SRE': ['Миграция в облако', 'Ночь переезда в облако', 'Вы SRE. За ночь миграции разберёте инциденты, сети, Kubernetes, CI/CD, мониторинг и план отката.', 'Kubernetes и облака'],
+  'QA': ['Приёмка релиза', 'День приёмки релиза', 'Вы инженер по тестированию. Разберёте тест-дизайн, приёмку, автотесты, API, баг-репорты и регресс.', 'инструментов тестирования'],
+  'Security': ['Ночной инцидент', 'Ночью сработал алерт безопасности', 'Вы инженер по безопасности. Разберёте уязвимости, ревью кода, сетевые атаки, криптографию, реагирование и реверс.', 'по безопасности (OWASP и др.)'],
+};
+
+V['/c/quest'] = () => {
+  const [plot, head, about, docs] = QUEST_INTRO[ME && ME.spec] || QUEST_INTRO.Backend;
+  return `
   ${crumbs([['Профиль', '/c/profile'], ['Тест-квест']])}
   <div class="quest fade" style="position:relative">
     ${trace('', 300, 180, 'M10 170 V60 a40 40 0 0 1 40 -40 H290', [[10, 170], [290, 20]]).replace('class="trace "', 'class="trace" style="right:24px;bottom:24px;opacity:.6;color:#6A5CFF"')}
     <div style="padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;gap:20px;max-width:760px;position:relative">
-      <span class="label" style="color:var(--on-dark-2)">${esc([ME && ME.spec, ME && ME.track].filter(Boolean).join(' · '))} · сюжет «Смена дежурного»</span>
-      <h1 style="color:#fff">Ночь, пейджер, падает приём платежей</h1>
-      <p class="prose" style="color:var(--on-dark-2)">Вы дежурный инженер в финтех-компании. За смену разберёте инцидент, решите, что делать первым, и проверите фикс от ИИ-ассистента. Каждая сцена — отдельное задание, сложность подстраивается под ваши ответы.</p>
+      <span class="label" style="color:var(--on-dark-2)">${esc([ME && ME.spec, ME && ME.track].filter(Boolean).join(' · '))} · сюжет «${plot}»</span>
+      <h1 style="color:#fff">${head}</h1>
+      <p class="prose" style="color:var(--on-dark-2)">${about} Каждая сцена — отдельное задание, сложность подстраивается под ваши ответы.</p>
       <dl class="kv" style="color:var(--on-dark)">
         <dt style="color:var(--on-dark-2)">Длительность</dt><dd>40–60 минут, около 12 сцен, таймер на каждой</dd>
-        <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация Python и PostgreSQL. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
+        <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация ${docs}. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
         <dt style="color:var(--on-dark-2)">Без игровых очков</dt><dd>Нет жизней и рейтингов. Финал — экран категории.</dd>
         <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Повышение грейда — не чаще раза в 90 дней${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Повышение возможно с ${DATE(ME.next_upgrade_at)}: сейчас пересдача может только понизить результат` : ''}</dd>
       </dl>
@@ -838,10 +855,25 @@ V['/c/quest'] = () => `
       </div>
       ${S.questInvite ? '<div class="alert info"><span>→</span><span>Тест по приглашению: выбор заданий смещён к компетенциям вакансии, грейд считается по всем компетенциям одинаково.</span></div>' : ''}
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> Сюжет ${S.story ? 'включён' : 'выключен'}: задания и оценка одинаковые</button>
-      <div class="row"><button class="btn primary" data-go="/c/quest/go">Начать смену</button><button class="btn dark" data-go="/c/profile">Назад</button></div>
+      <div class="grid g2" role="group" aria-label="Режим теста">
+        <div class="stack-s"><button class="btn primary block" data-act="qstart" data-v="full">Полный тест (~40 мин)</button>
+          <span class="hint" style="color:var(--on-dark-2)">До 12 сцен, грейд подтверждается: эту категорию видят работодатели.</span></div>
+        <div class="stack-s"><button class="btn dark block" data-act="qstart" data-v="express">Экспресс-тест для знакомства (3–5 мин)</button>
+          <span class="hint" style="color:var(--on-dark-2)">${irtExpressHint()}</span></div>
+      </div>
+      <div class="row"><button class="btn ghost small" data-go="/c/profile" style="color:var(--on-dark-2)">Назад</button></div>
     </div>
   </div>
   ${historyPanel()}`;
+};
+
+// экспресс: 5 заданий по минуте, оценка предварительная (SE больше), уже подтверждённый грейд не меняет
+function irtExpressHint() {
+  const base = '5 заданий по минуте, по одному на компетенцию. Оценка предварительная: погрешность больше, в карточке пометка «экспресс-оценка».';
+  if (ME && ME.grade && !ME.grade_express) return base + ' Ваш грейд уже подтверждён полным тестом — экспресс его не изменит.';
+  if (ME && ME.grade_express) return base + ' Предварительная категория уже есть — повторный экспресс её не изменит.';
+  return base + ' Кулдаун 90 дней не запускает: полный тест можно пройти сразу.';
+}
 
 // GET /api/quest/history: попытки без ответов и ключей
 function historyPanel() {
@@ -852,7 +884,7 @@ function historyPanel() {
     <div class="tbl-wrap" style="margin-top:12px"><table class="tbl">
       <thead><tr><th>Начат</th><th>Цель</th><th>Результат</th><th class="num">θ ± SE</th><th class="num">Заданий</th><th>Статус</th></tr></thead>
       <tbody>${H.map(h => `<tr>
-        <td>${DATE(h.started_at)}</td><td>${esc(h.target_grade || '—')}</td><td>${esc(h.grade || '—')}</td>
+        <td>${DATE(h.started_at)}${h.mode === 'express' ? '<div class="muted small">экспресс</div>' : ''}</td><td>${esc(h.target_grade || '—')}</td><td>${esc(h.grade || '—')}</td>
         <td class="num">${h.theta != null ? `${DEC(h.theta)} ± ${DEC(h.se)}` : '—'}</td><td class="num">${h.items}</td>
         <td class="small">${!h.finished_at ? '<span class="status s-sent">не завершён</span>' : h.applied ? '<span class="status s-ok">категория обновлена</span>' : '<span class="status s-exp">не применён</span>'}${h.focus ? '<div class="muted">по приглашению</div>' : ''}</td>
       </tr>`).join('')}</tbody>
@@ -866,7 +898,7 @@ function sceneView() {
   if (!q) return `<div class="panel">Не удалось загрузить задание. <button class="btn ghost small" data-go="/c/quest">К вводной</button></div>`;
   if (q.done || !q.item) return `
   <div class="quest fade" style="padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;gap:18px;align-items:flex-start">
-    <span class="label" style="color:var(--on-dark-2)">Все задания пройдены · ${q.progress.n} из ${q.progress.total}</span>
+    <span class="label" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'Экспресс-тест · ' : ''}Все задания пройдены · ${q.progress.n} из ${q.progress.total}</span>
     <h2 style="color:#fff">${S.story ? '18:00. Смена закончена' : 'Тест закончен'}</h2>
     <p class="prose" style="color:var(--on-dark-2)">Траектория была адаптивной: после каждого ответа пересчитывали θ и SE и подбирали следующее задание. Тест останавливается, когда погрешность достаточно мала.</p>
     <button class="btn primary" data-act="finish">Посмотреть категорию</button>
@@ -890,7 +922,7 @@ function sceneView() {
     <div class="quest-top">
       <b>${S.story ? esc(it.scene_title) : 'Задание ' + n}</b>
       <div class="pr" aria-label="Прогресс">${Array.from({ length: total }, (_, i) => `<i class="${i + 1 < n ? 'on' : i + 1 === n ? 'cur' : ''}"></i>`).join('')}</div>
-      <span style="color:var(--on-dark-2)">${esc(it.competency)}</span>
+      <span style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> сюжет</button>
       <span class="timer" id="timer" data-sec="${sec}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
     </div>
@@ -934,6 +966,7 @@ V['/c/result'] = () => {
         </div>
         <p class="prose small">${R.percentile != null ? `Вы сильнее ${R.percentile} % кандидатов ${R.percentile_scope === 'spec' ? 'специализации' : 'категории'}. ` : ''}${R.strong.length ? `Сильные стороны — ${esc(low(R.strong))}. Слабее — ${esc(low(R.weak))}.` : ''}</p>
       </div>
+      ${R.express ? `<div class="alert info"><span>≈</span><span><b>Экспресс-оценка.</b> Категория предварительная: ${R.mode === 'express' ? '5 заданий' : 'по экспресс-тесту'}, погрешность ± ${R.se.toFixed(2)} больше, чем у полного теста, поэтому грейд выставлен осторожно. Работодатели видят пометку «экспресс-оценка». Подтвердите грейд полным тестом — кулдаун не мешает. <button class="btn ghost small" data-act="qstart" data-v="full">Полный тест</button></span></div>` : ''}
       ${R.target ? `<div class="alert ${R.target.verdict === 'below' ? 'warn' : 'ok'}"><span>${R.target.verdict === 'below' ? '↓' : R.target.verdict === 'above' ? '↑' : '✓'}</span><span><b>${esc(R.target.label)}.</b> Тест на ${esc(R.target.grade)}, результат попытки — ${esc(R.target.result_grade)}.</span></div>` : ''}
       ${S.finish && S.finish.note ? `<div class="alert warn"><span>!</span><span>${esc(S.finish.note)} Результат попытки: θ = ${S.finish.attempt.theta.toFixed(2)} ± ${S.finish.attempt.se.toFixed(2)}.</span></div>` : ''}
       <div class="panel">
@@ -946,7 +979,7 @@ V['/c/result'] = () => {
       <div class="panel tight stack-s">
         <span class="label">Уровни доверия</span>
         <div class="trust">
-          <div><span class="dot on"></span><div><b>Тест пройден</b><br><span class="muted small">${DATE(R.tested_at)}</span></div></div>
+          <div><span class="dot on"></span><div><b>${R.express ? 'Экспресс-оценка' : 'Тест пройден'}</b><br><span class="muted small">${DATE(R.tested_at)}</span></div></div>
           <div><span class="dot ${R.review_passed ? 'on' : ''}"></span><div><b>Разбор решения</b><br><span class="muted small">${R.review_passed ? 'пройден' : 'нужен для Senior и выше'}</span></div></div>
           <div><span class="dot ${ME && ME.employer_confirmed ? 'on' : ''}"></span><div><b>Подтверждён работодателем</b><br><span class="muted small">${ME && ME.employer_confirmed ? ME.employer_confirmed + ' раз' : 'после первого собеседования'}</span></div></div>
           ${fsp ? `<div><span class="dot on"></span><div><b>ФСП</b> · ${esc(fsp.title)}</div></div>` : ''}
@@ -981,7 +1014,7 @@ V['/c/home'] = () => {
         <div class="row sb">
           <div class="stack-s">
             <span class="label">${esc(ME.name)} · виден как ${esc(ME.id)}</span>
-            <div class="row">${catTag()}<span class="muted small">${ME.grade ? `перцентиль ${ME.pct ?? '—'} · грейд подтверждён ${esc(ME.confirmed)}` : 'тест ещё не пройден'}</span></div>
+            <div class="row">${catTag()}<span class="muted small">${ME.grade ? `перцентиль ${ME.pct ?? '—'} · ${ME.grade_express ? 'экспресс-оценка' : 'грейд подтверждён'} ${esc(ME.confirmed)}` : 'тест ещё не пройден'}</span></div>
           </div>
           <div class="seg" role="group" aria-label="Статус поиска">
             <button data-act="status" data-v="open" aria-pressed="${ME.status === 'open'}">Открыт к предложениям</button>
@@ -1565,7 +1598,7 @@ V['/e/picks'] = () => {
       <div class="row sb small muted"><span>${list.length} в топе из ${P.total} · сортировка по итоговой оценке</span><span>Без ФИО, пола, возраста, вуза и фото</span></div>
       ${list.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
           <div class="stack-s" style="min-width:0">
-            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
+            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${expressChip(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
             <div class="chips">${c.skills.map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
           </div>
           <div class="score"><b class="num">${c.score.toFixed(2)}</b><span class="small muted">итог</span></div>
@@ -1760,7 +1793,7 @@ function candView() {
     <div class="stack">
       <div class="panel stack">
         <div class="row sb">
-          <div class="stack-s"><h2>Кандидат ${esc(c.id)}</h2><div class="row">${catTag(c.spec, c.track, c.grade)}<span class="small muted">грейд подтверждён ${esc(c.confirmed || '—')}</span></div></div>
+          <div class="stack-s"><h2>Кандидат ${esc(c.id)}</h2><div class="row">${catTag(c.spec, c.track, c.grade)}${expressChip(c)}<span class="small muted">${c.express ? 'экспресс-оценка' : 'грейд подтверждён'} ${esc(c.confirmed || '—')}</span></div></div>
           <div class="row" style="gap:24px">
             <div class="stat"><span class="label">Перцентиль</span><b>${c.pct ?? '—'}</b></div>
             <div class="stat"><span class="label">θ</span><b class="num" style="font-size:20px">${esc(c.theta)}</b></div>
@@ -1945,7 +1978,7 @@ V['/e/search'] = () => {
       <div class="row sb small muted"><span>Найдено ${R.total} · сортировка по силе подтверждённого профиля${R.skills.length ? ` · навыки: ${esc(R.skills.join(', '))}` : ''}</span><span>Только опубликованные анонимные карточки</span></div>
       ${R.items.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
           <div class="stack-s" style="min-width:0">
-            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
+            <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${expressChip(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
             <div class="chips">${c.skills.map(s => `<span class="chip ${c.matched.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
           </div>
           <div class="score"><b class="num">${DEC(c.strength)}</b><span class="small muted">сила профиля</span></div>
@@ -2234,7 +2267,7 @@ async function load(r) {
     if (page === 'profile') { ACH = ME ? await api('GET', '/api/achievements') : null; S.pf = pfFromMe(); S.cv = null; S.cfCode = null; }  // код CF — только один раз
     if (!ME) return;
     if (page === 'quest' && arg === 'go') {
-      S.quest = await api('POST', '/api/quest/start', { story: S.story, target_grade: S.target || ME.grade_claimed, invitation_id: S.questInvite });
+      S.quest = await api('POST', '/api/quest/start', { story: S.story, target_grade: S.target || ME.grade_claimed, invitation_id: S.questInvite, mode: S.qMode || 'full' });
       S.qAt = Date.now(); S.finish = null; S.questInvite = null;
     } else if (page === 'quest') D.history = await api('GET', '/api/quest/history');
     else if (page === 'result') {
@@ -2518,6 +2551,7 @@ const ACT = {
 
   // тест-квест
   target: (a, d) => { S.target = d.v; rerender(); },
+  qstart: (a, d) => { S.qMode = d.v; go('/c/quest/go'); },
   'quest-invite': (a, d) => { S.questInvite = +d.id; go('/c/quest'); },
   async story() {
     S.story = !S.story;

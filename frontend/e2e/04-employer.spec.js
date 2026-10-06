@@ -148,6 +148,19 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(soft).toContainText('в оценке не участвуют');
   await expect(page.getByText(/ФСП|Codeforces 1912/).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Уже приглашён — к статусам' })).toBeVisible();
+  await expect(page.getByText(/^грейд подтверждён/)).toBeVisible();
+  await expect(page.getByText('экспресс-оценка')).toHaveCount(0);
+  // грейд по экспресс-тесту — пометка в карточке (живой express-кандидат не опубликован в демо-данных: поле подменено)
+  const candUrl = '**/api/employer/candidates/A-1042*';
+  await page.route(candUrl, async r => {
+    const real = await (await page.request.get(r.request().url(), { headers: r.request().headers() })).json();
+    await r.fulfill({ json: { ...real, express: true } });
+  });
+  await open(page, '/e/picks');
+  await open(page, '/e/cand/A-1042');
+  await expect(page.locator('.chip', { hasText: 'экспресс-оценка' })).toBeVisible();
+  await expect(page.getByText(/^экспресс-оценка \d+ мес\. назад/)).toBeVisible();
+  await page.unroute(candUrl);
   // повторное приглашение — блокирующая ошибка от сервера прямо в форме
   await open(page, '/e/invite/A-1042');
   await expect(page.getByRole('heading', { name: 'Приглашение для A-1042' })).toBeVisible();

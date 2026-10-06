@@ -175,7 +175,7 @@ def render(c: Candidate, *, now: datetime | None = None) -> bytes:
         pdf.para(" · ".join(x for x in (c.spec, c.track, c.grade) if x), size=13, color=BLUE, bold=True, h=7)
         facts = [f"перцентиль {c.percentile}" if c.percentile is not None else None,
                  f"θ {dec(c.theta)} ± {dec(c.se)}" if c.theta is not None and c.se is not None else None,
-                 f"тест пройден {day(c.tested_at)}"]
+                 f"экспресс-оценка {day(c.tested_at)}, предварительно" if c.grade_express else f"тест пройден {day(c.tested_at)}"]
         pdf.para(upper1(" · ".join(x for x in facts if x)), size=8.5)
         trust = [f"разбор решения: {'пройден' if c.review_passed else 'нет'}",
                  f"подтверждений грейда от работодателей: {c.employer_confirmed or 0}"]
