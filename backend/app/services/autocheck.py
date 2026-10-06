@@ -23,13 +23,15 @@ ANSWER_TYPES = ("open", "text", "number", "choice", "multi", "regex")
 OPTIONS_MAX, OPTION_LEN, ANSWERS_MAX, ANSWER_LEN, PATTERN_LEN = 10, 200, 10, 500, 300
 # ponytail: шаблон работодателя проверяется движком regex с таймаутом (concurrent — GIL отпускается) — катастрофический
 # возврат (ReDoS) обрывается, решение уходит на ручную оценку. Компиляция таймаута не знает, а вложенные счётчики
-# ((a{20}){20}){20}… раздуваются при компиляции — поэтому счётчиков не больше REPEATS_MAX и каждый ≤ REPEAT_MAX.
+# ((a{20}){20}){20}… раздуваются при компиляции — поэтому счётчиков не больше REPEATS_MAX, каждый ≤ REPEAT_MAX и
+# произведение границ ≤ REPEAT_PRODUCT (вложенность не разбираем — считаем с запасом, как будто всё вложено).
 # Отдельный процесс-песочница с лимитом памяти, если понадобится жёстче.
 REGEX_TIMEOUT = 0.05
-REPEATS_MAX, REPEAT_MAX = 3, 100
+REPEATS_MAX, REPEAT_MAX, REPEAT_PRODUCT = 3, 100, 10_000
 _EDGE = " .,;:!?\"'«»`“”„()[]"
 _NUMBER = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?", re.ASCII)
-_COUNTED = re.compile(r"(?<!\\)\{([^}]*)\}")
+_ESCAPED = re.compile(r"\\.", re.S)  # экранированная пара «\x» — до поиска счётчиков, иначе «\\{100}» сойдёт за литерал
+_COUNTED = re.compile(r"\{([^}]*)\}")
 _BOUNDS = re.compile(r"(\d{1,3})?(,(\d{1,3})?)?", re.ASCII)
 
 
@@ -48,15 +50,19 @@ def parse_number(s: str) -> float | None:
 
 
 def _safe_pattern(pattern: str) -> bool:
-    """Счётчики {m,n}: не больше REPEATS_MAX, границы ≤ REPEAT_MAX; другие конструкции в фигурных скобках (нечёткий поиск) — нет."""
-    counted = _COUNTED.findall(pattern)
+    """Счётчики {m,n}: не больше REPEATS_MAX, границы ≤ REPEAT_MAX, произведение ≤ REPEAT_PRODUCT; другие конструкции
+    в фигурных скобках (нечёткий поиск, \\p{…}, \\N{…}) — нет. Экранированные пары вырезаются до поиска."""
+    counted = _COUNTED.findall(_ESCAPED.sub("", pattern))
     if len(counted) > REPEATS_MAX:
         return False
+    product = 1
     for body in counted:
         m = _BOUNDS.fullmatch(body)
-        if not m or not (m.group(1) or m.group(3)) or any(int(x) > REPEAT_MAX for x in (m.group(1), m.group(3)) if x):
+        bounds = [int(x) for x in (m.group(1), m.group(3)) if x] if m else []
+        if not bounds or max(bounds) > REPEAT_MAX:
             return False
-    return True
+        product *= max(bounds)
+    return product <= REPEAT_PRODUCT
 
 
 def build(answer_type: str, options: list[str] | None, ref: dict | None) -> tuple[list[str] | None, dict | None]:
@@ -94,10 +100,10 @@ def build(answer_type: str, options: list[str] | None, ref: dict | None) -> tupl
     if not isinstance(pattern, str) or not pattern.strip() or len(pattern) > PATTERN_LEN:
         raise ValueError(f"Эталон: шаблон до {PATTERN_LEN} символов")
     if not _safe_pattern(pattern):
-        raise ValueError(f"Шаблон: не больше {REPEATS_MAX} счётчиков {{m,n}}, границы до {REPEAT_MAX}")
+        raise ValueError(f"Шаблон: не больше {REPEATS_MAX} счётчиков {{m,n}}, границы до {REPEAT_MAX}, произведение до {REPEAT_PRODUCT}")
     try:
         regex.compile(pattern)
-    except regex.error as e:
+    except (regex.error, OverflowError, RecursionError) as e:
         raise ValueError(f"Шаблон не разбирается: {e}") from None
     return None, {"pattern": pattern}
 
@@ -159,9 +165,11 @@ if __name__ == "__main__":
     r = build("regex", None, {"pattern": r"(a|aa)+"})[1]
     assert check("regex", None, r, "AAA", None) and check("regex", None, r, "a" * 5000 + "!", None) is None  # ReDoS — на ручную оценку
     assert parse_number("1 234,5") == 1234.5 and parse_number("-.5e1") == -5 and parse_number("1_000") is None and parse_number("١٢") is None
-    assert build("regex", None, {"pattern": r"\d{3}-\d{2,}\{x\}"})
+    assert build("regex", None, {"pattern": r"\d{3}-\d{2,}\{x\}"}) and build("regex", None, {"pattern": "(a{100}){100}"})
     for bad in [("regex", None, {"pattern": "((((a{20}){20}){20}){20})"}), ("regex", None, {"pattern": "a{101}"}),
                 ("regex", None, {"pattern": "(?:ab){e<=1}"}), ("regex", None, {"pattern": "a{,}"}),
+                ("regex", None, {"pattern": r"(((a\\{100}){100}){100}){100}"}), ("regex", None, {"pattern": r"a\\{e<=1000}"}),
+                ("regex", None, {"pattern": "((a{100}){100}){100}"}),
                 ("choice", ["a", "b"], {"correct": [0, 1]}), ("choice", ["a", "A"], {"correct": [0]}), ("number", None, {"value": True}),
                 ("regex", None, {"pattern": "("}), ("text", ["a"], {"answers": ["x"]}), ("magic", None, None)]:
         try:

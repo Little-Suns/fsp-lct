@@ -296,7 +296,8 @@ def test_reference_task_validation(client):
            {"answer_type": "multi", "options": ["a", "b"], "reference": {}},
            {"answer_type": "regex", "reference": {"pattern": "(["}},
            {"answer_type": "regex", "reference": {"pattern": "x" * 301}},
-           {"answer_type": "regex", "reference": {"pattern": "((((a{20}){20}){20}){20})"}}]  # раздувается при компиляции
+           {"answer_type": "regex", "reference": {"pattern": "((((a{20}){20}){20}){20})"}},  # раздувается при компиляции
+           {"answer_type": "regex", "reference": {"pattern": r"(((a\\{100}){100}){100}){100}"}}]  # «\\{» — не экранированная скобка
     for b in bad:
         assert client.post("/api/tasks", json={**TASK, **b}, headers=H["emp"]).status_code == 422, b
     # открытое задание: варианты и эталон не сохраняются
