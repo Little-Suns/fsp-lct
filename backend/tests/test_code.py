@@ -39,7 +39,7 @@ def env():
     with SessionLocal() as db:
         seed_items(db)
         items = {it.id: it for it in db.scalars(select(Item).where(Item.spec == "Backend"))}
-        users = [User(email=f"code{i}-{tag}@example.ru", role="candidate") for i in range(6)]
+        users = [User(email=f"code{i}-{tag}@example.ru", role="candidate") for i in range(8)]
         db.add_all(users)
         db.flush()
         cands = [Candidate(public_id=f"K{i}-{tag}", user_id=u.id, name="Код", email=u.email, **MK) for i, u in enumerate(users)]
@@ -69,6 +69,8 @@ def box(monkeypatch):
             raise sandbox.Unavailable("тест")
         if "BUSY" in code:
             raise sandbox.Busy("тест")
+        if "REJECT" in code:
+            raise sandbox.Rejected("тест")
         st = "ok" if "OK" in code else "wrong"
         res = [{"status": st if i == 0 or st == "ok" else "skip", "time_ms": 5, **({"got": "0"} if echo else {})} for i in range(len(tests))]
         return {"status": st, "passed": sum(r["status"] == "ok" for r in res), "total": len(tests), "results": res, "stderr": None if st == "ok" else "AssertionError"}
@@ -207,7 +209,8 @@ def test_code_answer_flow(env, box):
 
     # проверки ввода
     for bad, code in [({"lang": "ruby", "code": "x"}, 422), ({"lang": "python", "code": "   "}, 422),
-                      ({"lang": "python", "code": "ы" * 10_001}, 422), ({"lang": "python", "code": "x" * 20_001}, 422)]:
+                      ({"lang": "python", "code": "ы" * 10_001}, 422), ({"lang": "python", "code": "x" * 20_001}, 422),
+                      ({"lang": "python", "code": "def f():\x00 return 1"}, 422)]:
         assert client.post("/api/quest/run", json={"item_id": it["id"], **bad}).status_code == code, bad
         assert client.post("/api/quest/answer", json={"item_id": it["id"], **bad}).status_code == code, bad
     assert client.post("/api/quest/run", json={"item_id": -1, "lang": "python", "code": "x"}).status_code == 409
@@ -247,6 +250,17 @@ def test_wrong_and_late_code(env, box):
     assert client.post("/api/quest/answer", json={"item_id": it["id"], "lang": "python", "code": "OK"}).status_code == 200
     rec = next(a for a in _session(cand_id).answers if a["item_id"] == it["id"])
     assert len(box) == n and rec["correct"] is False and rec["timeout"] is True and rec["tests"] is None
+
+
+def test_rejected_solution_is_wrong_not_void(env, box):
+    """Песочница отклонила решение (4xx) — неверный ответ, а не void: нарочно неприемлемым кодом задачу не пропустить."""
+    client, items, cand_id = env["clients"][6], env["items"], env["cand_ids"][6]
+    it = _to_code(client, items)["item"]
+    assert client.post("/api/quest/run", json={"item_id": it["id"], "lang": "python", "code": "REJECT"}).status_code == 422
+    r = client.post("/api/quest/answer", json={"item_id": it["id"], "lang": "python", "code": "REJECT"})
+    assert r.status_code == 200, r.text
+    rec = next(a for a in _session(cand_id).answers if a["item_id"] == it["id"])
+    assert rec["correct"] is False and rec["rejected"] and not rec.get("void") and rec["tests"] is None
 
 
 def test_sandbox_down_voids_item(env, box):
@@ -365,9 +379,13 @@ def test_sandbox_client(monkeypatch):
 
     for reply, ok in [((200, good), True), ((503, {"detail": "x"}), False), ((200, b"not json"), False),
                       ((200, {**good, "results": []}), False), ((200, {**good, "passed": 0}), False),
-                      ((200, {**good, "results": [{"status": "pwned"}]}), False), (httpx.ConnectError("x"), False), ((429, {"detail": "x"}), "busy")]:
+                      ((200, {**good, "results": [{"status": "pwned"}]}), False), (httpx.ConnectError("x"), False), ((429, {"detail": "x"}), "busy"),
+                      ((422, {"detail": "x"}), "rejected")]:
         monkeypatch.setattr(httpx, "post", lambda url, json, headers, timeout, reply=reply: post(url, json, headers, timeout, reply))
-        if ok == "busy":
+        if ok == "rejected":
+            with pytest.raises(sandbox.Rejected):
+                sandbox.run("python", "code", "f", tests, time_ms=1000, memory_mb=128)
+        elif ok == "busy":
             with pytest.raises(sandbox.Busy):
                 sandbox.run("python", "code", "f", tests, time_ms=1000, memory_mb=128)
         elif ok:

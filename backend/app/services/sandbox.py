@@ -29,6 +29,11 @@ class Busy(Unavailable):
     """Песочница перегружена (или заняты все слоты API) — решение не проверено, повторить можно."""
 
 
+class Rejected(Exception):
+    """Песочница отказалась принять решение (4xx: размер, недопустимые символы) — это ответ на само решение, не сбой.
+    Не void: иначе кандидат пропускал бы задачу, нарочно присылая неприемлемый код."""
+
+
 def enabled() -> bool:
     return bool(config.SANDBOX_URL and config.SANDBOX_TOKEN)
 
@@ -41,7 +46,7 @@ def ready() -> bool:
     now = time.monotonic()
     if now - _health["at"] >= HEALTH_TTL_S:
         try:
-            ok = httpx.get(f"{config.SANDBOX_URL}/health", timeout=2).status_code == 200
+            ok = httpx.get(f"{config.SANDBOX_URL}/health", timeout=5).status_code == 200  # самопроверка песочницы — два запуска nsjail
         except httpx.HTTPError:
             ok = False
         _health.update(at=now, ok=ok)
@@ -67,6 +72,9 @@ def run(lang: str, code: str, entry: str, tests: list[dict], *, time_ms: int, me
         _slots.release()
     if r.status_code == 429:
         raise Busy("песочница перегружена")
+    if r.status_code in (400, 413, 422):
+        log.warning("песочница отклонила решение: %s", r.status_code)
+        raise Rejected(f"песочница отклонила решение ({r.status_code})")
     if r.status_code != 200:
         log.warning("песочница ответила %s", r.status_code)
         raise Unavailable(f"песочница ответила {r.status_code}")

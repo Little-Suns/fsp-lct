@@ -166,6 +166,8 @@ def _code_in(lang: str | None, code: str | None) -> tuple[str, str]:
         raise HTTPException(422, "Пустое решение")
     if len(code.encode("utf-8")) > CODE_MAX:
         raise HTTPException(422, f"Решение длиннее {CODE_MAX // 1000} КБ")
+    if "\x00" in code:
+        raise HTTPException(422, "Недопустимый символ в решении")
     return lang, code
 
 
@@ -316,7 +318,7 @@ def _answer_code(db: Session, cand: Candidate, sess: QuestSession, pend: dict, i
     sid, served_at = sess.id, pend["served_at"]
     db.commit()
     submitted_at = pend.get("submitted_at") or _now().isoformat()
-    res, down, busy = None, False, False
+    res, down, busy, rejected = None, False, False, False
     if not timeout:  # опоздавший ответ — неверный, как у остальных заданий; песочницу не гоняем
         with _one_check(sid):
             try:
@@ -326,6 +328,8 @@ def _answer_code(db: Session, cand: Candidate, sess: QuestSession, pend: dict, i
                 busy = True
             except sandbox.Unavailable:
                 down = True
+            except sandbox.Rejected:
+                rejected = True  # песочница не приняла само решение — неверный ответ, не void
     sess = _active(db, cand, lock=True)
     pend = _pending(sess) if sess else None
     if not pend or pend["item_id"] != item.id or pend["served_at"] != served_at:
@@ -345,7 +349,8 @@ def _answer_code(db: Session, cand: Candidate, sess: QuestSession, pend: dict, i
         raise HTTPException(503, SANDBOX_DOWN)
     tests = res and {"status": res["status"], "passed": res["passed"], "total": res["total"],
                      "statuses": [r["status"] for r in res["results"]], "max_ms": max((r["time_ms"] for r in res["results"]), default=0)}
-    sess.answers = [*sess.answers[:-1], {**rec, "response": lang, "correct": bool(res) and res["status"] == "ok", "tests": tests}]
+    sess.answers = [*sess.answers[:-1], {**rec, "response": lang, "correct": bool(res) and res["status"] == "ok", "tests": tests,
+                                         **({"rejected": True} if rejected else {})}]
     if not item.pilot:
         sess.theta, sess.se = irt.eap(_responses(sess, bank), sess.prior_mean)
     _serve(sess, bank)
@@ -379,6 +384,8 @@ def run_examples(body: RunIn, cand: Candidate = Depends(current_candidate), db: 
             res = sandbox.run(lang, code, item.payload["code"]["entry"][lang], ex, time_ms=code_items.TIME_MS, memory_mb=code_items.MEMORY_MB, echo=True)
         except sandbox.Busy:
             raise HTTPException(503, "Песочница сейчас занята — запустите ещё раз через минуту. Запуск не засчитан.") from None
+        except sandbox.Rejected:
+            raise HTTPException(422, "Песочница не приняла решение: проверьте размер и символы в коде") from None
         except sandbox.Unavailable:
             raise HTTPException(503, "Песочница сейчас недоступна, запуск на примерах не удался. Решение можно отправить: при сбое проверки задание не засчитается.") from None
     sess = _active(db, cand, lock=True)

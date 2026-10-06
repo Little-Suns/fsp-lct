@@ -56,6 +56,12 @@ services:
     pids_limit: 512
     networks: [sandbox]
     restart: on-failure:3
+    healthcheck:  # /health — пробный прогон Python и TypeScript в nsjail
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=10)"]
+      interval: 15s
+      timeout: 15s
+      retries: 5
+      start_period: 10s
 
 networks:
   sandbox:
