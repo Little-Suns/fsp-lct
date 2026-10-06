@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from app import catalog as C
 from app.db import SessionLocal, engine, init_db, reset_schema
 from app.integrations.scoring import place_weight
-from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Need, Task,
+from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Message, Need, Task,
                         TaskSubmission, User, Vacancy)
 
 NOW = datetime.now(UTC)
@@ -646,9 +646,30 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
         if c.consent_external:
             events.append(ConsentEvent(candidate_id=c.id, purpose="external", granted=True, version=v, at=at + DAY * 0.01))
     db.add_all(events)
+    db.add_all(demo_dialogs(ladoga, personas["F-0911"], orlov, more["apps"]))
     db.commit()
     return {**more, "cands": cands, "personas": personas, "needs": needs, "kinds": kinds, "invs": invs, "load": load,
             "companies": companies, "cf": (cf_c, ratings, alg), "ladoga": ladoga}
+
+
+def demo_dialogs(ladoga, smirnova, orlov, apps) -> list[Message]:
+    """Короткие прочитанные диалоги, чтобы чат на стенде не был пустым. Только там, где переписка разрешена (services/chat.py):
+    «Ладога Пэй» ↔ Анна Смирнова — принятое приглашение; Орлов ↔ компания его просмотренного отклика — живой отклик.
+    Орлов ↔ «Ладога Пэй» не трогаем: приглашение ещё без ответа, e2e принимает его и начинает чат с пустой истории."""
+    app = next((a for a in apps if a.candidate is orlov and a.status == "seen"), None)  # нет открытой Backend/Python — без второго диалога
+    script = [
+        (ladoga, smirnova, NOW - DAY * 5.8, [
+            ("employer", "Анна, добрый день! Спасибо, что приняли приглашение. Удобно созвониться в четверг в 11:00?"),
+            ("candidate", "Добрый день! Да, четверг подходит. Пришлёте ссылку?"),
+            ("employer", "Пришлю приглашение в календарь накануне. До встречи!")]),
+    ]
+    if app:
+        script.append((app.vacancy.company, orlov, NOW - DAY * 0.3, [
+            ("employer", "Дмитрий, здравствуйте! Посмотрели отклик — расскажите, с какой нагрузкой работали в Kafka?"),
+            ("candidate", "Здравствуйте! Около 2 тыс. сообщений в секунду, консьюмеры на asyncio, exactly-once через outbox.")]))
+    return [Message(company_id=co.id, candidate_id=c.id, sender=who, text=t, created_at=at + timedelta(minutes=17 * k),
+                    read_at=at + timedelta(minutes=17 * k + 5))
+            for co, c, at, msgs in script for k, (who, t) in enumerate(msgs)]
 
 
 DEMO_VACANCIES = [  # (компания, title, spec, track, grade, must, nice, from, to, format, city, описание)

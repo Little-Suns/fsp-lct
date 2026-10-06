@@ -15,6 +15,7 @@ from app.deps import current_company, current_user
 from app.models import Candidate, Company, Invitation, Lottery, Need, Task, User, Vacancy
 from app.services import lottery as lottery_svc
 from app.services import matching
+from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, extract_skills, parse_need
 
 router = APIRouter(prefix="/api/employer", tags=["employer"])
@@ -412,6 +413,7 @@ def candidate_card(public_id: str, need_id: int | None = None, co: Company = Dep
     out["breakdown"] = r.explanation["parts"] if r else None
     out["market"] = catalog.market(c.spec, c.grade, n.city if n else c.city)
     out["invited"] = _invited(db, co, [c.id]).get(c.id)
+    out["chat_peer"] = c.public_id if peers_linked(db, "employer", co.id, [c.id]) and may_talk(c, co) else None
     out["cap"] = catalog.CANDIDATE_CAP
     from app.routers.tasks import task_signal  # локально: tasks импортирует из этого модуля
 
@@ -502,10 +504,10 @@ def _row(inv: Invitation) -> dict:
     c = inv.candidate
     contact, reason = None, catalog.DECLINE_REASONS.get(inv.decline_reason)  # комментарий кандидата компании не показываем
     if inv.status == "accepted":
-        if matching.consent_ok(c, "processing"):
+        if may_talk(c, inv.company):  # согласие на обработку действует и компания не в «скрыть от» — как и чат
             contact = {"name": c.name, "email": c.email, "tg": c.tg, "text": " · ".join(x for x in (c.name, c.email, c.tg) if x)}
         else:
-            reason = "кандидат отозвал согласие"
+            reason = "кандидат отозвал согласие" if not matching.consent_ok(c, "processing") else "кандидат закрыл доступ к контактам"
     sent = inv.sent_at.astimezone(MSK)
     return {
         "id": inv.id,
@@ -607,7 +609,9 @@ def pipeline(co: Company = Depends(current_company), db: Session = Depends(get_d
     invs = db.scalars(
         select(Invitation).where(Invitation.company_id == co.id).options(selectinload(Invitation.candidate)).order_by(Invitation.sent_at.desc(), Invitation.id.desc())
     ).all()
-    return {"items": [_row(i) for i in invs], "quota": quota(db, co)}
+    chat = peers_linked(db, "employer", co.id, [i.candidate_id for i in invs])
+    items = [{**_row(i), "chat_peer": i.candidate.public_id if i.candidate_id in chat and may_talk(i.candidate, co) else None} for i in invs]
+    return {"items": items, "quota": quota(db, co)}
 
 
 class FeedbackIn(BaseModel):

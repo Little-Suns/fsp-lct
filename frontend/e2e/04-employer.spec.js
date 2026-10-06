@@ -496,6 +496,9 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
   await page.route(appsUrl, async r => {
     const real = await (await page.request.get(r.request().url(), { headers: r.request().headers() })).json();
     real.items.push({ ...real.items[0], id: 999999, status: 'sent', hidden: true, candidate: null, contacts: null });
+    // контакты закрыты при живой карточке: отзыв отклика и «скрыть профиль от компании» объясняются по-разному
+    real.items.push({ ...real.items[0], id: 999998, status: 'withdrawn', reason: null, contacts: null, chat_peer: null });
+    real.items.push({ ...real.items[0], id: 999997, status: 'declined', reason: null, contacts: null, chat_peer: null });
     await r.fulfill({ json: real });
   });
   await open(page, '/e/vacancies');
@@ -503,6 +506,8 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
   const gone = page.locator('.panel', { hasText: 'Кандидат скрыл профиль' });
   await expect(gone).toContainText('карточка и контакты недоступны');
   await expect(gone.getByRole('button')).toHaveCount(0);
+  await expect(page.getByText('Кандидат отозвал отклик — контакты скрыты')).toHaveCount(1);
+  await expect(page.getByText('Кандидат закрыл доступ к контактам')).toHaveCount(1);
   await page.unroute(appsUrl);
 
   await open(page, `/e/vacancy/${declineId}`);

@@ -99,6 +99,20 @@ main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .side { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
 .side-l { grid-template-columns: 300px minmax(0, 1fr); align-items: start; }
+/* чат */
+.chat { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: stretch; margin-bottom: 24px; }
+.chat-list { max-height: 70vh; overflow-y: auto; align-content: start; }
+.chat-peer { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 10px; border: 1px solid transparent; border-radius: var(--r-s); background: transparent; cursor: pointer; font: inherit; color: inherit; }
+.chat-peer span.small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.chat-peer.on { background: var(--blue-soft); border-color: var(--blue-line); }
+.chat-box { display: flex; flex-direction: column; height: 70vh; min-height: 360px; }
+.chat-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 0; }
+.msg { align-self: flex-start; max-width: 80%; padding: 8px 12px; border-radius: var(--r-s); background: var(--ground); }
+.msg.me { align-self: flex-end; background: var(--blue-soft); }
+.msg p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.msg time { display: block; text-align: right; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
+.dot { background: var(--red); color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; }
+@media (max-width: 900px) { .chat { grid-template-columns: minmax(0, 1fr); } .chat-list { max-height: 30vh; } }
 @media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .row.sb { justify-content: space-between; }
@@ -383,6 +397,7 @@ let ME = null;     // /api/candidate/me
 let ACH = null;    // /api/achievements
 let GRADE_TH = [{ g: 'Junior', t: -0.5 }, { g: 'Middle', t: 0.5 }, { g: 'Senior', t: 1.5 }, { g: 'Lead', t: 2.3 }];
 const D = {};      // данные текущего экрана
+let UNREAD = 0;    // непрочитанные сообщения чата (бейдж в разделах)
 const loadPen = l => l >= CAP ? .3 : 1 - .15 * l;
 const NEED_TEXT = 'Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. Уровень — мидл, до 300 на руки. Гибрид, Москва.';
 
@@ -484,13 +499,13 @@ const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] 
 
 // разделы кабинета: одна строка чипов под хлебными крошками
 const NAV = {
-  c: [['/c/home', 'Кабинет'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Задачи'], ['/c/result', 'Тест'], ['/c/settings', 'Настройки и приватность']],
-  e: [['/e/picks', 'Подборка'], ['/e/search', 'Поиск по банку'], ['/e/vacancies', 'Вакансии'], ['/e/tasks', 'Задания'], ['/e/pipeline', 'Приглашения']],
+  c: [['/c/home', 'Кабинет'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Задачи'], ['/c/chat', 'Чат'], ['/c/result', 'Тест'], ['/c/settings', 'Настройки и приватность']],
+  e: [['/e/picks', 'Подборка'], ['/e/search', 'Поиск по банку'], ['/e/vacancies', 'Вакансии'], ['/e/tasks', 'Задания'], ['/e/pipeline', 'Приглашения'], ['/e/chat', 'Чат']],
 };
 const NAV_OF = { '/c/invite': '/c/home', '/c/vacancy': '/c/vacancies', '/c/task': '/c/tasks', '/c/quest': '/c/result', '/e/vacancy': '/e/vacancies', '/e/task': '/e/tasks', '/e/need': '/e/picks', '/e/invite': '/e/pipeline' };
 function subnav(side) {
   const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
-  return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}</button>`).join('')}</nav>`;
+  return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="dot">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
 }
 // плашка неподтверждённой компании (квота урезана, кандидаты видят предупреждение)
 const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/signup">Данные компании</button></span></div>` : '';
@@ -920,6 +935,7 @@ V['/c/home'] = () => {
   if (!ME) return noProfile('Кабинет кандидата');
   const list = (D.invites && D.invites.items) || [];
   const open = D.invites ? D.invites.open : 0;
+  const invErr = !D.invites;
   const tg = list.find(isOpen) || list[0];
   return `
   ${crumbs([['Главная', '/'], ['Кабинет кандидата']])}
@@ -946,6 +962,7 @@ V['/c/home'] = () => {
       </div>
 
       <div class="row sb"><h2>Приглашения</h2><span class="small muted num">открыто ${open} из ${CAP}</span></div>
+      ${invErr ? '<div class="panel small stack-s"><span>Не удалось загрузить приглашения.</span><div class="row"><button class="btn ghost small" data-act="reload">Повторить</button></div></div>' : ''}
       ${list.map(inv => `<button class="inv" data-go="/c/invite/${inv.id}">
           <span class="logo-sq" style="background:${esc(inv.color)}">${esc(inv.company[0])}</span>
           <span class="stack-s" style="gap:2px;min-width:0">
@@ -954,7 +971,7 @@ V['/c/home'] = () => {
             <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)}</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
           </span>
           <span class="stack-s" style="align-items:flex-end">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
-        </button>`).join('') || '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>'}
+        </button>`).join('') || (invErr ? '' : '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>')}
     </div>
     <aside class="stack">
       ${tg ? `<div class="panel tight stack">
@@ -1011,6 +1028,7 @@ function inviteView() {
   } else {
     actions = `<div class="row"><button class="btn primary" data-act="accept" data-id="${id}">Принять и открыть мои контакты</button><button class="btn ghost" data-act="ask-decline" data-id="${id}">Нет: указать причину</button></div>`;
   }
+  if (inv.chat_peer != null) actions = `<div class="row">${chatBtn('c', inv.chat_peer, 'btn ghost')}</div>` + actions;
   return `
   ${crumbs([['Кабинет', '/c/home'], [esc(inv.company)]])}
   ${subnav('c')}
@@ -1219,6 +1237,7 @@ V['/c/applications'] = () => {
       ${a.note ? `<p class="small">Ваша заметка: ${esc(a.note)}</p>` : ''}
       ${a.status === 'accepted' ? '<div class="alert ok">Компания готова пообщаться и свяжется по вашим контактам.</div>' : ''}
       ${a.status === 'declined' ? `<div class="alert bad">Отказ${a.reason ? `: ${esc(a.reason.toLowerCase())}` : ''}.</div>` : ''}
+      ${a.chat_peer != null ? `<div class="row">${chatBtn('c', a.chat_peer)}</div>` : ''}
       ${a.status === 'sent' || a.status === 'seen' ? `<div class="row"><button class="btn ghost small" data-act="withdraw" data-id="${a.id}">Отозвать отклик</button></div>` : ''}
     </div>`).join('') || '<div class="panel small muted">Откликов пока нет. <button class="btn ghost small" data-go="/c/vacancies">К вакансиям</button></div>'}
   </div>`;
@@ -1522,6 +1541,172 @@ V['/e/picks'] = () => {
   </div>`;
 };
 
+
+// ---------- Чат ----------
+// peer: у кандидата — id компании, у работодателя — публичный id кандидата
+const chatPeerOf = () => { const m = route().match(/^\/[ce]\/chat\/([^/]+)$/); return m ? decodeURIComponent(m[1]) : null; };
+const onChat = () => /^\/[ce]\/chat(\/|$)/.test(route());
+const chatSide = () => route().startsWith('/c') ? 'c' : 'e';
+const chatMe = () => chatSide() === 'c' ? 'candidate' : 'employer';
+const chatBtn = (side, peer, cls = 'btn ghost small') => peer == null ? '' : `<button class="${cls}" data-go="/${side}/chat/${esc(encodeURIComponent(peer))}">Написать в чат</button>`;
+const WHEN = s => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+function chatMessages() {
+  const d = D.chatDetail, me = chatMe();
+  if (!d.messages.length) return '<div class="muted small" style="text-align:center;margin:auto">Здесь будет история переписки</div>';
+  return (d.more ? '<button class="btn ghost small" style="align-self:center" data-act="chat-more">Показать ранее</button>' : '') + d.messages.map(m => `
+    <div class="msg ${m.sender === me ? 'me' : ''}"><p>${esc(m.text)}</p><time>${WHEN(m.created_at)}${m.sender === me ? (m.read_at ? ' <span title="прочитано">✓✓</span>' : ' <span title="доставлено">✓</span>') : ''}</time></div>`).join('');
+}
+
+function chatList() {
+  const peer = chatPeerOf(), d = D.chatDetail, side = chatSide();
+  let list = (D.chatContacts && D.chatContacts.contacts) || [];
+  if (peer != null && d && !list.some(c => String(c.peer_id) === peer)) list = [{ peer_id: peer, peer_name: d.peer.name, unread_count: 0, last_message: null }, ...list];
+  return list.map(c => `<button class="chat-peer ${String(c.peer_id) === peer ? 'on' : ''}" data-go="/${side}/chat/${esc(encodeURIComponent(c.peer_id))}">
+      <span class="stack-s" style="min-width:0;flex:1"><b>${esc(c.peer_name)}</b><span class="small muted">${c.last_message ? (c.last_message.sender === chatMe() ? 'Вы: ' : '') + esc(c.last_message.text) : 'Нет сообщений'}</span></span>
+      ${c.unread_count ? `<span class="dot">${c.unread_count}</span>` : ''}
+    </button>`).join('') || '<span class="small muted">Диалогов пока нет. Писать можно после принятия приглашения или отклика на вакансию.</span>';
+}
+
+function chatView(side) {
+  const peer = chatPeerOf(), d = D.chatDetail;
+  const head = side === 'c' ? [['Кабинет', '/c/home'], ['Чат']] : [[esc(D.coName || 'Компания'), '/e/signup'], ['Чат']];
+  const box = d ? `
+    <div class="panel tight chat-box">
+      <div style="padding-bottom:12px;border-bottom:1px solid var(--line-2)"><b>${esc(d.peer.name)}</b></div>
+      <div id="chat-messages" class="chat-msgs">${chatMessages()}</div>
+      ${d.can_write ? `<div class="row" style="margin-top:12px;align-items:flex-end">
+        <textarea id="chat-input" class="input" style="flex:1;min-height:44px;resize:none" maxlength="2000" placeholder="Сообщение"></textarea>
+        <button class="btn primary" data-act="chat-send">Отправить</button>
+      </div>
+      <span class="hint" style="margin-top:6px">Enter — отправить, Shift+Enter — перенос строки</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
+    </div>` : `<div class="panel chat-box" style="align-items:center;justify-content:center"><span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог слева'}</span></div>`;
+  return `
+  ${crumbs(head)}
+  ${subnav(side)}
+  <div class="chat fade">
+    <div class="panel tight stack-s chat-list" id="chat-list">${chatList()}</div>
+    ${box}
+  </div>`;
+}
+V['/c/chat'] = () => chatView('c');
+V['/e/chat'] = () => chatView('e');
+
+function drawChat(stick = true) {
+  const box = document.getElementById('chat-messages');
+  if (!box || !D.chatDetail) return;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.innerHTML = chatMessages();
+  if (stick || atBottom) box.scrollTop = box.scrollHeight;
+}
+function drawChatSide() {
+  UNREAD = ((D.chatContacts && D.chatContacts.contacts) || []).reduce((n, c) => n + c.unread_count, 0);
+  const l = document.getElementById('chat-list'), nav = document.querySelector('nav.chips');
+  if (l) l.innerHTML = chatList();
+  if (nav) nav.outerHTML = subnav(chatSide());
+}
+
+async function loadChat(peer) {
+  const me = chatMe();
+  D.chatDetail = peer ? await api('GET', '/api/chat/' + encodeURIComponent(peer)).catch(e => { if (e.status === 403 || e.status === 404) return null; throw e; }) : null;
+  if (D.chatDetail && D.chatDetail.messages.some(m => m.sender !== me && !m.read_at)) await api('POST', '/api/chat/' + encodeURIComponent(peer) + '/read');
+  D.chatContacts = await api('GET', '/api/chat/contacts');
+  UNREAD = D.chatContacts.contacts.reduce((n, c) => n + c.unread_count, 0);
+}
+
+// опрос раз в несколько секунд: подтягивает новые сообщения и отметки «прочитано», не трогая поле ввода
+let chatBusy = false;
+let chatAgain = false;  // сигнал пришёл, пока шёл прошлый опрос: после него повторяем
+async function pollChat() {
+  if (!onChat() || document.hidden || $app.inert) return;
+  if (chatBusy) { chatAgain = true; return; }
+  chatBusy = true;
+  const my = seq, peer = chatPeerOf(), d = D.chatDetail, me = chatMe();
+  try {
+    const dt = peer != null && d ? await api('GET', '/api/chat/' + encodeURIComponent(peer)) : null;
+    if (my !== seq || !onChat()) return;
+    if (dt && dt.messages.some(m => m.sender !== me && !m.read_at)) await api('POST', '/api/chat/' + encodeURIComponent(peer) + '/read');
+    const cs = await api('GET', '/api/chat/contacts');
+    if (my !== seq || !onChat()) return;
+    D.chatContacts = cs;
+    if (dt && D.chatDetail === d) {
+      if (dt.can_write !== d.can_write) { d.can_write = dt.can_write; rerender(); }
+      const first = dt.messages.length ? dt.messages[0].id : Infinity, sig = a => a.map(m => m.id + (m.read_at ? 'r' : '')).join();
+      const merged = [...d.messages.filter(m => m.id < first), ...dt.messages];
+      if (sig(merged) !== sig(d.messages)) { d.messages = merged; drawChat(false); }
+    }
+    drawChatSide();
+  } catch (e) {
+    // доступ закрыт посреди сессии (отозвано согласие, профиль скрыт): убираем уже загруженное
+    if ((e.status === 403 || e.status === 404) && my === seq && onChat() && D.chatDetail === d) { D.chatDetail = null; rerender(); }
+  } finally {
+    chatBusy = false;
+    if (chatAgain) { chatAgain = false; pollChat(); }
+  }
+}
+
+// Push: сервер шлёт «data: new», когда у участника появилось новое; клиент после этого перечитывает данные обычными GET.
+let chatCtl = null, chatStreamSide = null;
+function chatStop() { if (chatCtl) chatCtl.abort(); chatCtl = chatStreamSide = null; }
+async function chatNudge() {
+  if (document.hidden) return;
+  if (onChat()) return pollChat();
+  const side = chatSide();
+  if (!TOK[side] || !/^\/[ce]\//.test(route())) return;
+  try {
+    UNREAD = (await api('GET', '/api/chat/unread')).unread_count;
+    const nav = document.querySelector('nav.chips');
+    if (nav && route().startsWith('/' + side)) nav.outerHTML = subnav(side);
+  } catch { /* бейдж не критичен */ }
+}
+async function chatStream(side) {
+  chatStop();
+  const ctl = chatCtl = new AbortController();
+  chatStreamSide = side;
+  while (!ctl.signal.aborted) {
+    try {
+      const r = await fetch('/api/chat/stream', { headers: { Authorization: 'Bearer ' + TOK[side] }, signal: ctl.signal });
+      if (r.status === 401 || r.status === 403) { if (chatCtl === ctl) chatCtl = chatStreamSide = null; return; }  // нет входа или профиля — без повторов
+      if (!r.ok) throw new Error('stream ' + r.status);  // 5xx/429: не читаем тело, повтор через паузу
+      chatNudge();  // догоняем всё, что пришло, пока потока не было (первое подключение и каждое переподключение)
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await rd.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        if (parts.some(x => x.startsWith('data:'))) chatNudge();
+      }
+    } catch { /* обрыв сети или abort */ }
+    if (!ctl.signal.aborted) await new Promise(res => setTimeout(res, 3000));  // переподключение
+  }
+}
+
+async function chatSend() {
+  const el = document.getElementById('chat-input'), peer = chatPeerOf(), text = el ? el.value.trim() : '';
+  if (!text || peer == null) return;
+  const m = await api('POST', '/api/chat/' + encodeURIComponent(peer), { text });
+  if (chatPeerOf() !== peer) return;
+  el.value = '';
+  D.chatDetail.messages.push(m);
+  drawChat();
+  D.chatContacts = await api('GET', '/api/chat/contacts');
+  drawChatSide();
+}
+
+async function chatMore() {
+  const d = D.chatDetail, peer = chatPeerOf();
+  if (!d || !d.messages.length) return;
+  const r = await api('GET', `/api/chat/${encodeURIComponent(peer)}?before_id=${d.messages[0].id}`);
+  if (D.chatDetail !== d) return;
+  const box = document.getElementById('chat-messages'), h = box.scrollHeight;
+  d.messages = [...r.messages, ...d.messages]; d.more = r.more;
+  drawChat(false);
+  box.scrollTop = box.scrollHeight - h;
+}
+
 function candView() {
   const c = D.cand;
   if (!c) return `${crumbs([['Подборка', '/e/picks'], ['Кандидат']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
@@ -1577,6 +1762,7 @@ function candView() {
         <span class="label">Нагрузка</span>
         <p class="small num">${c.load} из ${c.cap} открытых приглашений${c.busy ? '. Ответ может задержаться.' : ''}</p>
       </div>
+      ${chatBtn('e', c.chat_peer, 'btn ghost block')}
       ${c.invited ? '<button class="btn ghost block" data-go="/e/pipeline">Уже приглашён — к статусам</button>' : `<button class="btn primary block" data-act="invite" data-id="${esc(c.id)}">Пригласить</button>`}
       <span class="hint">ФИО и контакты откроются, когда кандидат примет приглашение</span>
     </aside>
@@ -1666,7 +1852,7 @@ V['/e/pipeline'] = () => {
     <div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Кандидат</th><th>Роль</th><th class="num">Вилка</th><th>Отправлено</th><th>Статус</th><th>Контакты</th><th>После собеседования</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
-        <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}">${esc(r.cid)}</button>${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
+        <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}">${esc(r.cid)}</button> ${chatBtn('e', r.chat_peer)}${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
         <td>${esc(r.role)}</td>
         <td class="num">${K(r.from)} — ${K(r.to)}</td>
         <td class="muted">${esc(r.when)}</td>
@@ -1805,7 +1991,8 @@ function eVacancyView() {
       <div class="row sb"><div class="row"><button class="btn ghost small" data-go="/e/cand/${esc(c.id)}">Кандидат ${esc(c.id)}</button>${catTag(c.spec, c.track, c.grade)}<span class="small muted">перцентиль ${c.pct ?? '—'}</span></div>${appChip(a.status)}</div>
       <div class="chips">${c.skills.map(s => `<span class="chip ${v.must.includes(s) || v.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
       ${a.note ? `<p class="small">«${esc(a.note)}»</p>` : ''}
-      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : '<span class="muted">Кандидат отозвал отклик — контакты скрыты</span>'} <span class="muted">· ожидания от ${RUB(c.salary)} · ${DAYMON(a.created_at)}</span></p>
+      ${a.chat_peer != null ? `<div class="row">${chatBtn('e', a.chat_peer)}</div>` : ''}
+      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : `<span class="muted">${a.status === 'withdrawn' ? 'Кандидат отозвал отклик — контакты скрыты' : 'Кандидат закрыл доступ к контактам'}</span>`} <span class="muted">· ожидания от ${RUB(c.salary)} · ${DAYMON(a.created_at)}</span></p>
       ${a.status === 'declined' && a.reason ? `<span class="small muted">причина отказа: ${esc(a.reason.toLowerCase())}</span>` : ''}
       ${a.status === 'sent' || a.status === 'seen' ? (S.appDecline === a.id ? `<div class="stack-s"><div class="chips">${reasons.map(([k, x]) => `<button class="chip ${S.appReason === k ? 'on' : ''}" data-act="app-reason" data-v="${k}">${esc(x)}</button>`).join('')}</div>
         <div class="row"><button class="btn danger small" data-act="app-status" data-id="${a.id}" data-v="declined" ${S.appReason ? '' : 'disabled'}>Отклонить</button><button class="btn ghost small" data-act="app-decline" data-id="">Отмена</button></div></div>`
@@ -1996,6 +2183,7 @@ async function load(r) {
     GRADE_TH = Object.entries(META.grade_th).filter(([g]) => g !== 'Intern').map(([g, t]) => ({ g, t }));
   }
   const [, side, page, arg] = r.split('/');
+  if ((side === 'c' || side === 'e') && page !== 'signup' && page !== 'chat' && TOK[side]) UNREAD = await api('GET', '/api/chat/unread').then(x => x.unread_count, e => { if (e.status === 401) throw e; return 0; });  // бейдж не критичен: ошибка сети его не роняет, протухший вход — обычный путь
   if (side === 'c' && page !== 'signup') {
     await loadMe();
     if (page === 'profile') { ACH = ME ? await api('GET', '/api/achievements') : null; S.pf = pfFromMe(); S.cv = null; S.cfCode = null; }  // код CF — только один раз
@@ -2007,7 +2195,7 @@ async function load(r) {
     else if (page === 'result') {
       [D.result, ACH, D.history] = await Promise.all([S.finish || or404(api('GET', '/api/quest/result')), api('GET', '/api/achievements'), api('GET', '/api/quest/history')]);
     }
-    else if (page === 'home') D.invites = await api('GET', '/api/candidate/invites');
+    else if (page === 'home') { D.invites = null; D.invites = await api('GET', '/api/candidate/invites'); }  // null — признак ошибки загрузки
     else if (page === 'invite') {
       [D.inv, D.invTasks] = await Promise.all([or404(api('GET', '/api/candidate/invites/' + encodeURIComponent(arg))), or404(api('GET', '/api/tasks/for-invitation/' + encodeURIComponent(arg)))]);
       S.declineFor = null;
@@ -2018,6 +2206,7 @@ async function load(r) {
     else if (page === 'applications') D.apps = await api('GET', '/api/vacancies/applications/mine');
     else if (page === 'tasks') [D.showcase, D.subs] = await Promise.all([api('GET', '/api/tasks/showcase'), api('GET', '/api/tasks/submissions/mine')]);
     else if (page === 'task') { S.taskInv = +r.split('/')[4] || null; [D.task, D.subs] = await Promise.all([or404(api('GET', '/api/tasks/' + encodeURIComponent(arg))), api('GET', '/api/tasks/submissions/mine')]); S.answer = ''; }
+    else if (page === 'chat') await loadChat(arg);
   }
   if (side === 'e') {
     if (page === 'signup') {
@@ -2039,13 +2228,14 @@ async function load(r) {
     else if (page === 'vacancy') { D.vapps = await or404(api('GET', `/api/vacancies/${encodeURIComponent(arg)}/applications`)); S.appDecline = null; }
     else if (page === 'tasks') D.mytasks = await api('GET', '/api/tasks/mine');
     else if (page === 'task') D.tsubs = await or404(api('GET', `/api/tasks/${encodeURIComponent(arg)}/submissions`));
+    else if (page === 'chat') await loadChat(arg);
   }
   if (side === 'v') D.val = await or404(api('GET', '/api/validation'));
 }
 
 /* ===================== рендер и события ===================== */
 let timerId, seq = 0;
-const PARAM_VIEWS = [['/c/invite/', inviteView], ['/c/vacancy/', cVacancyView], ['/c/task/', cTaskView], ['/e/cand/', candView], ['/e/invite/', inviteFormView], ['/e/vacancy/', eVacancyView], ['/e/task/', eTaskView]];
+const PARAM_VIEWS = [['/c/chat/', () => chatView('c')], ['/e/chat/', () => chatView('e')], ['/c/invite/', inviteView], ['/c/vacancy/', cVacancyView], ['/c/task/', cTaskView], ['/e/cand/', candView], ['/e/invite/', inviteFormView], ['/e/vacancy/', eVacancyView], ['/e/task/', eTaskView]];
 function render() {
   const r = route();
   let html;
@@ -2058,9 +2248,12 @@ function render() {
   }
   $app.innerHTML = html;
   busy(false);
+  const cm = document.getElementById('chat-messages');
+  if (cm) cm.scrollTop = cm.scrollHeight;
   const role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
   document.querySelectorAll('.roles button').forEach(b => b.setAttribute('aria-current', b.dataset.role === role));
   document.getElementById('logout').hidden = !(role === 'c' || role === 'e') || !TOK[role];
+  if ((role === 'c' || role === 'e') && TOK[role]) { if (chatStreamSide !== role) chatStream(role); } else chatStop();
   startTimer();
 }
 function rerender() { const y = scrollY; render(); scrollTo(0, y); }
@@ -2424,6 +2617,13 @@ const ACT = {
     toast('Оценка сохранена'); await refresh();
   },
 };
+
+Object.assign(ACT, { 'chat-send': chatSend, 'chat-more': chatMore });
+// ponytail: SSE живёт в памяти одного процесса (Hub в services/chat.py); при нескольких воркерах — Redis pub/sub.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) chatNudge(); });
+document.addEventListener('keydown', e => {
+  if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
+});
 
 addEventListener('hashchange', () => { closeMap(); show(); });
 
