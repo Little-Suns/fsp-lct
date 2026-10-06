@@ -103,7 +103,7 @@ ROLES = {
     "Руководитель проекта": ["руководител\\w* проект", "project manager", "менеджер\\w* проект", "product owner"],
     "Исследователь": ["исследовател", "researcher", "научн\\w* сотрудник"],
     "Преподаватель": ["преподава", "лектор", "teacher", "lecturer"],
-    "Контрибьютор open source": ["контрибьют", "contribut(?:or|ed to|ing to)", "мейнтейнер", "maintainer"],
+    "Контрибьютор open source": ["контрибьют", "open[ -]?source[ -]contribut", "contribut\\w*\\s+to\\s+open[ -]?source", "мейнтейнер", "maintainer"],
     "Спикер": ["спикер", "speaker", "доклад"],
 }
 SOFT_SKILLS = {

@@ -223,7 +223,8 @@ def test_cv_extended_rules(no_llm):
         ("Senior Backend Developer — Kafka Python", {"name": None, "email": None, "tg": None}),
         ("почта me@ex.ru; @mail.ru не ник; @ab — короткий", {"name": None, "email": "me@ex.ru", "tg": None}),
         ("Name: Anna Petrova developer\nabout.me/anna_dev", {"name": "Anna Petrova", "email": None, "tg": None}),
-        ("Резюме\nCompany name: Yandex Cloud", {"name": None, "email": None, "tg": None}),  # подпись не в начале строки
+        ("Резюме\nCompany name: Yandex Cloud", {"name": None, "email": None, "tg": None}),
+        ("Резюме: Иван Петров\nTelegram integration, tg-бот", {"name": "Иван Петров", "email": None, "tg": None}),  # подпись не в начале строки
     ],
 )
 def test_cv_contacts(no_llm, text, contacts):
@@ -236,6 +237,7 @@ def test_cv_contacts_linear_on_long_text(no_llm):
     assert parsing._contacts("x" * 200_000 + " me@ex.ru")["email"] == "me@ex.ru"
     assert parsing._contacts("@" + "a" * 200_000)["tg"] is None
     assert parsing.cv_experience("dec" * 100_000 + "март" * 50_000) == []  # месяцы без границы слова не перебираются
+    assert parsing._years("1" * 100_000 + " лет опыта") is None  # цепочка цифр — не стаж и не квадратично
     assert time.monotonic() - t0 < 5
 
 
@@ -244,7 +246,8 @@ def test_cv_no_false_roles_soft(no_llm):
     cv = parse_cv("Responsibilities: microservice architecture, inter-service communication, open source libraries. Зона ответственности — платежи.")
     assert cv["roles"] == [] and cv["soft_skills"] == []
     cv = parse_cv("Architect. Contributed to Django. Ответственный, коммуникативный.")
-    assert cv["roles"] == ["Архитектор", "Контрибьютор open source"] and cv["soft_skills"] == ["Ответственность", "Коммуникация"]
+    assert cv["roles"] == ["Архитектор"] and cv["soft_skills"] == ["Ответственность", "Коммуникация"]  # «contributed to Django» — работа, не open source
+    assert parse_cv("Contributed to open source: aiohttp.")["roles"] == ["Контрибьютор open source"]
 
 
 def test_cv_experience_sections():
@@ -253,6 +256,8 @@ def test_cv_experience_sections():
     jobs = parsing.cv_experience(text)
     assert jobs[:2] == [{"from": 2016, "to": 2019, "title": "Банк, Scrum Master"}, {"from": 2019, "to": 2021, "title": "Mastercard, разработчик"}]
     assert len(jobs) == 17 and len(parse_cv(text)["experience"]) == 12  # в стаж — все периоды, в ответ — первые 12
+    assert parsing.cv_experience("2005 — 2015 Школа № 57\n2016 — 2018 Фирма, разработчик —\nОбразование\n2012 — 2016 Курс") == [
+        {"from": 2016, "to": 2018, "title": "Фирма, разработчик"}]  # школа — учёба; тире в конце строки не съедает заголовок
     assert parsing._years(text.lower()) == 20  # 2000–2015 и 2016–2021, разрыв в год не считается
 
 
