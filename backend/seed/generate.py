@@ -449,6 +449,9 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
                     next_upgrade_at=datetime(2027, 1, 3, 12, tzinfo=UTC), consent_external=True,
                     cv_filename="orlov_cv.pdf")
     orlov.email, orlov.tg = "d.orlov@example.ru", "@dorlov_dev"
+    orlov.cv_text += ("\nОпыт работы\n2023 — н.в. Финтех «Волна Пэй», бэкенд-разработчик платёжного шлюза\n"
+                      "2021 — 2023 Интернет-магазин «Полка», Python-разработчик\nМенторил стажёров, капитан команды на Кубке ФСП.")
+    orlov.roles, orlov.soft_skills = ["Ментор", "Капитан команды"], ["Коммуникация", "Работа в команде", "Самостоятельность"]
     orlov.truth["skills_true"] = orlov.skills_confirmed + ["Docker"]  # Kubernetes заявлен, но не подтверждён тестом
     cup = ev["cup-2025-prod"]
     orlov.achievements.append(Achievement(event=cup, source="fsp", title=cup.title, place=12, team="Команда «Сапсан»",

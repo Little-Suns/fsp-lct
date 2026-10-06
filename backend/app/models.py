@@ -56,6 +56,9 @@ class Candidate(Base):
     cv_text: Mapped[str | None] = mapped_column(Text)
     years_exp: Mapped[float | None] = mapped_column(Float)
     skills_claimed: Mapped[list[str]] = mapped_column(JSON, default=list)  # из резюме / анкеты
+    # заявлены (резюме / анкета), значения catalog.ROLES и SOFT_SKILLS; в подборе и грейде не участвуют
+    roles: Mapped[list[str]] = mapped_column(JSON, default=list)
+    soft_skills: Mapped[list[str]] = mapped_column(JSON, default=list)
     # результат теста: категория = spec × track × grade
     grade: Mapped[str | None] = mapped_column(String(16))
     theta: Mapped[float | None] = mapped_column(Float)

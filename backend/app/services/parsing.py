@@ -4,6 +4,10 @@
 или не пришло — добирают правила. Суммы всегда берутся из регулярок, если они нашли хоть что-то: числа
 правила читают точнее модели. Персональные признаки (пол, возраст, вуз, фото, национальность) не извлекаются
 и вырезаются из текста до разбора — подбору они не нужны и запрещены к использованию.
+
+Из резюме дополнительно достаются контакты (имя, почта, Telegram) — только чтобы предзаполнить форму самого
+кандидата; в подбор и в модель они не попадают. Роли, софт-скиллы и места работы — для профиля и PDF-профиля,
+в ранжировании и грейде не участвуют.
 """
 
 import math
@@ -343,8 +347,10 @@ def parse_need(text: str, *, use_llm: bool = True) -> dict:
 
 _CV_SYSTEM = (
     "Ты разбираешь резюме ИТ-специалиста. Верни JSON: "
-    '{"skills": [str], "years_exp": number|null, "spec": str|null, "track": str|null}. '
-    f"Навыки — только из справочника {sorted(catalog.SKILLS)}; spec — из {catalog.SPECS}; track — из {catalog.TRACKS}. "
+    '{"skills": [str], "years_exp": number|null, "spec": str|null, "track": str|null, "roles": [str], "soft_skills": [str]}. '
+    f"Навыки — только из справочника {sorted(catalog.SKILLS)}; spec — из {catalog.SPECS}; track — из {catalog.TRACKS}; "
+    f"roles — роли, которые человек выполнял, только из {list(catalog.ROLES)}; soft_skills — только из {list(catalog.SOFT_SKILLS)}, "
+    "и только если в тексте есть опора (факт или прямое упоминание). "
     "years_exp — суммарный коммерческий опыт в годах. ФИО, контакты, возраст, пол, вуз и фото не извлекай."
 )
 _YEARS_RX = [
@@ -352,15 +358,49 @@ _YEARS_RX = [
     r"(\d+(?:[.,]\d)?)\s*\+?\s*(?:год\w*|лет)\s+(?:коммерческ\w*\s+)?опыт",
     r"(\d+(?:[.,]\d)?)\s*\+?\s*years? of experience",
 ]
-_RANGE_RX = r"((?:19|20)\d\d)\s*(?:-|–|—|по)\s*((?:19|20)\d\d|н\.?\s?в\.?|настоящ\w*|сейчас|present|now|текущ\w*)"
+# период работы: «2019 — 2021», «03.2019 – н.в.», «март 2019 — июнь 2021», «2021 – по настоящее время»
+_MONTH = r"(?:(?:янв|фев|мар|апр|ма[йя]|июн|июл|авг|сен|окт|ноя|дек|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[а-яёa-z]*\.?\s+|\d{1,2}[./]\s*)?"
+_RANGE_RX = re.compile(
+    rf"{_MONTH}((?:19|20)\d\d)\s*(?:г\.?\s*)?(?:-|–|—|по)\s*{_MONTH}((?:19|20)\d\d|н\.?\s?в\.?|(?:по\s+)?настоящ\w*(?:\s+время)?|сейчас|present|now|текущ\w*)",
+    re.IGNORECASE,
+)
+_EDU_RX = rf"{_B}(?:университет|институт|академи|колледж|техникум|школ|вуз|мгу|мгту|мфти|вшэ|итмо|спбгу|бакалавр|магистр|аспирант|факультет|university|college|bachelor|master)"
+_SECTION_RX = r"(образование|education|курсы|сертификаты|certificates)|(опыт|experience|места работы|work)"
 
 
-def _years(s: str) -> float | None:
+def _experience(text: str) -> list[dict]:
+    """Места работы по периодам: [{"from": 2019, "to": 2021 | None (по н. в.), "title": "Яндекс, бэкенд-разработчик"}].
+    Название — текст после периода до следующего периода или конца предложения; если после пусто — перед периодом,
+    затем следующая строка. Учёба (университет, бакалавр…) не считается работой."""
+    lines = [ln.strip() for ln in text.splitlines()]
+    out, edu = [], False
+    for i, line in enumerate(lines):
+        if len(line) < 40 and (sec := re.match(_SECTION_RX, line.lower())):  # заголовок раздела
+            edu = bool(sec[1])
+        ms = list(_RANGE_RX.finditer(line))
+        for j, m in enumerate(ms):
+            after = line[m.end() : ms[j + 1].start() if j + 1 < len(ms) else len(line)]
+            before = line[ms[j - 1].end() if j else 0 : m.start()]
+            title = ""
+            for seg in (after, before, next((ln for ln in lines[i + 1 : i + 3] if ln and not _RANGE_RX.search(ln)), "") if j + 1 == len(ms) else ""):
+                title = re.split(r"[;\n]|\.\s|\.$", seg.strip(" ,;:|·•—–-()\t"))[0].strip(" ,;:|·•—–-()")
+                if title:
+                    break
+            if edu or re.search(_EDU_RX, f"{title} {after}".lower()):
+                continue
+            end = int(m[2]) if m[2][:1].isdigit() else None
+            if end is not None and end < int(m[1]):
+                continue
+            out.append({"from": int(m[1]), "to": end, "title": re.sub(r"\s+", " ", title)[:120] or None})
+    return out[:12]
+
+
+def _years(s: str, experience: list[dict] | None = None) -> float | None:
     for rx in _YEARS_RX:
         if m := re.search(rx, s):
             return float(m[1].replace(",", "."))
     now = datetime.now().year
-    spans = sorted((int(a), now if not b[:1].isdigit() else int(b)) for a, b in re.findall(_RANGE_RX, s))
+    spans = sorted((e["from"], e["to"] or now) for e in (experience if experience is not None else _experience(s)))
     total, end = 0, 0
     for a, b in spans:  # пересекающиеся периоды не суммируем дважды
         if b > end:
@@ -369,11 +409,70 @@ def _years(s: str) -> float | None:
     return float(min(total, 40)) if total else None
 
 
+# ---------- резюме: контакты, роли, софт-скиллы ----------
+
+
+def _dict_rx(d: dict[str, list[str]]) -> dict[str, re.Pattern]:
+    return {k: re.compile(rf"{_B}(?:{'|'.join(v)})") for k, v in d.items()}
+
+
+_ROLE_RX, _SOFT_RX = _dict_rx(catalog.ROLES), _dict_rx(catalog.SOFT_SKILLS)
+
+
+def _by_dict(s: str, rxs: dict[str, re.Pattern]) -> list[str]:
+    """Канонические значения справочника в порядке первого упоминания."""
+    pos = {k: m.start() for k, rx in rxs.items() if (m := rx.search(s))}
+    return sorted(pos, key=pos.get)
+
+
+def canon_terms(items, allowed) -> list[str]:
+    """Только значения справочника (роли, софт-скиллы), без дублей, в исходном порядке."""
+    return list(dict.fromkeys(x for x in items or [] if isinstance(x, str) and x in allowed))
+
+
+_EMAIL_RX = r"[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}"
+_TG_RX = r"(?:t(?:elegram)?\.me/|telegram\s*[:\-]?\s*@?|(?<![\w.])tg\s*[:\-]?\s*@?|(?<![\w.@/])@)([a-z][a-z0-9_]{4,31})(?![\w@]|\.\w)"
+_NAME_WORD = r"(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?|[A-Z][a-z]+(?:-[A-Z][a-z]+)?)"
+_NOT_NAME = {
+    "резюме", "опыт", "работы", "работа", "город", "формат", "стек", "навыки", "контакты", "образование", "себе", "профиль",
+    "разработчик", "программист", "инженер", "аналитик", "тестировщик", "специалист", "developer", "engineer", "resume",
+    "curriculum", "vitae", "summary", "experience", "skills", "contacts", "about", "fullstack", "data", "team", "lead",
+    *(g.lower() for g in catalog.GRADES), *(w.lower() for c in _CITIES for w in re.split(r"[\s-]", c)),
+    *(w.lower() for k, syns in catalog.SKILLS.items() for w in [k, *syns]),
+}
+
+
+def _name(text: str) -> str | None:
+    """ФИО: «ФИО: …» или первая строка-фрагмент из 2–3 слов с заглавной, где нет должности, навыка, города."""
+    m = re.search(rf"(?:фио|имя|name)\s*[:\-]\s*({_NAME_WORD}(?:\s+{_NAME_WORD}){{1,2}})", text, re.IGNORECASE)
+    chunks = [m[1]] if m else []
+    for line in [ln for ln in text.splitlines() if ln.strip()][:5]:
+        chunks += re.split(r"[.,;|•·(/:]|\s[—–-]\s|\s{2,}", line)
+    for ch in (c.strip() for c in chunks):
+        if (re.fullmatch(rf"{_NAME_WORD}(?:\s+{_NAME_WORD}){{1,2}}", ch) and not any(w.lower() in _NOT_NAME for w in re.split(r"[\s-]", ch))
+                and _spec(ch.lower(), []) is None):
+            return ch
+    return None
+
+
+def _contacts(text: str) -> dict:
+    email = re.search(_EMAIL_RX, text, re.IGNORECASE)
+    tg = re.search(_TG_RX, text, re.IGNORECASE)
+    return {"name": _name(text), "email": email[0].lower() if email else None, "tg": "@" + tg[1] if tg else None}
+
+
 def parse_cv(text: str, *, use_llm: bool = True) -> dict:
+    """Резюме → навыки, стаж, категория (для подбора) + контакты, роли, софт-скиллы, места работы (для профиля).
+    В модель уходит текст, но обратно от неё берутся только поля справочников — не ФИО и не контакты."""
     s = text.lower()
     skills = extract_skills(s, skip=frozenset({"cv"}))  # «CV» в резюме — заголовок, а не Computer Vision
     spec = _spec(s, skills)
-    out = {"skills": skills, "years_exp": _years(s), "spec": spec, "track": _track(s, spec, skills) if spec else None, "parsed_by": "rules"}
+    experience = _experience(text)
+    out = {
+        "skills": skills, "years_exp": _years(s, experience), "spec": spec, "track": _track(s, spec, skills) if spec else None,
+        "roles": _by_dict(s, _ROLE_RX), "soft_skills": _by_dict(s, _SOFT_RX),
+        "contacts": _contacts(text), "experience": experience, "parsed_by": "rules",
+    }
     got = llm.chat_json(_CV_SYSTEM, text[:8000]) if use_llm else None
     if got:
         out["parsed_by"] = "llm"
@@ -385,6 +484,8 @@ def parse_cv(text: str, *, use_llm: bool = True) -> dict:
             out["spec"] = got["spec"]
         if out["spec"]:
             out["track"] = got.get("track") if got.get("track") in catalog.TRACKS[out["spec"]] else _track(s, out["spec"], out["skills"])
+        out["roles"] = canon_terms(canon_terms(got.get("roles"), catalog.ROLES) + out["roles"], catalog.ROLES)
+        out["soft_skills"] = canon_terms(canon_terms(got.get("soft_skills"), catalog.SOFT_SKILLS) + out["soft_skills"], catalog.SOFT_SKILLS)
     return out
 
 
@@ -409,5 +510,10 @@ if __name__ == "__main__":
     cv = parse_cv("Дмитрий Орлов. CV. Опыт работы 4 года. Python, asyncio, Postgres, Kafka, Docker. Node.js немного.", use_llm=False)
     assert cv["years_exp"] == 4 and cv["spec"] == "Backend" and cv["track"] == "Python", cv
     assert cv["skills"] == ["Python", "asyncio", "PostgreSQL", "Kafka", "Docker", "Node.js"], cv
-    assert parse_cv("2019 — 2021 Яндекс; 2021 — н.в. Тинькофф", use_llm=False)["years_exp"] == datetime.now().year - 2019
+    cv = parse_cv("2019 — 2021 Яндекс; 2021 — н.в. Тинькофф", use_llm=False)
+    assert cv["years_exp"] == datetime.now().year - 2019, cv
+    assert cv["experience"] == [{"from": 2019, "to": 2021, "title": "Яндекс"}, {"from": 2021, "to": None, "title": "Тинькофф"}], cv
+    cv = parse_cv("Анна Петрова\nanna.p@example.ru · t.me/anna_dev\nТимлид, менторила джунов. Коммуникабельна, ответственна.", use_llm=False)
+    assert cv["contacts"] == {"name": "Анна Петрова", "email": "anna.p@example.ru", "tg": "@anna_dev"}, cv
+    assert cv["roles"] == ["Тимлид", "Ментор"] and cv["soft_skills"] == ["Коммуникация", "Ответственность"], cv
     print("ok")

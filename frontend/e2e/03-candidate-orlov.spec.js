@@ -86,6 +86,10 @@ test('профиль и результат теста демо-кандидат�
   await expect(card).toContainText('Перцентиль 78');
   await expect(card.getByText('не подтверждено')).toBeVisible();
   await expect(card.locator('.chip', { hasText: 'ФСП' })).toBeVisible();
+  // роли и софт-скиллы из сида: отмечены в форме и видны в превью карточки
+  await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Ментор' })).toHaveClass(/on/);
+  await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Работа в команде' })).toHaveClass(/on/);
+  await expect(card.locator('.chip', { hasText: 'Капитан команды' })).toBeVisible();
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
   await expect(toast(page)).toHaveText('Профиль сохранён');
   await expect(page.getByRole('heading', { name: 'Ночь, пейджер, падает приём платежей' })).toBeVisible();
@@ -98,6 +102,24 @@ test('профиль и результат теста демо-кандидат�
   await expect(page.getByText('Codeforces · 1912')).toBeVisible();
   await page.getByRole('button', { name: 'Готово, жду приглашений' }).click();
   await expect(page).toHaveURL(/#\/c\/home$/);
+
+  // PDF-профиль из кабинета: файл; ошибка сервера и обрыв сети — понятный тост
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать PDF' }).click();
+  expect((await dl).suggestedFilename()).toBe('fsp-career-A-1042.pdf');
+  await expect(toast(page)).toHaveText('PDF-профиль сформирован');
+  await page.route('**/api/candidate/profile.pdf', r => r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Сервис PDF недоступен' }) }));
+  await page.getByRole('button', { name: 'Скачать PDF' }).click();
+  await expect(toast(page)).toHaveText('Сервис PDF недоступен');
+  await page.unroute('**/api/candidate/profile.pdf');
+  await page.route('**/api/candidate/profile.pdf', r => r.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' }));
+  await page.getByRole('button', { name: 'Скачать PDF' }).click();
+  await expect(toast(page)).toHaveText('Ошибка 502');
+  await page.unroute('**/api/candidate/profile.pdf');
+  await page.route('**/api/candidate/profile.pdf', r => r.abort());
+  await page.getByRole('button', { name: 'Скачать PDF' }).click();
+  await expect(toast(page)).toHaveText('Сервер недоступен');
+  await page.unroute('**/api/candidate/profile.pdf');
 });
 
 test('вакансии: фильтры, отклик с заметкой, отзыв отклика', async ({ page }) => {

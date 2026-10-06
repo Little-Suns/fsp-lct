@@ -143,6 +143,9 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(page.getByText(/Обязательные навыки подтверждены тестом: .*Python/)).toBeVisible();
   await expect(page.getByText(/Решил задачу (\d+ дн\. назад|сегодня) · оценка работодателя: \S+/)).toBeVisible();
   await expect(page.getByText('Итоговая оценка')).toBeVisible();
+  const soft = page.locator('aside .panel', { hasText: 'Роли и софт-скиллы' });
+  await expect(soft).toContainText('Ментор');
+  await expect(soft).toContainText('в оценке не участвуют');
   await expect(page.getByText(/ФСП|Codeforces 1912/).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Уже приглашён — к статусам' })).toBeVisible();
   // повторное приглашение — блокирующая ошибка от сервера прямо в форме

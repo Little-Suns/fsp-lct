@@ -1,6 +1,7 @@
 """Сценарий демо целиком: потребность → анонимная подборка → вилка → приглашение → принятие → контакты → отметка.
 Плюс ёмкость, квота, лотерея, истечение, неподтверждённая компания, поиск по банку, согласия и права по 152-ФЗ. Своя БД (fsp_flows), LLM выключена — работают правила."""
 
+import io
 import os
 import re
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,7 @@ os.environ.setdefault("DEMO", "1")
 
 import pytest
 from fastapi import FastAPI
+from pypdf import PdfReader
 from fastapi.testclient import TestClient
 
 from app import catalog, config, deps
@@ -18,6 +20,7 @@ from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
 from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, ExternalAccount, Invitation, RetiredPublicId, User, Vacancy
 from app.routers import candidate, employer, lottery
+from app.services import profile_pdf
 
 config.LLM_BASE_URL = ""
 NOW = datetime.now(UTC)
@@ -233,6 +236,51 @@ def test_search(client):
     assert s["facets"]["grade"]["Senior"] == 2 and s["facets"]["spec"] == {"Backend": 3}  # фасет грейда — без своего фильтра
     page2 = client.get("/api/employer/search?grade=Middle&q=кафка&limit=2&page=2", headers=E).json()
     assert [(c["id"], c["rank"]) for c in page2["items"]] == [("G-0005", 3)]
+
+
+def test_roles_soft_and_pdf_profile(client):
+    """Роли и софт-скиллы: только из справочника, None — не менять; в анонимной карточке — без ПДн. PDF-профиль — только себе."""
+    a = client.get("/api/candidate/me", headers=C).json()
+    keys = ("name", "email", "tg", "spec", "track", "grade_claimed", "city", "formats", "skills_claimed")
+    body = {**{k: a[k] for k in keys}, "min_salary": a["min"]}
+    me = client.post("/api/candidate/profile", json={**body, "roles": ["Тимлид", "Космонавт", "Тимлид"], "soft_skills": ["Коммуникация", 1]}, headers=C)
+    assert me.status_code == 422  # не строка — ошибка схемы
+    me = client.post("/api/candidate/profile", json={**body, "roles": ["Тимлид", "Космонавт", "Тимлид"], "soft_skills": ["Коммуникация"]}, headers=C).json()
+    assert (me["roles"], me["soft_skills"]) == (["Тимлид"], ["Коммуникация"])
+    me = client.post("/api/candidate/profile", json=body, headers=C).json()  # поля не переданы — не трогаем
+    assert (me["roles"], me["soft_skills"]) == (["Тимлид"], ["Коммуникация"])
+    r = client.get("/api/employer/candidates/A-1042", headers=E)
+    card = r.json()
+    assert (card["roles"], card["soft"]) == (["Тимлид"], ["Коммуникация"]) and "Дмитрий" not in r.text and "d.orlov" not in r.text
+    with SessionLocal() as db:  # места работы в PDF — из текста резюме
+        db.query(Candidate).filter(Candidate.public_id == "A-1042").update({"cv_text": "2021 — н.в. Финтех, бэкенд\n2012 — 2016 Университет", "years_exp": 4.5})
+        db.commit()
+
+    r = client.get("/api/candidate/profile.pdf", headers=C)
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and r.content.startswith(b"%PDF")
+    assert 'filename="fsp-career-A-1042.pdf"' in r.headers["content-disposition"]
+    text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(r.content)).pages)
+    for s in ("Дмитрий Орлов", "d.orlov@example.ru", "@dorlov_dev", "Backend · Python · Middle", "Перцентиль 78", "Ревью кода", "1,42 ± 0,25",
+              "Kubernetes", "Тимлид", "Коммуникация", "стаж 4,5 г.", "2021 — н. в.", "Финтех, бэкенд", "Финал Кубка России ФСП 2025",
+              "Codeforces: dorlov, рейтинг 1912", "230 000 ₽"):
+        assert s in text, s
+    assert "Университет" not in text
+    # работодателю и тому, у кого нет профиля, — нельзя
+    assert client.get("/api/candidate/profile.pdf", headers=E).status_code == 403
+    assert client.get("/api/candidate/profile.pdf", headers=N).status_code == 403
+
+
+def test_profile_pdf_render_edge_cases():
+    """Без теста — заявленный грейд; много компетенций и длинные строки — перенос и вторая страница; символ вне шрифта не роняет."""
+    c = _cand("X-0001", name="Ева 🚀 Тестова", grade=None, theta=None, se=None, percentile=None, tested_at=None, skills_confirmed=[],
+              competencies=[{"n": f"Компетенция с очень длинным названием № {i}", "t": i / 3 - 3, "se": 0.3} for i in range(40)],
+              roles=["Ментор"], soft_skills=[], years_exp=None, cv_text=None)
+    c.achievements = [Achievement(source="hackathon", title="Хакатон " + "очень длинное название " * 8, place=2, weight=0.3, verified=False)]
+    pdf = profile_pdf.render(c)
+    pages = PdfReader(io.BytesIO(pdf)).pages
+    text = "\n".join(p.extract_text() for p in pages)
+    assert len(pages) >= 2 and "Тест ещё не пройден: грейд Middle заявлен" in text and "не подтверждено" in text and "Ментор" in text
+    assert "Опыт" not in text and "Софт-скиллы" not in text
 
 
 def test_reconsent(client, monkeypatch):

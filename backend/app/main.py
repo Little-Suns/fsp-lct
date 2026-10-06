@@ -49,6 +49,8 @@ def meta():
         "feedback": catalog.FEEDBACK,
         "competencies": catalog.COMPETENCIES,
         "skills": sorted(catalog.SKILLS),
+        "roles": list(catalog.ROLES),
+        "soft_skills": list(catalog.SOFT_SKILLS),
         "cap": catalog.CANDIDATE_CAP,
         "invite_ttl_days": catalog.INVITE_TTL_DAYS,
         "fork_max_width": catalog.FORK_MAX_WIDTH,

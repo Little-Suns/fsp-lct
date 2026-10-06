@@ -7,7 +7,7 @@ import string
 from types import SimpleNamespace
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
@@ -20,8 +20,8 @@ from app.deps import current_candidate, current_user
 from app.integrations.consent import lock_candidate, set_external_consent
 from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, QuestSession, RetiredPublicId, TaskSubmission, User
 from app.routers.employer import company_trust
-from app.services import matching
-from app.services.parsing import canon_skills, parse_cv
+from app.services import matching, profile_pdf
+from app.services.parsing import canon_skills, canon_terms, parse_cv
 
 router = APIRouter(prefix="/api/candidate", tags=["candidate"])
 
@@ -40,6 +40,8 @@ class ProfileIn(BaseModel):
     city: str = Field(min_length=1, max_length=64)
     skills_claimed: list[str] = []
     years_exp: float | None = Field(default=None, ge=0, le=60)
+    roles: list[str] | None = None  # catalog.ROLES; None — не менять
+    soft_skills: list[str] | None = None  # catalog.SOFT_SKILLS; None — не менять
     consent_152: bool = False
     consent_publish: bool | None = None  # показывать обезличенную карточку работодателям; None — не менять
     consent_external: bool | None = None  # None — не менять; False — отзыв, внешние данные удаляются
@@ -175,6 +177,10 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
     c.min_salary, c.formats, c.city = body.min_salary, list(body.formats), body.city
     c.skills_claimed = skills
     c.years_exp = body.years_exp
+    if body.roles is not None:  # вне справочника — отбрасываем, как навыки
+        c.roles = canon_terms(body.roles, catalog.ROLES)
+    if body.soft_skills is not None:
+        c.soft_skills = canon_terms(body.soft_skills, catalog.SOFT_SKILLS)
     if new:
         db.flush()  # нужен id для журнала согласий
         _set_consent(db, c, "processing", True, force=True)
@@ -221,6 +227,8 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
         "years_exp": c.years_exp,
         "skills_claimed": c.skills_claimed or [],
         "skills_confirmed": c.skills_confirmed or [],
+        "roles": c.roles or [],
+        "soft_skills": c.soft_skills or [],
         "competencies": c.competencies or [],
         "cv_filename": c.cv_filename,
         "tested_at": c.tested_at,
@@ -267,6 +275,14 @@ async def upload_cv(file: UploadFile = File(...), user: User = Depends(current_u
         c.cv_filename, c.cv_text = file.filename, text
         db.commit()
     return {"filename": file.filename, "chars": len(text), "parsed": parse_cv(text)}
+
+
+@router.get("/profile.pdf")
+def profile_pdf_file(c: Candidate = Depends(current_candidate)):
+    """PDF-профиль для самого кандидата: с ФИО и контактами (как /me), чтобы приложить к отклику или отправить самому.
+    Чтение своих данных — доступно и после отзыва согласия, как выгрузка."""
+    return Response(profile_pdf.render(c), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="fsp-career-{c.public_id}.pdf"'})
 
 
 @router.patch("/status")
