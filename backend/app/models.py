@@ -145,7 +145,7 @@ class Achievement(Base):
     created_at: Mapped[datetime] = _now()
 
     candidate: Mapped[Candidate] = relationship(back_populates="achievements")
-    event: Mapped[Event | None] = relationship()
+    event: Mapped[Event | None] = relationship(lazy="selectin")  # дисциплина в бейджах карточек — без N+1
 
 
 class Company(Base):

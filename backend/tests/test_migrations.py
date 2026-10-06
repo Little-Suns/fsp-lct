@@ -145,6 +145,7 @@ def test_0004_reweights_existing_achievements():
             (1, 1, "fsp", 1, True, '{"kind": "protocol"}', 0.5), (2, 1, "fsp", 8, True, '{"kind": "protocol"}', 0.25),
             (3, 1, "fsp", None, True, '{"kind": "protocol"}', 0.075), (4, 2, "codeforces", 12, True, '{"kind": "contest"}', 0.2),
             (5, None, "codeforces", None, True, '{"kind": "rating"}', 0.396), (6, 3, "ctftime", 2, False, '{"kind": "ctf"}', 0.425),
+            (7, 3, "ctftime", 90, True, '{"kind": "ctf"}', 0.5), (8, 3, "ctftime", 91, False, '{"kind": "ctf"}', 0.125),
         ]
         for aid, eid, src, place, ver, data, w in rows:
             c.execute(text("INSERT INTO achievements (id, candidate_id, event_id, source, title, place, weight, verified, data, created_at) "
@@ -154,7 +155,7 @@ def test_0004_reweights_existing_achievements():
     with engine.connect() as c:
         got = dict((i, (r, w)) for i, r, w in c.execute(text("SELECT id, result, weight FROM achievements")))
     assert got == {1: ("winner", 0.8), 2: ("finalist", 0.35), 3: ("participant", 0.05), 4: ("finalist", 0.35),
-                   5: (None, 0.396), 6: ("prize", 0.3)}
+                   5: (None, 0.396), 6: ("prize", 0.3), 7: ("finalist", 0.35), 8: ("participant", 0.025)}
     assert _diff() == []
 
 
