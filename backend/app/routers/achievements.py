@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.db import get_db
@@ -112,7 +112,7 @@ def profile(db: Session, cand: Candidate) -> dict:
     """
     achs = db.scalars(
         select(Achievement).where(Achievement.candidate_id == cand.id)
-        .options(selectinload(Achievement.event)).order_by(Achievement.weight.desc())
+        .order_by(Achievement.weight.desc())  # событие подгружается selectin (models.Achievement.event)
     ).all()
     by = lambda src: [_ach(a) for a in achs if a.source == src]  # noqa: E731
     cf, ct = _account(db, cand, "codeforces"), _account(db, cand, "ctftime")
