@@ -1,0 +1,170 @@
+{
+ "generated_at": "2026-10-05T21:07:20+00:00",
+ "k": 10,
+ "seed": 42,
+ "dataset": {
+  "candidates": 1500,
+  "needs": 250,
+  "with_achievements": 0.334,
+  "with_cf": 0.138,
+  "gold_experts": null,
+  "kappa": null
+ },
+ "quality": {
+  "variants": [
+   {
+    "key": "embed",
+    "label": "Эмбеддинги / навыки",
+    "precision": 0.276,
+    "ndcg": 0.521
+   },
+   {
+    "key": "rerank",
+    "label": "+ структурный реранк",
+    "precision": 0.399,
+    "ndcg": 0.652
+   },
+   {
+    "key": "full",
+    "label": "+ взаимный интерес",
+    "precision": 0.436,
+    "ndcg": 0.684
+   }
+  ],
+  "by_kind": {
+   "normal": {
+    "embed": {
+     "precision": 0.278,
+     "ndcg": 0.513
+    },
+    "rerank": {
+     "precision": 0.392,
+     "ndcg": 0.638
+    },
+    "full": {
+     "precision": 0.432,
+     "ndcg": 0.667
+    }
+   },
+   "adjacent": {
+    "embed": {
+     "precision": 0.3,
+     "ndcg": 0.545
+    },
+    "rerank": {
+     "precision": 0.496,
+     "ndcg": 0.721
+    },
+    "full": {
+     "precision": 0.542,
+     "ndcg": 0.766
+    }
+   },
+   "fork_low": {
+    "embed": {
+     "precision": 0.232,
+     "ndcg": 0.55
+    },
+    "rerank": {
+     "precision": 0.321,
+     "ndcg": 0.686
+    },
+    "full": {
+     "precision": 0.332,
+     "ndcg": 0.719
+    }
+   }
+  },
+  "relevant_threshold": 2,
+  "precision_ideal": 0.606,
+  "needs_evaluated": 211,
+  "needs_skipped": 39
+ },
+ "market": {
+  "rows": [
+   {
+    "key": "accepted_share",
+    "label": "Доля принятых приглашений",
+    "no_limits": 0.048,
+    "quota_only": 0.052,
+    "with_limits": 0.094
+   },
+   {
+    "key": "coverage",
+    "label": "Охват кандидатов",
+    "no_limits": 0.875,
+    "quota_only": 0.6,
+    "with_limits": 0.667
+   },
+   {
+    "key": "gini",
+    "label": "Джини по приглашениям",
+    "no_limits": 0.451,
+    "quota_only": 0.625,
+    "with_limits": 0.565
+   },
+   {
+    "key": "closed_needs",
+    "label": "Закрытые потребности",
+    "no_limits": 0.648,
+    "quota_only": 0.4,
+    "with_limits": 0.556
+   }
+  ],
+  "top5_share": {
+   "no_limits": 0.036,
+   "quota_only": 0.053,
+   "with_limits": 0.049
+  },
+  "rounds": 4,
+  "sent": {
+   "no_limits": 6224,
+   "quota_only": 2446,
+   "with_limits": 2256
+  },
+  "blocked_by_cap": 0
+ },
+ "cheater": {
+  "simulated": true,
+  "rows": [
+   {
+    "key": "choice",
+    "label": "Вопросы с вариантами",
+    "grade": "Senior",
+    "theta": 2.15,
+    "se": 0.41
+   },
+   {
+    "key": "review",
+    "label": "Ревью кода с тонкими багами",
+    "grade": "Intern",
+    "theta": -0.45,
+    "se": 0.47
+   },
+   {
+    "key": "context",
+    "label": "Задачи с контекстом (логи, графики)",
+    "grade": "Intern",
+    "theta": -0.27,
+    "se": 0.57
+   },
+   {
+    "key": "mixed",
+    "label": "Смешанный боевой тест",
+    "grade": "Junior",
+    "theta": 0.42,
+    "se": 0.31
+   }
+  ],
+  "caught": 0.395,
+  "false_alarm": 0.015
+ },
+ "stability": {
+  "retest_same_grade": 0.87,
+  "retest_same_grade_no_hysteresis": 0.75,
+  "cf_spearman": 0.602,
+  "cf_n": 191,
+  "clone_b_spread": 0.049,
+  "theta_corr": 0.939
+ }
+}

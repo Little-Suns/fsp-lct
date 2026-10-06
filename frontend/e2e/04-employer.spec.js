@@ -1,0 +1,621 @@
+// Работодатель: новая компания по коду (ИНН, домен, потребность, план теста); демо «Ладога Пэй» — подборка и фильтры,
+// карточка, приглашение с ошибками вилки, статусы после принятия, поиск по банку, лотерея, вакансии и отклики, задания.
+// XSS: название вакансии и задания с <img onerror> показываются как текст у работодателя и у кандидата.
+const { test, expect, open, demo, toast, api } = require('./fixtures');
+const { XSS, uniq } = require('./helpers');
+
+const noXss = async page => expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+const ids = page => page.locator('#app button.cand .id').allTextContents();
+
+test('новая компания: вход по коду → проверка ИНН и домена → потребность: разбор, навыки, план теста → подборка', async ({ page }) => {
+  const id = uniq();
+  const email = `hr-${id}@acme-${id}.example`;
+  await open(page, '/e/signup');
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(toast(page)).toHaveText('Укажите рабочую почту');
+  await page.getByLabel('Рабочая почта').fill(email);
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
+  await page.getByRole('button', { name: 'Отправить код ещё раз' }).click();
+  await expect(toast(page)).toContainText('Код уже отправлен — новый можно запросить через');
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  // компании ещё нет — экран регистрации компании
+  await expect(toast(page)).toHaveText('Сначала заполните данные компании');
+  await expect(page.getByRole('heading', { name: 'Компания', exact: true })).toBeVisible();
+  await expect(page.getByText('Проверки ИНН и домена почты появятся после сохранения.')).toBeVisible();
+
+  await page.getByLabel('ИНН').fill('7704123456');  // контрольные цифры не сходятся
+  await page.getByLabel('Название').fill(`Акме ${id}`);
+  await page.getByLabel('Рекрутер', { exact: true }).fill('Ирина Тестова');
+  await page.getByLabel('Сайт компании').fill(`acme-${id}.example`);
+  await page.getByLabel('Рабочая почта рекрутера').fill(email);
+  await page.getByLabel('О компании, 1–2 предложения').fill('Тестовая компания e2e');
+  await page.getByRole('button', { name: 'Зарегистрировать и перейти к поиску' }).click();
+  await expect(toast(page)).toHaveText('Компания сохранена без подтверждения: квота 3 приглашения в неделю');
+  await expect(page.locator('.alert.bad', { hasText: 'ИНН: контрольные цифры не сходятся' })).toBeVisible();
+  await expect(page.getByText('Компания не прошла проверку.').first()).toBeVisible();
+  await expect(page.getByText('Кандидаты видят:')).toBeVisible();
+  await expect(page.getByText(/Сейчас: 0 \/ 3/)).toBeVisible();
+  await page.getByLabel('ИНН').fill('500100732259');
+  await page.getByRole('button', { name: 'Сохранить и перейти к поиску' }).click();
+  await expect(toast(page)).toHaveText('Компания проверена');
+
+  // потребность: разбор текста правилами, правка навыков, план теста
+  await expect(page.getByRole('heading', { name: 'Кого ищете?' })).toBeVisible();
+  await expect(page.locator('#need-text')).toHaveValue(/Ищем бэкендера на Python/);
+  await page.locator('#need-text').fill('Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. ' +
+    'Уровень — мидл, до 300 на руки. Гибрид, Москва. Желательно мужчина до 30 лет.');
+  const parsed = api(page, 'POST', '/api/employer/needs/parse');
+  await page.getByRole('button', { name: 'Разобрать' }).click();
+  const p = await (await parsed).json();
+  await expect(page.getByRole('heading', { name: 'Структура потребности' })).toBeVisible();
+  await expect(page.locator('.parsed .cat')).toContainText('Backend');
+  for (const s of p.must) await expect(page.locator('.parsed').getByRole('button', { name: new RegExp('^' + s) })).toBeVisible();
+  if (p.ignored && p.ignored.length) await expect(page.getByText(/Не учитываем:/)).toBeVisible();
+  await expect(page.getByText(/кандидатов открыты к предложениям/)).toBeVisible();
+  await expect(page.getByText('Рынок · Backend')).toBeVisible();
+  await page.locator('.parsed').getByRole('button', { name: 'Изменить' }).click();
+  await expect(toast(page)).toContainText('Категория берётся из текста');
+
+  const firstMust = p.must[0];
+  await page.locator('.parsed').getByRole('button', { name: new RegExp('^' + firstMust) }).click();
+  await expect(page.locator('.parsed').getByRole('button', { name: new RegExp('^' + firstMust + ' ') })).toHaveCount(0);
+  await page.locator('.parsed').getByRole('button', { name: '+ навык' }).first().click();
+  await page.getByPlaceholder('навык').fill('docker');
+  await page.getByRole('button', { name: 'Добавить' }).click();
+  await expect(page.locator('.parsed').getByRole('button', { name: /^Docker/ })).toBeVisible();
+  await page.locator('.parsed').getByRole('button', { name: '+ навык' }).last().click();
+  await page.locator('.parsed').getByRole('button', { name: '×', exact: true }).click();
+  await expect(page.getByPlaceholder('навык')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Показать план теста' }).click();
+  await expect(page.getByRole('heading', { name: 'Как система проверит кандидатов под эту потребность' })).toBeVisible();
+  await expect(page.getByText('Вес компетенции')).toBeVisible();
+  await expect(page.getByText('Примеры заданий')).toBeVisible();
+  await expect(page.getByText(/Сложность заданий \(b по шкале θ\)/)).toBeVisible();
+
+  const saved = api(page, 'POST', '/api/employer/needs');
+  await page.getByRole('button', { name: 'Показать подборку' }).click();
+  const need = await (await saved).json();
+  expect(need.must).toContain('Docker');
+  expect(need.must).not.toContain(firstMust);
+  await expect(page.getByRole('heading', { name: 'Backend-разработчик (Python)' })).toBeVisible();
+  await expect(page.getByText('0 / 10')).toBeVisible();
+  await expect(page.getByText('Закрытых приглашений пока нет.')).toBeVisible();
+  await expect(page.locator('#app button.cand').first()).toBeVisible();
+
+  // план теста уже сохранённой потребности — по need_id
+  await page.getByRole('button', { name: 'Изменить потребность' }).click();
+  const plan = api(page, 'POST', '/api/quest/plan');
+  await page.getByRole('button', { name: 'Показать план теста' }).click();
+  expect((await plan).request().postDataJSON()).toEqual({ need_id: need.id });
+
+  // выход с экрана компании возвращает на вход
+  await open(page, '/e/signup');
+  await page.locator('#app').getByRole('button', { name: 'Выйти' }).click();
+  await expect(toast(page)).toHaveText('Вы вышли');
+  await expect(page.getByRole('heading', { name: 'Вход для компаний' })).toBeVisible();
+});
+
+test('Ладога: подборка и фильтры, карточка с объяснением и сигналом задачи, приглашение с ошибками вилки', async ({ page }) => {
+  test.setTimeout(90_000);
+  await demo(page, 'e');
+  // подтверждённая компания: проверки пройдены, квота
+  await open(page, '/e/signup');
+  await expect(page.getByLabel('Название')).toHaveValue('Ладога Пэй');
+  await expect(page.locator('.alert.ok', { hasText: 'ИНН: контрольные цифры верны' })).toBeVisible();
+  await expect(page.getByText(/Сейчас: 6 \/ \d+/)).toBeVisible();
+  await page.locator('.roles').getByRole('button', { name: 'Работодатель' }).click();
+  await expect(page.getByRole('heading', { name: 'Backend-разработчик (Python)' })).toBeVisible();
+  await expect(page.locator('aside b.num').first()).toHaveText(/^6 \/ \d+$/);
+  await expect(page.getByText(/Принято \d+ % ваших приглашений/)).toBeVisible();
+  await expect(page.getByText('Рекомендованные категории')).toBeVisible();
+  await expect(page.getByText(/В топе — кандидаты из \d+ городов/)).toBeVisible();
+
+  // фильтр сужает список, порядок сохраняется
+  const before = await ids(page);
+  expect(before.length).toBeGreaterThan(3);
+  const f = api(page, 'GET', /^\/api\/employer\/needs\/\d+\/picks$/);
+  await page.getByRole('button', { name: 'Формат совпадает' }).click();
+  expect((await f).url()).toContain('filters=fmt');
+  await expect(page.getByRole('button', { name: 'Формат совпадает' })).toHaveClass(/on/);
+  await expect(page.locator('#app button.cand').first()).toBeVisible();
+  const after = await ids(page);
+  expect(after.length).toBeGreaterThan(0);
+  expect(after.length).toBeLessThanOrEqual(before.length);
+  // кто был в топе до фильтра, идёт в том же порядке
+  const kept = after.filter(x => before.includes(x)).map(x => before.indexOf(x));
+  expect(kept.length).toBeGreaterThan(0);
+  expect(kept).toEqual([...kept].sort((a, b) => a - b));
+  await page.getByRole('button', { name: 'Без перегрузки' }).click();
+  await expect(page.getByRole('button', { name: 'Без перегрузки' })).toHaveClass(/on/);
+  await page.getByRole('button', { name: 'Формат совпадает' }).click();
+  await page.getByRole('button', { name: 'Без перегрузки' }).click();
+  await expect(page.getByRole('button', { name: 'Без перегрузки' })).not.toHaveClass(/on/);
+  await expect.poll(() => ids(page)).toEqual(before);
+  const adj = page.locator('aside button.chip[data-act=noop]').first();
+  if (await adj.count()) { await adj.click(); await expect(toast(page)).toBeVisible(); }
+
+  // карточка демо-кандидата: объяснение, подтверждённые навыки, сигнал решённой задачи
+  await open(page, '/e/cand/A-1042');
+  await expect(page.getByRole('heading', { name: 'Кандидат A-1042' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Почему в подборке' })).toBeVisible();
+  await expect(page.getByText(/Обязательные навыки подтверждены тестом: .*Python/)).toBeVisible();
+  await expect(page.getByText(/Решил задачу (\d+ дн\. назад|сегодня) · оценка работодателя: \S+/)).toBeVisible();
+  await expect(page.getByText('Итоговая оценка')).toBeVisible();
+  await expect(page.getByText(/ФСП|Codeforces 1912/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Уже приглашён — к статусам' })).toBeVisible();
+  // повторное приглашение — блокирующая ошибка от сервера прямо в форме
+  await open(page, '/e/invite/A-1042');
+  await expect(page.getByRole('heading', { name: 'Приглашение для A-1042' })).toBeVisible();
+  await page.getByRole('button', { name: 'Отправить приглашение' }).click();
+  await expect(page.locator('#f-msgs .alert.bad', { hasText: 'Кандидат уже приглашён' })).toBeVisible();
+
+  // свежий кандидат из подборки: ошибки вилки в форме, затем отправка
+  await open(page, '/e/picks');
+  const picks = api(page, 'GET', /^\/api\/employer\/needs\/\d+\/picks$/);
+  await page.getByRole('button', { name: 'Формат совпадает' }).click();
+  const fresh = (await (await picks).json()).items.find(c => !c.invited && !c.busy && c.inFork);
+  await page.locator(`#app button.cand[data-go="/e/cand/${fresh.id}"]`).click();
+  await expect(page.getByRole('heading', { name: 'Кандидат ' + fresh.id })).toBeVisible();
+  await page.getByRole('button', { name: 'Пригласить', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Приглашение для ' + fresh.id })).toBeVisible();
+  const from = page.getByLabel('от', { exact: true }), to = page.getByLabel('до', { exact: true });
+  const send = page.getByRole('button', { name: 'Отправить приглашение' });
+  const [f0, t0] = [await from.inputValue(), await to.inputValue()];
+  await from.fill('1000');
+  await expect(page.locator('#f-msgs')).toContainText('Нижняя граница ниже 25-го перцентиля рынка');
+  await expect(send).toBeDisabled();
+  await from.fill('');
+  await expect(page.locator('#f-msgs')).toContainText('Укажите обе границы вилки.');
+  await from.fill(String(+t0 + 10000));
+  await expect(page.locator('#f-msgs')).toContainText('Нижняя граница больше верхней.');
+  await from.fill(f0);
+  await to.fill(String(+f0 * 2));
+  await expect(page.locator('#f-msgs')).toContainText('Вилка слишком широкая');
+  await to.fill(t0);
+  await expect(page.locator('#f-msgs .alert.bad')).toHaveCount(0);
+  await expect(send).toBeEnabled();
+  await page.getByRole('button', { name: 'Удалённо' }).click();
+  await expect(page.getByRole('button', { name: 'Удалённо' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('textbox', { name: 'Роль' }).fill('Backend (Python), платежи — e2e');
+  await page.getByLabel('О работе').fill('Платёжный шлюз, Python 3.12.');
+  await page.getByLabel(/Приложить задачу/).uncheck();
+  const inv = api(page, 'POST', '/api/employer/invites');
+  await send.click();
+  const body = (await inv).request().postDataJSON();
+  expect(body).toMatchObject({ candidate_id: fresh.id, salary_from: +f0, salary_to: +t0, format: 'Удалённо', task: null, role: 'Backend (Python), платежи — e2e' });
+  await expect(toast(page)).toContainText('Приглашение отправлено');
+  await expect(page).toHaveURL(/#\/e\/pipeline$/);
+  const row = page.getByRole('row', { name: new RegExp(fresh.id) });
+  await expect(row).toContainText('отправлено');
+  await expect(row).toContainText('скрыты');
+  await expect(page.getByText(/квота 7 \/ \d+/)).toBeVisible();
+
+  for (const r of ['/e/cand/Z-0000', '/e/invite/Z-0000']) {
+    await open(page, r);
+    await expect(page.getByText('Кандидат не найден или скрыл профиль.')).toBeVisible();
+  }
+});
+
+test('Ладога ↔ кандидат: принятое приглашение открывает контакты в статусах, отметка после собеседования', async ({ page }) => {
+  await demo(page, 'e');
+  await page.locator('nav.chips').getByRole('button', { name: 'Приглашения' }).click();
+  const orlov = page.getByRole('row', { name: /A-1042/ });
+  await expect(orlov).toContainText('скрыты');
+  await expect(page.getByText('A-1042 ещё не ответил.')).toBeVisible();
+  // отметка после собеседования по уже принятому приглашению
+  const anna = page.getByRole('row', { name: /F-0911/ });
+  await expect(anna).toContainText('принято');
+  await anna.getByRole('button', { name: 'грейд подтвердился' }).click();
+  await expect(toast(page)).toHaveText('Спасибо. Отметка уйдёт в калибровку теста');
+  await expect(anna.locator('.chip.ok')).toHaveText('грейд подтвердился');
+  await expect(page.getByRole('row', { name: /G-2240/ })).toContainText('причина: зарплата');
+  // принятое приглашение кандидата, отозвавшего согласие: контактов нет, видна причина
+  await page.route('**/api/employer/pipeline', async r => {
+    const res = await r.fetch();
+    const body = await res.json();
+    body.items.push({ ...body.items[0], id: 999999, cid: 'Q-0000', status: 'ok', contact: null, reason: 'кандидат отозвал согласие', fb: null, feedback: null });
+    await r.fulfill({ response: res, json: body });
+  });
+  await open(page, '/e/picks');
+  await open(page, '/e/pipeline');
+  await expect(page.getByRole('row', { name: /Q-0000/ })).toContainText('кандидат отозвал согласие');
+  await page.unroute('**/api/employer/pipeline');
+
+  // кандидат принимает приглашение «Ладога Пэй»
+  await demo(page, 'c');
+  await page.locator('button.inv', { hasText: 'Ладога Пэй' }).click();
+  await page.getByRole('button', { name: 'Принять и открыть мои контакты' }).click();
+  await expect(toast(page)).toHaveText('Приглашение принято. Компания получила ваши контакты');
+  await expect(page.getByText('Вы приняли приглашение.', { exact: true })).toBeVisible();
+  await expect(page.locator('dl.kv', { hasText: 'Компания видит' })).toContainText('Дмитрий Орлов, d.orlov@example.ru, @dorlov_dev');
+  await expect(page.locator('aside')).toContainText('m.kovaleva@ladoga-pay.example');
+  await expect(page.getByText('Ваши ФИО и контакты: вы приняли приглашение.')).toBeVisible();
+
+  // работодатель видит контакты и может отметить итог
+  await demo(page, 'e');
+  await open(page, '/e/pipeline');
+  await expect(orlov).toContainText('принято');
+  await expect(orlov).toContainText('Дмитрий Орлов');
+  await expect(page.getByText('A-1042 ещё не ответил.')).toHaveCount(0);
+  await orlov.getByRole('button', { name: 'наняли' }).click();
+  await expect(orlov.locator('.chip.ok')).toHaveText('наняли');
+});
+
+test('Ладога: поиск по банку — фасеты, флаги, текст и навыки, страницы', async ({ page }) => {
+  await demo(page, 'e');
+  await page.locator('nav.chips').getByRole('button', { name: 'Поиск по банку' }).click();
+  await expect(page.getByText(/^Найдено \d+ · сортировка по силе подтверждённого профиля/)).toBeVisible();
+  const total = async () => +(await page.getByText(/^Найдено \d+/).textContent()).match(/\d+/)[0];
+  const all = await total();
+  expect(all).toBeGreaterThan(20);
+
+  // страницы
+  await expect(page.getByText(/страница 1 из \d+/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '← Назад' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Дальше →' }).click();
+  await expect(page.getByText(/страница 2 из \d+/)).toBeVisible();
+  await page.getByRole('button', { name: '← Назад' }).click();
+  await expect(page.getByText(/страница 1 из \d+/)).toBeVisible();
+
+  // фасет специализации → трек в фильтре, фасет грейда, флаг ФСП
+  let q = api(page, 'GET', '/api/employer/search');
+  await page.locator('button.chip[data-k=spec]', { hasText: 'Backend' }).click();
+  expect((await q).url()).toContain('spec=Backend');
+  await expect(page.locator('button.chip[data-k=spec]', { hasText: 'Backend' })).toHaveClass(/on/);
+  await expect(page.getByLabel('Специализация')).toHaveValue('Backend');
+  await expect(page.getByLabel('Трек').locator('option', { hasText: 'Python' })).toHaveCount(1);
+  const backend = await total();
+  expect(backend).toBeLessThan(all);
+  q = api(page, 'GET', '/api/employer/search');
+  await page.locator('button.chip[data-k=grade]', { hasText: 'Middle' }).click();
+  expect((await q).url()).toMatch(/spec=Backend.*grade=Middle|grade=Middle.*spec=Backend/);
+  q = api(page, 'GET', '/api/employer/search');
+  await page.locator('button.chip[data-act=sf-flag]', { hasText: 'ФСП' }).click();
+  expect((await q).url()).toContain('fsp=true');
+  await expect(page.locator('button.chip[data-act=sf-flag]', { hasText: 'ФСП' })).toHaveClass(/on/);
+  await page.locator('button.chip[data-act=sf-flag]', { hasText: 'ФСП' }).click();
+  // повторный клик по фасету снимает его
+  await page.locator('button.chip[data-k=grade]', { hasText: 'Middle' }).click();
+  await expect(page.locator('button.chip[data-k=grade].on')).toHaveCount(0);
+
+  // форма: трек, навыки, текст, формат, город
+  await page.getByLabel('Трек').selectOption('Python');
+  await page.getByLabel('Навыки через запятую').fill('PostgreSQL, Kafka');
+  await page.getByLabel('Текст').fill('платежи');
+  await page.getByLabel('Формат').selectOption('Гибрид');
+  await page.getByLabel('Город').fill('Москва');
+  q = api(page, 'GET', '/api/employer/search');
+  await page.getByRole('button', { name: 'Найти' }).click();
+  const url = new URL((await q).url());
+  expect(Object.fromEntries(url.searchParams)).toMatchObject({ spec: 'Backend', track: 'Python', skills: 'PostgreSQL, Kafka', format: 'Гибрид', city: 'Москва' });
+  await expect(page.getByText(/навыки: PostgreSQL, Kafka/)).toBeVisible();
+  // смена специализации сбрасывает трек
+  await page.getByLabel('Специализация').selectOption('Frontend');
+  await expect(page.getByLabel('Трек')).toHaveValue('');
+  await page.getByLabel('Текст').fill('нет-такого-кандидата-zzz');
+  await page.getByRole('button', { name: 'Найти' }).click();
+  await expect(page.getByText('Под фильтры никто не подходит.')).toBeVisible();
+  await page.getByRole('button', { name: 'Сбросить' }).click();
+  await expect.poll(total).toBe(all);
+  await page.locator('#app button.cand').first().click();
+  await expect(page.getByRole('heading', { name: /^Кандидат [A-Z]-\d+$/ })).toBeVisible();
+});
+
+test('Ладога: квалифицированная лотерея — пул, жребий, проверка, публичная ссылка, приглашение по жребию', async ({ page }) => {
+  await demo(page, 'e');
+  const panel = page.locator('.panel', { has: page.getByRole('heading', { name: 'Лотерея среди прошедших порог' }) });
+  await expect(panel).toBeVisible();
+  const skill = panel.locator('button[data-act=lot-skill]').first();
+  await skill.click();
+  await expect(skill).not.toHaveClass(/on/);
+  await skill.click();
+  await expect(skill).toHaveClass(/on/);
+  const free = panel.getByRole('switch', { name: /Только без перегрузки/ });
+  await free.click();
+  await expect(free).toHaveAttribute('aria-checked', 'false');
+  await free.click();
+  await panel.locator('#lot-fork').fill('');
+  await panel.getByRole('button', { name: 'Зафиксировать пул' }).click();
+  await expect(toast(page)).toHaveText('Укажите верхнюю границу ожиданий');
+  await panel.locator('#lot-fork').fill('290 000');  // не выше верхней границы вилки потребности
+  await panel.locator('#lot-k').fill('2');
+  const created = api(page, 'POST', '/api/lottery/');
+  await panel.getByRole('button', { name: 'Зафиксировать пул' }).click();
+  expect((await created).status()).toBe(200);
+  const lot = await (await created).json();
+  expect(lot.seed_hash).toMatch(/^[0-9a-f]{64}$/);
+  await expect(panel).toContainText(`Порог прошли ${lot.pool_size} кандидатов`);
+  await expect(panel).toContainText(lot.seed_hash);
+
+  // среди вытянутых может оказаться скрывший профиль: только псевдоним, без «Пригласить»
+  await page.route('**/api/lottery/*/draw', async r => {
+    const res = await r.fetch();
+    const body = await res.json();
+    body.drawn.push({ pseudonym: 'f'.repeat(16), hidden: true });
+    await r.fulfill({ response: res, json: body });
+  });
+  await panel.getByRole('button', { name: `Бросить жребий: 2 из ${lot.pool_size}` }).click();
+  const gone = panel.locator('.cand', { hasText: 'Кандидат скрыл профиль' });
+  await expect(gone).toContainText('ffffffffffffffff');
+  await expect(gone.getByRole('button')).toHaveCount(0);
+  await page.unroute('**/api/lottery/*/draw');
+  await expect(panel.locator('.cand')).toHaveCount(Math.min(2, lot.pool_size) + 1);
+  await expect(panel).toContainText('Зерно раскрыто');
+  await expect(panel.locator('.cand code').first()).toHaveText(/^[0-9a-f]{16}$/);  // псевдоним в публичной проверке
+  await panel.getByRole('button', { name: 'Проверить жеребьёвку' }).click();
+  await expect(panel.locator('.alert.ok', { hasText: 'Проверка пройдена' })).toBeVisible();
+  const href = await panel.getByRole('link', { name: 'Публичная проверка' }).getAttribute('href');
+  expect(href).toBe(`/api/lottery/${lot.id}/public`);
+  const pub = await page.request.get(href);
+  expect(pub.ok()).toBe(true);
+  expect(JSON.stringify(await pub.json())).toContain(lot.seed_hash);
+
+  // приглашение выбранному жребием уходит с lottery_id
+  const drawnId = (await panel.locator('.cand .id').first().textContent()).replace('Кандидат ', '');
+  await panel.getByRole('button', { name: 'Пригласить' }).first().click();
+  await expect(page.getByRole('heading', { name: 'Приглашение для ' + drawnId })).toBeVisible();
+  const inv = api(page, 'POST', '/api/employer/invites');
+  await page.getByRole('button', { name: 'Отправить приглашение' }).click();
+  const res = await inv;
+  expect(res.request().postDataJSON().lottery_id).toBe(lot.id);
+  if (res.status() === 200) {  // жребий случаен: выбранный мог уже иметь открытое приглашение «Ладоги»
+    await expect(page.getByRole('row', { name: new RegExp(drawnId) })).toContainText('по жребию');
+  } else {
+    await expect(page.locator('#f-msgs .alert.bad')).toBeVisible();
+    await open(page, '/e/picks');
+  }
+  await open(page, '/e/picks');
+  await panel.getByRole('button', { name: 'Новый розыгрыш' }).click();
+  await expect(panel.getByRole('button', { name: 'Зафиксировать пул' })).toBeVisible();
+});
+
+test('Ладога ↔ кандидат: вакансии — 422 по вилке, публикация, правка, закрытие, отклики и их статусы; XSS в названии', async ({ page }) => {
+  test.setTimeout(120_000);
+  const id = uniq();
+  const title = `QA ${XSS} вакансия ${id}`;
+  await demo(page, 'e');
+  await page.locator('nav.chips').getByRole('button', { name: 'Вакансии' }).click();
+  await expect(page.getByRole('heading', { name: 'Вакансии' })).toBeVisible();
+  await page.getByRole('button', { name: 'Новая вакансия' }).click();
+  await expect(page.getByRole('heading', { name: 'Новая вакансия' })).toBeVisible();
+  await page.locator('#vac-form').getByRole('button', { name: 'Закрыть' }).click();
+  await expect(page.getByRole('heading', { name: 'Новая вакансия' })).toHaveCount(0);
+
+  const create = async (t, from, to) => {
+    await page.getByRole('button', { name: 'Новая вакансия' }).click();
+    await page.getByLabel('Название').fill(t);
+    await page.getByLabel('Специализация').selectOption('Frontend');
+    await expect(page.getByLabel('Трек')).toHaveValue('');
+    await page.getByLabel('Специализация').selectOption('Backend');
+    await page.getByLabel('Трек').selectOption('Python');
+    await page.locator('#vac-form').getByRole('button', { name: 'Senior' }).click();
+    await page.locator('#vac-form').getByRole('button', { name: 'Middle' }).click();
+    await expect(page.locator('#vac-form').getByRole('button', { name: 'Middle' })).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('#vac-form').getByRole('button', { name: 'Удалённо' }).click();
+    await page.getByLabel('Обязательные навыки').fill('Python; PostgreSQL');
+    await page.getByLabel('Желательные навыки').fill('Kafka');
+    await page.getByLabel('от', { exact: true }).fill(String(from));
+    await page.getByLabel('до', { exact: true }).fill(String(to));
+    await page.getByLabel('Город').fill('Москва');
+    await page.getByLabel('Описание').fill(`Описание ${t}`);
+  };
+  // вилка ниже рынка — 422 от сервера, ошибка в форме
+  await create(title, 50000, 60000);
+  const bad = api(page, 'POST', '/api/vacancies');
+  await page.getByRole('button', { name: 'Опубликовать' }).click();
+  expect((await bad).status()).toBe(422);
+  await expect(page.locator('#vx-msgs .alert.bad', { hasText: '25-го перцентиля' })).toBeVisible();
+  await page.getByLabel('до', { exact: true }).fill('');
+  await page.getByRole('button', { name: 'Опубликовать' }).click();
+  await expect(page.locator('#vx-msgs')).toContainText('Укажите обе границы вилки.');
+  await page.getByLabel('от', { exact: true }).fill('250000');
+  await page.getByLabel('до', { exact: true }).fill('400000');
+  await page.getByRole('button', { name: 'Опубликовать' }).click();
+  await expect(page.locator('#vx-msgs')).toContainText('Вилка слишком широкая');
+  await page.getByLabel('до', { exact: true }).fill('320000');
+  const ok = api(page, 'POST', '/api/vacancies');
+  await page.getByRole('button', { name: 'Опубликовать' }).click();
+  const vac = await (await ok).json();
+  expect(vac).toMatchObject({ title, must: ['Python', 'PostgreSQL'], from: 250000, to: 320000, format: 'Удалённо' });
+  await expect(toast(page)).toContainText('Вакансия опубликована');
+  const card = page.locator('.panel', { hasText: `вакансия ${id}` }).first();
+  await expect(card).toContainText(title);  // нагрузка видна как текст
+  await noXss(page);
+
+  // правка
+  await card.getByRole('button', { name: 'Изменить' }).click();
+  await expect(page.getByRole('heading', { name: 'Редактирование вакансии' })).toBeVisible();
+  await expect(page.getByLabel('Название')).toHaveValue(title);
+  await page.getByLabel('Название').fill(title + ' (ред.)');
+  const patch = api(page, 'PATCH', `/api/vacancies/${vac.id}`);
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  expect((await patch).status()).toBe(200);
+  await expect(toast(page)).toContainText('Вакансия сохранена');
+  await expect(card).toContainText(title + ' (ред.)');
+
+  // вторая вакансия — для отказа; третья — закрываем
+  // тост «Вакансия опубликована» мог остаться от прошлой публикации — ждём сам ответ API
+  await create(`QA отказ ${id}`, 250000, 320000);
+  let made = api(page, 'POST', '/api/vacancies');
+  await page.getByRole('button', { name: 'Опубликовать' }).click();
+  expect((await made).status()).toBe(200);
+  await expect(page.getByRole('heading', { name: 'Новая вакансия' })).toHaveCount(0);
+  const declineCard = page.locator('.panel', { hasText: `QA отказ ${id}` }).first();
+  const declineId = (await declineCard.getByRole('button', { name: 'Отклики' }).getAttribute('data-go')).split('/').pop();
+  await create(`QA закрыть ${id}`, 250000, 320000);
+  made = api(page, 'POST', '/api/vacancies');
+  await page.getByRole('button', { name: 'Опубликовать' }).click();
+  expect((await made).status()).toBe(200);
+  const closeCard = page.locator('.panel', { hasText: `QA закрыть ${id}` }).first();
+  await closeCard.getByRole('button', { name: 'Закрыть' }).click();
+  await expect(toast(page)).toHaveText('Вакансия закрыта');
+  await expect(closeCard).toContainText('закрыта');
+  await expect(closeCard.getByRole('button', { name: 'Изменить' })).toHaveCount(0);
+
+  // кандидат видит вакансию с нагрузкой как текст и откликается на обе
+  await demo(page, 'c');
+  for (const [vid, note] of [[vac.id, 'Готов к задаче вместо созвона'], [declineId, null]]) {
+    await open(page, `/c/vacancy/${vid}`);
+    await expect(page.getByRole('button', { name: 'Откликнуться' })).toBeVisible();
+    await noXss(page);
+    if (note) await page.getByLabel('Короткая заметка, по желанию').fill(note);
+    // одинаковый тост второго отклика неотличим от первого — проверяем ответ API и итог на экране
+    const applied = api(page, 'POST', `/api/vacancies/${vid}/apply`);
+    await page.getByRole('button', { name: 'Откликнуться' }).click();
+    expect((await applied).status()).toBe(200);
+    await expect(toast(page)).toHaveText('Отклик отправлен: компания видит ваши контакты');
+    await expect(page.getByText('Вы откликнулись:')).toBeVisible();
+  }
+  await expect(page.getByRole('heading', { name: `QA отказ ${id}` })).toBeVisible();
+
+  // работодатель: отклики с контактами, статусы
+  await demo(page, 'e');
+  await open(page, '/e/vacancies');
+  await expect(card).toContainText('Откликов: 1');
+  await expect(card).toContainText('новых 1');
+  await card.getByRole('button', { name: 'Отклики' }).click();
+  await expect(page.getByRole('heading', { name: title + ' (ред.)' })).toBeVisible();
+  await noXss(page);
+  const app = page.locator('.panel', { hasText: 'Кандидат A-1042' });
+  await expect(app).toContainText('Дмитрий Орлов · d.orlov@example.ru · @dorlov_dev');
+  await expect(app).toContainText('«Готов к задаче вместо созвона»');
+  await app.getByRole('button', { name: 'Просмотрено' }).click();
+  await expect(toast(page)).toHaveText('Отмечено как просмотренное');
+  await expect(app).toContainText('просмотрен');
+  await app.getByRole('button', { name: 'Отклонить…' }).click();
+  await expect(app.getByRole('button', { name: 'Отклонить', exact: true })).toBeDisabled();
+  await app.getByRole('button', { name: 'Отмена' }).click();
+  await app.getByRole('button', { name: 'Пригласить на интервью' }).click();
+  await expect(toast(page)).toHaveText('Кандидат приглашён на интервью');
+  await expect(app).toContainText('приглашение на интервью');
+
+  // отклик кандидата, отозвавшего согласие: ни карточки, ни контактов, ни кнопок
+  const appsUrl = `**/api/vacancies/${vac.id}/applications`;
+  await page.route(appsUrl, async r => {
+    const real = await (await page.request.get(r.request().url(), { headers: r.request().headers() })).json();
+    real.items.push({ ...real.items[0], id: 999999, status: 'sent', hidden: true, candidate: null, contacts: null });
+    await r.fulfill({ json: real });
+  });
+  await open(page, '/e/vacancies');
+  await open(page, `/e/vacancy/${vac.id}`);
+  const gone = page.locator('.panel', { hasText: 'Кандидат скрыл профиль' });
+  await expect(gone).toContainText('карточка и контакты недоступны');
+  await expect(gone.getByRole('button')).toHaveCount(0);
+  await page.unroute(appsUrl);
+
+  await open(page, `/e/vacancy/${declineId}`);
+  await app.getByRole('button', { name: 'Отклонить…' }).click();
+  await app.getByRole('button', { name: 'Стек' }).click();
+  await app.getByRole('button', { name: 'Отклонить', exact: true }).click();
+  await expect(toast(page)).toHaveText('Отказ отправлен');
+  await expect(app).toContainText('причина отказа: стек');
+
+  // кандидат видит итог по обоим откликам
+  await demo(page, 'c');
+  await open(page, '/c/applications');
+  await expect(page.locator('.panel', { hasText: `вакансия ${id}` })).toContainText('Компания готова пообщаться');
+  await expect(page.locator('.panel', { hasText: `QA отказ ${id}` })).toContainText('Отказ: стек.');
+  await noXss(page);
+
+  await demo(page, 'e');
+  await open(page, '/e/vacancy/999999');
+  await expect(page.getByText('Вакансия не найдена.')).toBeVisible();
+});
+
+test('Ладога ↔ кандидат: задание — создание, решение кандидата, оценка, сигнал у кандидата; XSS в названии', async ({ page }) => {
+  test.setTimeout(90_000);
+  const id = uniq();
+  const title = `QA ${XSS} задание ${id}`;
+  await demo(page, 'e');
+  await page.locator('nav.chips').getByRole('button', { name: 'Задания' }).click();
+  await expect(page.getByRole('heading', { name: 'Задания' })).toBeVisible();
+  await page.getByRole('button', { name: 'Новое задание' }).click();
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Новое задание' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Новое задание' }).click();
+  await page.getByLabel('Название').fill(title);
+  await page.getByLabel('Условие').fill('Опишите, как ограничить частоту запросов к API платежей.');
+  await page.getByLabel('Специализация').selectOption('Frontend');
+  await expect(page.getByLabel('Компетенция')).toHaveValue('');
+  await page.getByLabel('Специализация').selectOption('Backend');
+  const comp = await page.getByLabel('Компетенция').locator('option').nth(1).textContent();
+  await page.getByLabel('Компетенция').selectOption(comp);
+  await page.getByRole('button', { name: 'Решить' }).click();
+  await expect(page.getByRole('button', { name: 'Решить' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Предложить подход' }).click();
+  await page.getByLabel('Минут на решение').fill('20');
+  const pub = page.getByRole('switch', { name: /На витрине/ });
+  await pub.click();
+  await expect(pub).toHaveAttribute('aria-checked', 'false');
+  await pub.click();
+  await page.getByRole('switch', { name: /К потребности/ }).click();
+  const made = api(page, 'POST', '/api/tasks');
+  await page.getByRole('button', { name: 'Создать задание' }).click();
+  const task = await (await made).json();
+  expect((await made).request().postDataJSON()).toMatchObject({ title, kind: 'approach', minutes: 20, public: true, competency: comp });
+  await expect(toast(page)).toHaveText('Задание создано');
+  const card = page.locator('.panel', { hasText: `задание ${id}` });
+  await expect(card).toContainText(title);
+  await expect(card).toContainText('на витрине');
+  await expect(card).toContainText('к потребности');
+  await noXss(page);
+
+  // кандидат решает
+  await demo(page, 'c');
+  await open(page, '/c/tasks');
+  const sc = page.locator('button.cand', { hasText: `задание ${id}` });
+  await expect(sc).toContainText(title);
+  await noXss(page);
+  await sc.click();
+  await expect(page.getByRole('heading', { name: 'Ваш подход' })).toBeVisible();
+  await noXss(page);
+  await page.getByPlaceholder(/Опишите подход/).fill('Токен-бакет на ключ мерчанта в Redis, 429 с Retry-After.');
+  await page.getByRole('button', { name: 'Отправить решение' }).click();
+  await expect(toast(page)).toContainText('Решение отправлено');
+
+  // работодатель оценивает анонимное решение
+  await demo(page, 'e');
+  await open(page, '/e/tasks');
+  await expect(card).toContainText('Решений: 1');
+  await card.getByRole('button', { name: 'Решения' }).click();
+  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await noXss(page);
+  const sub = page.locator('.panel', { hasText: 'Кандидат A-1042' });
+  await expect(sub).toContainText('Токен-бакет на ключ мерчанта');
+  await sub.getByPlaceholder('Комментарий кандидату, по желанию').fill('Хорошо про Retry-After.');
+  const rv = api(page, 'POST', /* id решения */ '/api/tasks/submissions/' + (await sub.locator('[data-act=review]').first().getAttribute('data-id')) + '/review');
+  await sub.getByRole('button', { name: 'сильное решение' }).click();
+  expect((await rv).request().postDataJSON()).toEqual({ review: 'strong', comment: 'Хорошо про Retry-After.' });
+  await expect(toast(page)).toHaveText('Оценка сохранена');
+  await expect(sub.locator('.chip.ok')).toHaveText('сильное решение');
+  await expect(sub).toContainText('«Хорошо про Retry-After.»');
+  // кандидат скрыл профиль: строка без ответа, карточки и кнопок оценки
+  const subsUrl = `**/api/tasks/${task.id}/submissions`;
+  await page.route(subsUrl, async r => {
+    const real = await (await page.request.get(r.request().url(), { headers: r.request().headers() })).json();
+    real.items.push({ ...real.items[0], id: 999999, hidden: true, answer: null, candidate: null, review: null });
+    await r.fulfill({ json: real });
+  });
+  await open(page, '/e/tasks');  // без reload: перезагрузка страницы теряет собранное покрытие
+  await open(page, `/e/task/${task.id}`);
+  const hiddenRow = page.locator('.panel', { hasText: 'Кандидат скрыл профиль' });
+  await expect(hiddenRow).toBeVisible();
+  await expect(hiddenRow.locator('[data-act=review]')).toHaveCount(0);
+  await page.unroute(subsUrl);
+  await open(page, '/e/tasks');
+  await expect(card).toContainText('средняя оценка');
+
+  // кандидат видит оценку
+  await demo(page, 'c');
+  await open(page, '/c/tasks');
+  const mine = page.locator('aside .stack-s', { hasText: `задание ${id}` });
+  await expect(mine).toContainText('сильное решение');
+  await expect(mine).toContainText('«Хорошо про Retry-After.»');
+  await noXss(page);
+
+  await demo(page, 'e');
+  await open(page, `/e/task/${task.id + 100000}`);
+  await expect(page.getByText('Задание не найдено.')).toBeVisible();
+});
