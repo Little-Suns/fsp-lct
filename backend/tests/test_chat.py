@@ -86,9 +86,10 @@ def test_access_matrix(client):
     # приняли приглашение: пишут обе стороны
     assert say(client, "e1", pid("acc"), "Здравствуйте!").status_code == 200
     assert say(client, "acc", co1, "Добрый день").status_code == 200
-    # отказ: читать историю можно, писать нельзя
-    r = client.get(f"/api/chat/{pid('dec')}", headers=H["e1"])
+    # отказ в приглашении: писать нельзя; кандидат свою историю читает, работодателю без открытых контактов диалог закрыт
+    r = client.get(f"/api/chat/{co1}", headers=H["dec"])
     assert r.status_code == 200 and r.json()["can_write"] is False
+    assert client.get(f"/api/chat/{pid('dec')}", headers=H["e1"]).status_code == 403
     assert client.get(f"/api/chat/{pid('acc')}", headers=H["e1"]).json()["can_write"] is True
     assert say(client, "e1", pid("dec")).status_code == 403
     assert say(client, "dec", co1).status_code == 403
@@ -188,12 +189,12 @@ def test_candidate_name_follows_reveal_rules(client):
     with SessionLocal() as db:
         logs = db.scalars(select(AuditLog).where(AuditLog.subject_candidate_id == IDS["app"], AuditLog.action == "contacts_revealed")).all()
         assert len(logs) == 1 and "Откликнулся" not in str([x.detail for x in logs])
-        # после отказа в приглашении имя не открывается: кандидата зовут по публичному id
+        # без открытых контактов (отказ в приглашении) диалог работодателю не виден вовсе — ни имени, ни текста
         db.add(Message(company_id=IDS["co1"], candidate_id=IDS["dec"], sender="employer", text="старое"))
         db.commit()
-    assert client.get(f"/api/chat/{pid('dec')}", headers=H["e1"]).json()["peer"]["name"] == "Кандидат A-0002"
+    assert client.get(f"/api/chat/{pid('dec')}", headers=H["e1"]).status_code == 403
     names = {x["peer_id"]: x["peer_name"] for x in client.get("/api/chat/contacts", headers=H["e1"]).json()["contacts"]}
-    assert names[pid("dec")] == "Кандидат A-0002" and names[pid("acc")] == "Дмитрий Орлов"
+    assert pid("dec") not in names and names[pid("acc")] == "Дмитрий Орлов"
 
 
 def test_consent_revoked_hides_dialog_from_employer(client):
@@ -226,6 +227,11 @@ def test_hidden_from_company_closes_dialog(client):
     assert say(client, "e1", pid("app")).status_code == 403
     assert pid("app") not in [x["peer_id"] for x in client.get("/api/chat/contacts", headers=H["e1"]).json()["contacts"]]
     assert client.get(f"/api/chat/{IDS['co1']}", headers=H["app"]).status_code == 200  # свою переписку кандидат видит
+    # но не пишет туда, где его не прочтут, и кнопки «Написать» нет ни у одной стороны
+    assert client.get(f"/api/chat/{IDS['co1']}", headers=H["app"]).json()["can_write"] is False
+    assert say(client, "app", IDS["co1"]).status_code == 403
+    assert client.get("/api/vacancies/applications/mine", headers=H["app"]).json()["items"][0]["chat_peer"] is None
+    assert client.get(f"/api/vacancies/{IDS['vac']}/applications", headers=H["e1"]).json()["items"][0]["chat_peer"] is None
     with SessionLocal() as db:
         db.get(Candidate, IDS["app"]).hidden_from = []
         db.commit()
@@ -282,10 +288,43 @@ def test_chat_peer_in_lists(client):
     assert pipe[pid("acc")] == pid("acc") and pipe[pid("dec")] is None and pipe[pid("sent")] is None
     assert client.get(f"/api/employer/candidates/{pid('acc')}", headers=H["e1"]).json()["chat_peer"] == pid("acc")
     assert client.get(f"/api/employer/candidates/{pid('none')}", headers=H["e1"]).json()["chat_peer"] is None
+    assert pipe[pid("rev")] is None  # приглашение принято, но согласие устарело: чат не откроется — кнопки нет
+    rev_inv = client.get("/api/candidate/invites", headers=H["rev"]).json()["items"][0]
+    assert rev_inv["chat_peer"] is None and client.get(f"/api/candidate/invites/{rev_inv['id']}", headers=H["rev"]).json()["chat_peer"] is None
     apps = client.get(f"/api/vacancies/{IDS['vac']}/applications", headers=H["e1"]).json()["items"]
     assert apps[0]["chat_peer"] == pid("app")
     mine = client.get("/api/vacancies/applications/mine", headers=H["app"]).json()["items"]
     assert mine[0]["chat_peer"] == IDS["co1"]
+
+
+def test_withdrawn_application_closes_dialog_for_employer(client):
+    """Регрессия: после отзыва отклика контакты скрыты — и переписка, где они могли прозвучать, тоже."""
+    co1 = IDS["co1"]
+    assert say(client, "app", co1, "Мой телефон +7 900 000-00-00").status_code == 200
+    with SessionLocal() as db:
+        a = db.scalar(select(Application).where(Application.candidate_id == IDS["app"]))
+        a.status = "seen"  # отозвать можно, пока нет ответа
+        db.commit()
+    assert client.post(f"/api/vacancies/applications/{a.id}/withdraw", headers=H["app"]).status_code == 200
+    r = client.get(f"/api/chat/{pid('app')}", headers=H["e1"])
+    assert r.status_code == 403 and "телефон" not in r.text
+    assert client.post(f"/api/chat/{pid('app')}/read", headers=H["e1"]).status_code == 403
+    assert say(client, "e1", pid("app")).status_code == 403
+    assert pid("app") not in [x["peer_id"] for x in client.get("/api/chat/contacts", headers=H["e1"]).json()["contacts"]]
+    apps = client.get(f"/api/vacancies/{IDS['vac']}/applications", headers=H["e1"]).json()["items"]
+    assert apps[0]["contacts"] is None and apps[0]["chat_peer"] is None
+    # кандидат свою историю видит, но писать уже нельзя
+    mine = client.get(f"/api/chat/{co1}", headers=H["app"]).json()
+    assert mine["can_write"] is False and any("телефон" in m["text"] for m in mine["messages"])
+    # другая живая связь (принятое приглашение) диалог возвращает
+    with SessionLocal() as db:
+        inv = _inv(db.get(Company, co1), db.get(Candidate, IDS["app"]), "accepted")
+        db.add(inv)
+        db.commit()
+    assert client.get(f"/api/chat/{pid('app')}", headers=H["e1"]).status_code == 200
+    with SessionLocal() as db:
+        db.delete(db.get(Invitation, inv.id))
+        db.commit()
 
 
 def test_export_and_delete(client):

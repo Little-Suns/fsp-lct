@@ -21,7 +21,7 @@ from app.integrations.consent import lock_candidate, set_external_consent
 from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, Message, QuestSession, RetiredPublicId, TaskSubmission, User
 from app.routers.employer import company_trust
 from app.services import matching
-from app.services.chat import peers_linked
+from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, parse_cv
 
 router = APIRouter(prefix="/api/candidate", tags=["candidate"])
@@ -325,7 +325,7 @@ def _brief(db: Session, inv: Invitation, c: Candidate) -> dict:
         "desc": inv.description,
         "due": _days_left(inv) if inv.status in matching.OPEN else None,
         "status": _STATUS[inv.status],
-        "chat_peer": None,  # id компании, если с ней можно переписываться (заполняют list_invites/_detail)
+        "chat_peer": None,  # id компании, если ей можно писать — как can_write в чате (заполняют list_invites/_detail)
         "reason": catalog.DECLINE_REASONS.get(inv.decline_reason),
         "below_min": inv.salary_to < c.min_salary,
         "sent_at": inv.sent_at,
@@ -351,13 +351,13 @@ def list_invites(c: Candidate = Depends(current_candidate), db: Session = Depend
     items = [_brief(db, i, c) for i in invs]
     chat = peers_linked(db, "candidate", c.id, [i.company_id for i in invs])
     for i, inv in zip(items, invs):
-        i["chat_peer"] = inv.company_id if inv.company_id in chat else None
+        i["chat_peer"] = inv.company_id if inv.company_id in chat and may_talk(c, inv.company) else None
     return {"items": items, "open": sum(i.status in matching.OPEN for i in invs), "cap": catalog.CANDIDATE_CAP}
 
 
 def _detail(db: Session, inv: Invitation, c: Candidate) -> dict:
     out = _brief(db, inv, c)
-    out["chat_peer"] = inv.company_id if peers_linked(db, "candidate", c.id, [inv.company_id]) else None
+    out["chat_peer"] = inv.company_id if peers_linked(db, "candidate", c.id, [inv.company_id]) and may_talk(c, inv.company) else None
     out["fork_check"] = {
         "ok": not out["below_min"],
         "min": c.min_salary,

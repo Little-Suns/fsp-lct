@@ -15,7 +15,7 @@ from app.deps import current_user
 from app.models import Application, Candidate, Company, Invitation, Message, User, Vacancy
 from app.routers.vacancies import _reveal, _shown
 from app.services import matching
-from app.services.chat import MAX_LEN, hub, over_rate, peers_linked
+from app.services.chat import MAX_LEN, hub, may_talk, over_rate, peers_linked
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 KEEPALIVE = 20  # секунд тишины в потоке до служебной строки: держит соединение за прокси и замечает обрыв
@@ -35,14 +35,10 @@ def _me(db: Session, user: User) -> tuple[Candidate | None, Company | None]:
     raise HTTPException(403, "Чат доступен только кандидатам и компаниям")
 
 
-def _employer_may(cand: Candidate, co: Company) -> bool:
-    """Работодатель видит диалог, пока у кандидата действует согласие на обработку и компания не в его списке «скрыть от»."""
-    return matching.consent_ok(cand, "processing") and co.inn not in (cand.hidden_from or [])
-
-
 def _dialog(db: Session, user: User, peer_id: str, *, write: bool) -> tuple[Company, Candidate]:
     """Диалог по peer_id: у кандидата это id компании, у работодателя — публичный id кандидата.
-    Работодатель теряет доступ, как только кандидат отозвал согласие на обработку (как и к контактам)."""
+    Работодатель теряет доступ, как только кандидат отозвал согласие на обработку, отклик или скрыл профиль (как и к контактам).
+    Кандидат не пишет компании, от которой скрыл профиль: она не может ни прочитать, ни ответить."""
     me_c, me_co = _me(db, user)
     if me_c:
         co = db.get(Company, int(peer_id)) if peer_id.isascii() and peer_id.isdigit() and len(peer_id) < 10 else None  # длиннее — не влезет в int4
@@ -57,10 +53,12 @@ def _dialog(db: Session, user: User, peer_id: str, *, write: bool) -> tuple[Comp
     role, self_id, other = (user.role, cand.id, co.id) if me_c else (user.role, co.id, cand.id)
     if not peers_linked(db, role, self_id, [other], active=write):
         raise HTTPException(403, "Нет активной связи для отправки сообщений" if write else "Нет связи для просмотра диалога")
-    if me_co and not _employer_may(cand, co):
+    if me_co and not may_talk(cand, co):
         raise HTTPException(403, "Кандидат закрыл доступ: отозвал согласие или скрыл профиль от компании")
     if me_c and write and not matching.consent_ok(cand, "processing"):
         raise HTTPException(403, "Подтвердите согласие на обработку данных")
+    if me_c and write and not may_talk(cand, co):
+        raise HTTPException(403, "Вы скрыли профиль от этой компании: она не прочитает сообщение")
     return co, cand
 
 
@@ -81,7 +79,8 @@ def _out(m: Message) -> dict:
 
 
 def _dialogs(db: Session, user: User) -> list[tuple[Message, int, Company, Candidate]]:
-    """Последнее сообщение каждого диалога + число непрочитанных от собеседника. Диалоги с отозванным согласием работодателю не видны."""
+    """Последнее сообщение каждого диалога + число непрочитанных от собеседника. Работодателю не видны диалоги, которые он не может
+    открыть (_dialog): отозваны согласие или отклик, профиль скрыт от компании."""
     me_c, me_co = _me(db, user)
     unread = func.count(Message.id).filter(Message.read_at.is_(None), Message.sender != user.role)
     mine = Message.candidate_id == me_c.id if me_c else Message.company_id == me_co.id
@@ -93,7 +92,10 @@ def _dialogs(db: Session, user: User) -> list[tuple[Message, int, Company, Candi
         .join(Candidate, Candidate.id == Message.candidate_id)
         .order_by(desc(Message.id))
     ).all()
-    return [(m, n, co, c) for m, n, co, c in rows if me_c or _employer_may(c, co)]
+    if me_c:
+        return list(rows)
+    linked = peers_linked(db, "employer", me_co.id, [c.id for _, _, _, c in rows], active=False)
+    return [(m, n, co, c) for m, n, co, c in rows if c.id in linked and may_talk(c, co)]
 
 
 @router.get("/unread")
@@ -171,7 +173,7 @@ def get_chat(
     return {
         "peer": {"id": peer_id, "name": name},
         # можно ли ещё писать: иначе фронт прячет поле ввода, а не показывает 403 тостом
-        "can_write": bool(peers_linked(db, role, self_id, [other])) and matching.consent_ok(cand, "processing"),
+        "can_write": bool(peers_linked(db, role, self_id, [other])) and may_talk(cand, co),
         "messages": [_out(m) for m in msgs],
         # есть ли ещё более ранние сообщения: для кнопки «Показать ранее»
         "more": bool(msgs) and after_id is None and db.scalar(select(Message.id).where(Message.company_id == co.id, Message.candidate_id == cand.id, Message.id < msgs[0].id).limit(1)) is not None,

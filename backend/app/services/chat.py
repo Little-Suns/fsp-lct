@@ -1,8 +1,9 @@
 """Внутренний чат: кто с кем может переписываться.
 
 Писать можно, пока есть живая связь: приглашение принято или есть отклик, который не отозван и не отклонён —
-контакты в этот момент уже открыты, чат их не расширяет. Читать историю — пока есть любая связь (приглашение
-или отклик), чтобы после отказа диалог не исчезал."""
+контакты в этот момент уже открыты, чат их не расширяет. Читать историю кандидату — пока есть любая связь (приглашение
+или отклик), чтобы после отказа диалог не исчезал. Работодателю — только пока ему открыты контакты: принятое приглашение
+или отклик, который кандидат не отозвал (как `vacancies._shown`). Отзыв отклика закрывает переписку так же, как отзыв согласия."""
 
 import asyncio
 from datetime import UTC, datetime, timedelta
@@ -10,7 +11,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Application, Invitation, Message, Vacancy
+from app.models import Application, Candidate, Company, Invitation, Message, Vacancy
+from app.services import matching
 
 MAX_LEN = 2000
 RATE_LIMIT = 20  # сообщений в минуту от одной стороны в одном диалоге
@@ -19,7 +21,8 @@ CLOSED_APP = ("declined", "withdrawn")
 
 def peers_linked(db: Session, role: str, self_id: int, peer_ids: list[int], *, active: bool = True) -> set[int]:
     """Какие из peer_ids связаны с участником. role — кто спрашивает (candidate: peers — компании, employer: peers — кандидаты).
-    active=True — можно писать, False — любая связь (можно читать)."""
+    active=True — можно писать, False — можно читать: кандидату любая связь, работодателю — принятое приглашение или неотозванный отклик.
+    Неотвеченное приглашение переписки не создаёт: у работодателя история могла взяться только из отклика, и его отзыв её закрывает."""
     if not peer_ids:
         return set()
     if role == "candidate":
@@ -41,7 +44,16 @@ def peers_linked(db: Session, role: str, self_id: int, peer_ids: list[int], *, a
     if active:
         inv = inv.where(Invitation.status == "accepted")
         app = app.where(Application.status.not_in(CLOSED_APP))
+    elif role == "employer":
+        inv = inv.where(Invitation.status == "accepted")
+        app = app.where(Application.status != "withdrawn")
     return set(db.scalars(inv)) | set(db.scalars(app))
+
+
+def may_talk(cand: Candidate, co: Company) -> bool:
+    """Кандидат не закрыл доступ компании: действует согласие на обработку и компании нет в его «скрыть от».
+    Без этого работодатель не видит диалог, а писать не может ни одна сторона; кнопка «Написать» (chat_peer) — тоже по нему."""
+    return matching.consent_ok(cand, "processing") and co.inn not in (cand.hidden_from or [])
 
 
 class Hub:
