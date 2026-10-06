@@ -19,9 +19,10 @@ from app import catalog
 from app.db import get_db
 from app.deps import current_candidate, current_user
 from app.integrations.consent import lock_candidate, set_external_consent
-from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, QuestSession, RetiredPublicId, TaskSubmission, User
+from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, Message, QuestSession, RetiredPublicId, TaskSubmission, User
 from app.routers.employer import company_trust
 from app.services import matching, profile_pdf
+from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, canon_terms, parse_cv
 
 router = APIRouter(prefix="/api/candidate", tags=["candidate"])
@@ -361,6 +362,7 @@ def _brief(db: Session, inv: Invitation, c: Candidate) -> dict:
         "desc": inv.description,
         "due": _days_left(inv) if inv.status in matching.OPEN else None,
         "status": _STATUS[inv.status],
+        "chat_peer": None,  # id компании, если ей можно писать — как can_write в чате (заполняют list_invites/_detail)
         "reason": catalog.DECLINE_REASONS.get(inv.decline_reason),
         "below_min": inv.salary_to < c.min_salary,
         "sent_at": inv.sent_at,
@@ -383,11 +385,16 @@ def list_invites(c: Candidate = Depends(current_candidate), db: Session = Depend
     invs = db.scalars(
         select(Invitation).where(Invitation.candidate_id == c.id).options(selectinload(Invitation.company)).order_by(Invitation.sent_at.desc(), Invitation.id.desc())
     ).all()
-    return {"items": [_brief(db, i, c) for i in invs], "open": sum(i.status in matching.OPEN for i in invs), "cap": catalog.CANDIDATE_CAP}
+    items = [_brief(db, i, c) for i in invs]
+    chat = peers_linked(db, "candidate", c.id, [i.company_id for i in invs])
+    for i, inv in zip(items, invs):
+        i["chat_peer"] = inv.company_id if inv.company_id in chat and may_talk(c, inv.company) else None
+    return {"items": items, "open": sum(i.status in matching.OPEN for i in invs), "cap": catalog.CANDIDATE_CAP}
 
 
 def _detail(db: Session, inv: Invitation, c: Candidate) -> dict:
     out = _brief(db, inv, c)
+    out["chat_peer"] = inv.company_id if peers_linked(db, "candidate", c.id, [inv.company_id]) and may_talk(c, inv.company) else None
     out["fork_check"] = {
         "ok": not out["below_min"],
         "min": c.min_salary,
@@ -487,7 +494,7 @@ def _rows(objs, skip=()) -> list[dict]:
 
 @router.get("/me/export")
 def export(response: Response, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
-    """Все свои данные одним JSON (право на доступ, ст. 14 152-ФЗ). Не выгружаются только секреты: хеши токена/OTP и код
+    """Все свои данные одним JSON (право на доступ, ст. 14 152-ФЗ; включая переписку в чате). Не выгружаются только секреты: хеши токена/OTP и код
     подтверждения внешнего профиля. Запись data_exported коммитится до снимка — и попадает в раздел audit выгрузки."""
     response.headers.update(NO_STORE)
     db.add(AuditLog(actor_user_id=c.user_id, action="data_exported", subject_candidate_id=c.id, detail=None))
@@ -508,6 +515,7 @@ def export(response: Response, c: Candidate = Depends(current_candidate), db: Se
         "external_accounts": _rows(c.accounts, skip={"verify_code"}),
         "invitations": [{**r, "company": i.company.name} for r, i in zip(_rows(invs), invs)],
         "applications": _rows(by_cand(Application)),
+        "messages": _rows(by_cand(Message)),
         "task_submissions": _rows(by_cand(TaskSubmission)),
         # ответы теста без ключей заданий: id задания, ответ, верно/нет, время
         "quest_sessions": _rows(by_cand(QuestSession)),
@@ -517,7 +525,7 @@ def export(response: Response, c: Candidate = Depends(current_candidate), db: Se
 
 @router.delete("/me")
 def delete_me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
-    """Удаление аккаунта: кандидат (каскадом — достижения, приглашения, отклики, решения, сессии теста) и пользователь.
+    """Удаление аккаунта: кандидат (каскадом — достижения, приглашения, отклики, сообщения чата, решения, сессии теста) и пользователь.
     В журнале остаются только идентификаторы."""
     user = db.get(User, c.user_id) if c.user_id else None
     db.add(AuditLog(actor_user_id=c.user_id, action="account_deleted", subject_candidate_id=c.id, detail=None))

@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import catalog, config, deps
 from app.db import init_db
-from app.routers import achievements, candidate, employer, lottery, quest, tasks, vacancies, validation
+from app.routers import achievements, candidate, chat, employer, lottery, quest, tasks, vacancies, validation
 
 
 @asynccontextmanager
@@ -27,7 +27,7 @@ async def limit_body(request: Request, call_next):
         return JSONResponse({"detail": "Слишком большой запрос"}, status_code=413)
     return await call_next(request)
 
-for r in (deps, candidate, employer, quest, achievements, lottery, validation, vacancies, tasks):
+for r in (deps, candidate, employer, quest, achievements, lottery, validation, vacancies, tasks, chat):
     app.include_router(r.router)
 
 

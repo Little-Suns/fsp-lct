@@ -13,9 +13,10 @@ from sqlalchemy import func, select
 
 from app import catalog, config
 from app.db import SessionLocal, engine
-from app.models import Candidate, Company, Invitation, Item, Need, User
+from app.models import Candidate, Company, Invitation, Item, Message, Need, User
 from app.routers.employer import inn_valid
 from app.services import validation as V
+from app.services.chat import may_talk, peers_linked
 from seed import generate, gold
 
 config.LLM_BASE_URL = ""
@@ -60,6 +61,12 @@ def test_generate_cli(seeded, capsys):
     # вилка в каждом приглашении обязательна и не перевёрнута
     for inv in db.scalars(select(Invitation)):
         assert inv.salary_from and inv.salary_to and inv.salary_from <= inv.salary_to and inv.expires_at > inv.sent_at
+    # демо-диалоги чата: только при живой связи и прочитаны (бейдж непрочитанного на стенде начинается с нуля)
+    msgs = db.scalars(select(Message)).all()
+    assert len({(m.company_id, m.candidate_id) for m in msgs}) == 2 and all(m.read_at for m in msgs)
+    for m in msgs:  # связь есть и кандидат не закрыл доступ — диалог откроется у обеих сторон
+        assert peers_linked(db, "employer", m.company_id, [m.candidate_id]) == {m.candidate_id}
+        assert may_talk(db.get(Candidate, m.candidate_id), db.get(Company, m.company_id))
     # повторный запуск без --reset не портит засеянную базу
     argv = sys.argv
     sys.argv = ["seed.generate", "--candidates", "5", "--needs", "1"]

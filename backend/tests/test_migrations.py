@@ -128,6 +128,13 @@ def test_0002_candidate_profile_on_existing_candidates():
     assert tuple(got) == ("[]", "[]", True) and _diff() == []
 
 
+def test_legacy_main_db_gets_chat_table():
+    # база схемы main до Alembic (без messages): stamp baseline, затем 0002_chat_messages создаёт таблицу чата
+    _legacy_main_db()
+    init_db()
+    assert "messages" in inspect(engine).get_table_names() and _diff() == []
+
+
 def test_partial_legacy_db_refused():
     # create_all прервался: таблицы частично есть, alembic_version нет → не помечаем baseline, просим пересоздать
     Base.metadata.tables["users"].create(engine)
@@ -157,7 +164,7 @@ def test_reset_drops_foreign_tables():
     # таблица другой ветки с внешним ключом на нашу: drop_all на ней падал, reset_schema сносит всё
     migrate()
     with engine.begin() as c:
-        c.execute(text("CREATE TABLE messages (id serial PRIMARY KEY, user_id int REFERENCES users(id))"))
+        c.execute(text("CREATE TABLE notes_other_branch (id serial PRIMARY KEY, user_id int REFERENCES users(id))"))
     reset_schema()
-    assert "messages" not in inspect(engine).get_table_names()
+    assert "notes_other_branch" not in inspect(engine).get_table_names()
     assert _versions() == set(SCRIPT.get_heads()) and _diff() == []
