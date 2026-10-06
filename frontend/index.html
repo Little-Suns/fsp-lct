@@ -495,6 +495,7 @@ const FSP_ERR = {
   role: 'Эта почта зарегистрирована как работодатель — войдите по коду',
   taken: 'Этот ФСП ID уже привязан к другому аккаунту',
   other: 'К аккаунту уже привязан другой ФСП ID — сначала отвяжите его в настройках',
+  link: 'Аккаунт с этой почтой уже есть — войдите по коду и привяжите ФСП ID в настройках',
 };
 const fspAch = a => a === 'consent' ? 'Достижения ФСП подтянем после согласия на внешние данные — в настройках' : +a ? `Подтверждено достижений ФСП: ${a}` : 'Новых достижений в ФСП ID нет';
 // возврат из ФСП ID: билет или код ошибки — во фрагменте (не уходит на сервер и в Referer), сразу стираем его из адреса
@@ -503,7 +504,10 @@ async function fspReturn() {
   const p = new URLSearchParams(location.hash.slice(1));
   const kind = p.get('fsp');  // login | linked | error; ошибка у вошедшего — это привязка из настроек
   history.replaceState(null, '', location.pathname + '#/c/' + (kind === 'linked' || (kind === 'error' && TOK.c) ? 'settings' : 'signup'));
-  if (kind === 'error') return toast(FSP_ERR[p.get('e')] || 'Не удалось войти через ФСП ID');
+  if (kind === 'error') {
+    try { sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+    return toast(Object.hasOwn(FSP_ERR, p.get('e')) ? FSP_ERR[p.get('e')] : 'Не удалось войти через ФСП ID');
+  }
   if (kind === 'linked') return toast('ФСП ID привязан. ' + fspAch(p.get('ach')));
   const r = await api('POST', '/api/auth/fsp/exchange', { ticket: p.get('t') || '' }, 'c');
   if (r.role !== 'candidate') throw new Error('Эта почта зарегистрирована как работодатель');

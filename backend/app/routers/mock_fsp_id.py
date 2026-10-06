@@ -144,7 +144,8 @@ def authorize(response_type: str = "", client_id: str = "", redirect_uri: str = 
         f'<button class="main" name="account" value="{sub}">{html.escape(a["name"])}<small>{sub} · {html.escape(a["email"])}</small></button>'
         for sub, a in ((html.escape(k), v) for k, v in ACCOUNTS.items())
     )
-    return PAGE.format(action=html.escape(_issuer() + "/authorize"), hidden=hidden, buttons=buttons)
+    return HTMLResponse(PAGE.format(action=html.escape(_issuer() + "/authorize"), hidden=hidden, buttons=buttons),
+                        headers={"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'"})  # без кликджекинга
 
 
 @router.post("/authorize")

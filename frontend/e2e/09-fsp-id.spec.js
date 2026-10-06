@@ -80,6 +80,6 @@ test('ФСП ID: устаревший билет и ошибки возврат�
   await expect(page).toHaveURL(/#\/c\/signup$/);
   await page.goto('/?n=2#fsp=error&e=taken');
   await expect(toast(page)).toHaveText('Этот ФСП ID уже привязан к другому аккаунту');
-  await page.goto('/?n=3#fsp=error&e=unknown');
+  await page.goto('/?n=3#fsp=error&e=constructor');
   await expect(toast(page)).toHaveText('Не удалось войти через ФСП ID');
 });

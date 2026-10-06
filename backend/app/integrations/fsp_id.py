@@ -27,7 +27,8 @@ from app.models import Candidate
 from app.services.matching import consent_ok
 
 HTTP = httpx.Client(timeout=10.0, follow_redirects=False)  # тесты подменяют на TestClient приложения с моком
-CACHE_TTL = 3600.0  # discovery и JWKS; неизвестный kid → JWKS перечитывается сразу (ротация ключей)
+CACHE_TTL = 3600.0  # discovery и JWKS; неизвестный kid → JWKS перечитывается (ротация ключей), не чаще JWKS_REFETCH
+JWKS_REFETCH = 60.0
 LEEWAY = 30  # секунд расхождения часов при проверке exp/iat
 ACH_CLAIM = "fsp_achievements"
 MAX_ACH = 200
@@ -44,7 +45,10 @@ class FspIdError(Exception):
 
 
 def enabled() -> bool:
-    return bool(config.FSP_ID_ISSUER and config.FSP_ID_CLIENT_ID and config.FSP_ID_CLIENT_SECRET)
+    """Клиент настроен; у боевого issuer redirect_uri — только https: иначе код и кука потока ходили бы открытым текстом."""
+    mock = config.FSP_ID_ISSUER == config.MOCK_FSP_ID_ISSUER
+    return bool(config.FSP_ID_ISSUER and config.FSP_ID_CLIENT_ID and config.FSP_ID_CLIENT_SECRET
+                and (mock or config.FSP_ID_REDIRECT_URI.startswith("https://")))
 
 
 def _b64(raw: bytes) -> str:
@@ -140,6 +144,10 @@ def _signing_key(kid: str | None):
             raise FspIdError(f"JWKS: {type(e).__name__}") from e
 
     for force in (False, True):
+        if force:  # перечитывание по неизвестному kid — не чаще раза в JWKS_REFETCH секунд
+            if _cache.get("refetch:" + url, (0.0,))[0] > time.monotonic():
+                break
+            _cache["refetch:" + url] = (time.monotonic() + JWKS_REFETCH, None)
         keys = [k for k in load(force).keys if k.key_type == "RSA" and (k.public_key_use in (None, "sig"))]
         match = [k for k in keys if k.key_id == kid] if kid else keys[:1] if len(keys) == 1 else []
         if match:

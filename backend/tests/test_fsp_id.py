@@ -57,12 +57,13 @@ def account(sub: str, email: str, verified: bool = True, achievements=None) -> s
     return sub
 
 
-def make_candidate(email: str, fsp: str | None = None, external: bool = True, role: str = "candidate") -> tuple[int, dict]:
+def make_candidate(email: str, fsp: str | None = None, external: bool = True, role: str = "candidate",
+                   profile: bool = True) -> tuple[int, dict]:
     with SessionLocal() as db:
         user = User(email=email, role=role, fsp_id=fsp)
         db.add(user)
         db.flush()
-        if role == "candidate":
+        if role == "candidate" and profile:
             db.add(Candidate(public_id=f"A-{uuid.uuid4().hex[:6]}", user_id=user.id, name="Тест", email=email, spec="Backend",
                              grade_claimed="Middle", min_salary=200000, city="Москва", consent_152=True,
                              consent_version=CONSENT_VERSION, consent_external=external,
@@ -79,7 +80,7 @@ def authorize(client, mode: str = "login", headers=None) -> tuple[str, dict]:
     q = {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
     assert q["code_challenge_method"] == "S256" and q["redirect_uri"] == config.FSP_ID_REDIRECT_URI and "openid" in q["scope"]
     page = client.get(url)
-    assert page.status_code == 200 and "ФСП ID (демо)" in page.text
+    assert page.status_code == 200 and "ФСП ID (демо)" in page.text and page.headers["x-frame-options"] == "DENY"
     return url, q
 
 
@@ -204,21 +205,26 @@ def test_login_creates_candidate_only_by_verified_email(client):
 
 
 def test_login_links_existing_email_account_and_role_rules(client):
-    uid, _ = make_candidate("byemail@example.ru")
+    # аккаунт без профиля (вошёл по коду, анкету не заполнил) связывается по подтверждённой почте
+    uid, _ = make_candidate("byemail@example.ru", profile=False)
     sub = account("FSP-T-email", "byemail@example.ru")
-    assert login(client, sub)["has_profile"] is True and _user(id=uid).fsp_id == sub
+    assert login(client, sub)["has_profile"] is False and _user(id=uid).fsp_id == sub
     with SessionLocal() as db:
         assert db.scalar(select(AuditLog).where(AuditLog.actor_user_id == uid, AuditLog.action == "fsp_id_linked")).detail is None
+    # аккаунт с профилем по одной лишь почте из ФСП ID не отдаём — только привязка из настроек после входа по коду
+    pid, _ = make_candidate("withprofile@example.ru")
+    assert flow(client, account("FSP-T-prof", "withprofile@example.ru")) == {"fsp": "error", "e": "link"}
+    assert _user(id=pid).fsp_id is None
     # почта занята аккаунтом с другим ФСП ID
     make_candidate("other@example.ru", fsp="FSP-T-old")
     assert flow(client, account("FSP-T-new2", "other@example.ru")) == {"fsp": "error", "e": "other"}
-    # работодатель с компанией — не превращаем в кандидата
-    eid, _ = make_candidate("hr@company.example", role="employer")
+    # работодатель с компанией (ФСП ID уже связан) — не превращаем в кандидата
+    eid, _ = make_candidate("hr@company.example", role="employer", fsp="FSP-T-hr")
     with SessionLocal() as db:
         db.add(Company(user_id=eid, name="Ко", inn="7700000001", recruiter_name="HR", recruiter_email="hr@company.example"))
         db.commit()
     assert flow(client, account("FSP-T-hr", "hr@company.example")) == {"fsp": "error", "e": "role"}
-    assert _user(id=eid).fsp_id is None
+    assert _user(id=eid).role == "employer"
     # роль без профиля меняется, как во входе по коду
     nid, _ = make_candidate("noprofile@company.example", role="employer")
     assert login(client, account("FSP-T-np", "noprofile@company.example"))["role"] == "candidate" and _user(id=nid).role == "candidate"
@@ -240,6 +246,11 @@ def test_denied_and_provider_errors(client, monkeypatch):
     monkeypatch.setattr(config, "FSP_ID_ISSUER", "")
     assert client.post("/api/auth/fsp/start", json={"mode": "login"}).status_code == 503
     assert client.get("/api/meta").json()["fsp_id"] is False
+    # боевой issuer — только с https redirect_uri
+    monkeypatch.setattr(config, "FSP_ID_ISSUER", "https://id.example/realms/fsp")
+    assert fsp_id.enabled() is False
+    monkeypatch.setattr(config, "FSP_ID_REDIRECT_URI", "https://career.example/api/auth/fsp/callback")
+    assert fsp_id.enabled() is True
 
 
 def test_bad_signature_is_rejected(client, monkeypatch):
@@ -273,6 +284,7 @@ def test_state_cookie_and_replay(client):
         db.commit()
     assert back(client, cb) == {"fsp": "error", "e": "state"}
     assert back(client, "/api/auth/fsp/callback?code=x") == {"fsp": "error", "e": "state"}  # без state
+    assert back(client, "/api/auth/fsp/callback?code=x&state=" + "s" * 3000) == {"fsp": "error", "e": "state"}  # не 422
 
 
 # ---------- привязка из настроек ----------

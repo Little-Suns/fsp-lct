@@ -4,9 +4,10 @@
   не войдёт и не привяжет чужой ФСП ID (login CSRF). state одноразовый — повтор callback не пройдёт.
 * Наш Bearer-токен не попадает в URL: callback кладёт во фрагмент одноразовый билет на минуту, фронт меняет его
   на токен POST /exchange с той же кукой.
-* Пользователь создаётся только по подтверждённой в ФСП ID почте и только кандидатом; существующий аккаунт
-  с той же почтой связывается с ФСП ID, роль меняется по тем же правилам, что и во входе по коду (deps.verify):
-  только пока нет ни профиля кандидата, ни компании.
+* Пользователь создаётся только по подтверждённой в ФСП ID почте и только кандидатом. Существующий аккаунт с той же
+  почтой связывается автоматически, только пока у него нет ни профиля кандидата, ни компании (роль — как во входе
+  по коду, deps.verify); аккаунт с данными привязывается только из настроек после входа по коду — доверять одному
+  email_verified провайдера, когда есть что угнать, не будем.
 * Достижения из ФСП ID пишутся, только если у кандидата действует согласие на внешние данные (152-ФЗ).
 """
 
@@ -35,6 +36,7 @@ COOKIE = "fsp_flow"
 COOKIE_PATH = "/api/auth/fsp"
 FLOW_TTL = timedelta(minutes=10)
 TICKET_TTL = timedelta(seconds=60)
+MAX_PARAM = 2048  # state, code, error и кука длиннее — отказ «state» редиректом во фронт, а не 422 в браузере
 log = logging.getLogger(__name__)
 
 
@@ -86,7 +88,7 @@ def start(body: StartIn, response: Response, authorization: str = Header(default
                     expires_at=now + FLOW_TTL))
     db.commit()
     response.set_cookie(COOKIE, browser, max_age=int(FLOW_TTL.total_seconds()), path=COOKIE_PATH, httponly=True,
-                        samesite="lax", secure=config.PUBLIC_URL.startswith("https://"))
+                        samesite="lax", secure=config.FSP_ID_REDIRECT_URI.startswith("https://"))
     return {"url": url}
 
 
@@ -99,6 +101,8 @@ def _login_user(db: Session, ident: dict) -> User:
         user = db.scalar(select(User).where(func.lower(User.email) == ident["email"]).with_for_update())
         if user and user.fsp_id:
             raise Fail("other")  # к этой почте уже привязан другой ФСП ID
+        if user and _has_profile(db, user):
+            raise Fail("link")  # аккаунт с данными: войти по коду и привязать ФСП ID в настройках
         if not user:
             user = User(email=ident["email"], role="candidate")
             db.add(user)
@@ -127,10 +131,11 @@ def _link_user(db: Session, user_id: int | None, sub: str) -> User:
 
 
 @router.get("/callback")
-def callback(state: str = Query("", max_length=256), code: str = Query("", max_length=2048),
-             error: str = Query("", max_length=64), fsp_flow: str = Cookie(default="", max_length=128),
+def callback(state: str = Query(""), code: str = Query(""), error: str = Query(""), fsp_flow: str = Cookie(default=""),
              db: Session = Depends(get_db)):
     now = datetime.now(UTC)
+    if max(len(state), len(code), len(error), len(fsp_flow)) > MAX_PARAM:
+        state = ""
     # state потребляется атомарно и только в том же браузере: повтор или чужая ссылка — отказ
     flow = db.execute(
         update(FspLogin)
@@ -181,7 +186,7 @@ def _abort(db: Session, flow_id: int, code: str) -> RedirectResponse:
 
 
 @router.post("/exchange")
-def exchange(body: TicketIn, response: Response, fsp_flow: str = Cookie(default="", max_length=128), db: Session = Depends(get_db)):
+def exchange(body: TicketIn, response: Response, fsp_flow: str = Cookie(default=""), db: Session = Depends(get_db)):
     """Одноразовый билет из callback (и кука того же браузера) → наш токен."""
     uid = db.scalar(
         delete(FspLogin)
