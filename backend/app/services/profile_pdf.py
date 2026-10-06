@@ -69,15 +69,15 @@ class _Doc(FPDF):
 
     def normalize_text(self, text: str) -> str:
         """Символ, которого нет ни в текущем шрифте, ни в фолбэке, fpdf2 молча рисует пустым — меняем на «□».
-        Невидимые форматирующие (ZWJ, селекторы вариантов эмодзи) просто убираем."""
+        Невидимые форматирующие (ZWJ, селекторы вариантов эмодзи) и управляющие, кроме \t и \n, просто убираем."""
         text = unicodedata.normalize("NFC", super().normalize_text(text))
         have, extra = self.current_font.cmap, self.fonts["fallback"].cmap
         out = []
         for ch in text:
             cp = ord(ch)
-            if cp < 32 or cp in have or cp in extra:
+            if ch in "\t\n" or (cp >= 32 and (cp in have or cp in extra)):
                 out.append(ch)
-            elif unicodedata.category(ch) not in ("Cf", "Mn"):
+            elif unicodedata.category(ch) not in ("Cc", "Cf", "Mn"):
                 self.missing.add(ch)
                 out.append(MISSING)
         return "".join(out)

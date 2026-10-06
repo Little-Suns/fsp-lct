@@ -297,7 +297,7 @@ def test_profile_pdf_render_edge_cases():
 def test_profile_pdf_fallback_glyphs(caplog):
     """Эмодзи, арабица, грузинский — из фолбэк-шрифта; CJK нет ни в одном шрифте — видимый «□», а не пропуск.
     В лог — только счётчик и анонимный код, не сами символы (они из ФИО)."""
-    c = _cand("X-0002", name="Иван 😀 李 Петров", tg="@ivan_محمد", city="Тбилиси ა", skills_claimed=["Python"], cv_text="2020 — н.в. 株式会社 Акме")
+    c = _cand("X-0002", name="Иван 😀 李 Петров", tg="@ivan_محمد", city="Тбилиси ა", skills_claimed=["Python"], cv_text="2020 — н.в. 株式会社 Акме\x07")
     with caplog.at_level("WARNING", logger="app.services.profile_pdf"):
         text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(profile_pdf.render(c))).pages)
     assert "Иван 😀 □ Петров" in text and "□□□□ Акме" in text and "ა" in text, text

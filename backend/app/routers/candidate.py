@@ -97,7 +97,7 @@ OUTDATED = "Текст согласия обновился — подтверд�
 
 def _require_152(c: Candidate | None) -> None:
     """Без действующего согласия (отозвано или дано на старую редакцию) запись ПДн запрещена;
-    доступны только /consents, /me/export и DELETE /me."""
+    из записи доступны только /consents и DELETE /me, чтение своих данных — /me, /me/export и /profile.pdf."""
     if c is not None and not matching.consent_ok(c, "processing"):
         raise HTTPException(403, WITHDRAWN if not c.consent_152 else OUTDATED)
 
