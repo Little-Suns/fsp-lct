@@ -13,8 +13,8 @@ import os
 import psycopg
 c = psycopg.connect(os.environ["PG"].replace("+psycopg", "") + "/fsp", autocommit=True)  # служебная база для CREATE DATABASE
 # базы пересоздаются каждый прогон: наборы на create_all не удаляют устаревшие колонки, и старая схема валит тесты
-# fsp_validtest — своя база засева в test_validation
-for n in ("fsp_flows", "fsp_quest", "fsp_integ", "fsp_seed", "fsp_valid", "fsp_validtest", "fsp_vac", "fsp_auth", "fsp_priv",
+# fsp_validtest, fsp_validday — свои базы засева в test_validation
+for n in ("fsp_flows", "fsp_quest", "fsp_integ", "fsp_seed", "fsp_valid", "fsp_validtest", "fsp_validday", "fsp_vac", "fsp_auth", "fsp_priv",
           "fsp_gen", "fsp_migr", "fsp_chat"):
     c.execute(f"DROP DATABASE IF EXISTS {n} WITH (FORCE)")
     c.execute(f"CREATE DATABASE {n}")

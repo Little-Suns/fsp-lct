@@ -1,6 +1,7 @@
 """Дашборд валидации для жюри: последний прогон из backend/var/validation.json; пересчёт — организатору."""
 
 import json
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -20,8 +21,8 @@ def latest():
 
 
 @router.post("/run", dependencies=[Depends(organizer)])
-def rerun(k: int = Query(10, ge=1, le=50), seed: int = 42, db: Session = Depends(get_db)):
-    """Пересчёт (~5 с на 1500 кандидатах): синхронно, в пуле потоков FastAPI."""
-    res = svc.run(db, k=k, seed=seed)
+def rerun(k: int = Query(10, ge=1, le=50), seed: int = 42, today: date = Query(svc.DEMO_TODAY), db: Session = Depends(get_db)):
+    """Пересчёт (~40 с на 1500 кандидатах): синхронно, в пуле потоков FastAPI. today — дата засева (seed.generate --today)."""
+    res = svc.run(db, k=k, seed=seed, today=today)
     svc.save(res)
     return res

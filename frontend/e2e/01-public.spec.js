@@ -53,7 +53,7 @@ test('валидация /v: без прогона — подсказка, с п
   await open(page, '/v');
   await expect(page.getByRole('heading', { name: 'Валидация подбора и теста' })).toBeVisible();
   await expect(page.getByText('прогон не запускался')).toBeVisible();
-  await expect(page.getByText('Нет данных. Запустите прогон')).toHaveCount(4);
+  await expect(page.getByText('Нет данных. Запустите прогон')).toHaveCount(5);
   await expect(page.locator('.roles button[data-role=v]')).toHaveAttribute('aria-current', 'true');
 
   await page.unroute('**/api/validation');
@@ -74,6 +74,21 @@ test('валидация /v: без прогона — подсказка, с п
   await expect(page.getByText(/Ложные срабатывания на честных кандидатах/)).toBeVisible();
   await expect(page.getByText('Тот же грейд при пересдаче')).toBeVisible();
   await expect(page.getByText('Оценка θ и «истинный» θ')).toBeVisible();
+  // разделяющая сила: матрица «истинный грейд × грейд теста» (доли строки), соседние грейды, специализации, задания
+  const sep = page.locator('.panel', { has: page.getByRole('heading', { name: 'Разделяющая сила теста' }) });
+  const heat = sep.locator('table.heat');
+  await expect(heat.locator('caption')).toContainText('Строки — истинный грейд');
+  await expect(heat.getByRole('columnheader', { name: 'Lead' })).toBeVisible();
+  const intern = heat.getByRole('row', { name: /^Intern/ });
+  await expect(intern.getByRole('rowheader')).toHaveText('Intern');
+  await expect(intern.locator('td.diag')).toHaveText('97 %');  // 194 из 200 — на диагонали
+  await expect(heat.locator('td.diag')).toHaveCount(5);
+  await expect(sep.getByText('Точное совпадение грейда')).toBeVisible();
+  await expect(sep.getByText(/по θ̂ без запаса SE — \d+ %/)).toBeVisible();
+  await expect(sep.getByRole('row', { name: /Intern \| Junior/ })).toContainText('0,88');
+  await expect(sep.getByRole('row', { name: /^Backend/ })).toContainText('24');
+  await expect(sep.getByRole('row', { name: /крутизна кривой 2PL/ })).toBeVisible();
+  await expect(sep.getByText(/Слабо различающих заданий/)).toBeVisible();
 
   // второй вариант отчёта: эксперты с каппой, без «только квоты», эксперимент вместо симуляции
   const alt = structuredClone(VAL);
@@ -83,12 +98,19 @@ test('валидация /v: без прогона — подсказка, с п
   delete alt.market.top5_share;
   alt.cheater.simulated = false; delete alt.cheater.false_alarm;
   delete alt.stability.theta_corr; delete alt.stability.retest_same_grade_no_hysteresis;
+  alt.separation.simulated = false;
+  ['accuracy_point', 'adjacent', 'by_spec', 'items'].forEach(k => { delete alt.separation[k]; });
   await page.unroute('**/api/validation');
   await page.route('**/api/validation', r => r.fulfill({ json: alt }));
   await page.reload();
   await expect(page.getByText('120 «золотых» пар с экспертами, κ Коэна = 0,71')).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Только квота' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Эксперимент: LLM-«читер»' })).toBeVisible();
+  // старый отчёт без деталей разделяющей силы: матрица есть, дополнительных таблиц нет
+  await expect(page.locator('table.heat td.diag')).toHaveCount(5);
+  await expect(page.getByText('грейд по θ − SE', { exact: true })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'AUC по θ̂' })).toHaveCount(0);
+  await expect(page.getByText(/Слабо различающих заданий/)).toHaveCount(0);
 });
 
 test('401: протухший токен кандидата и работодателя — обратно на вход', async ({ page }) => {
