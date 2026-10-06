@@ -494,8 +494,13 @@ const trace = (cls, w, h, d, dots) => `<svg class="trace ${cls}" width="${w}" he
 
 const catTag = (s = ME && ME.spec, t = ME && ME.track, g = ME && (ME.grade || ME.grade_claimed)) => `<span class="cat">${[s, t, g].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</span>`;
 const BADGE = { fsp: 'ФСП', hackathon: 'Хакатон', ctftime: 'CTF' };
-// бейджи достижений на анонимной карточке: ФСП / хакатон / CTF + рейтинг Codeforces
-const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] : [])).filter((b, i, arr) => BADGE[b.source] && arr.findIndex(x => x.source === b.source) === i).map(b => `<span class="chip ok" title="${esc(b.title)}">${BADGE[b.source]}</span>`).join('') + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
+const RESULT = { winner: 'победитель', prize: 'призёр', finalist: 'финалист', participant: 'участник отбора' };
+// подсказка бейджа: название + дисциплина и результат из протокола (факты, дисциплины не ранжируются)
+const badgeTitle = b => [b.title, b.discipline, RESULT[b.result]].filter(Boolean).join(' · ');
+// бейджи достижений на анонимной карточке: ФСП / хакатон / CTF + разряд ФСП + рейтинг Codeforces
+const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] : [])).filter((b, i, arr) => BADGE[b.source] && arr.findIndex(x => x.source === b.source) === i).map(b => `<span class="chip ok" title="${esc(badgeTitle(b))}">${BADGE[b.source]}</span>`).join('')
+  + (c.sport_rank ? `<span class="chip ok" title="Спортивный разряд по протоколам ФСП">${esc(c.sport_rank)}</span>` : '')
+  + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
 
 // разделы кабинета: одна строка чипов под хлебными крошками
 const NAV = {
@@ -702,7 +707,7 @@ function pdfExpField() {
 }
 
 // одна строка достижения: название, место, команда/роль, вес в сигнале, подтверждено ли
-const achRow = a => `<div class="small" style="margin-top:4px">${esc(a.title)}${a.place ? ` · <span class="num">${a.place}</span> место` : ''}${a.team ? ` · ${esc(a.team)}` : ''}${a.role ? ` · ${esc(a.role)}` : ''}
+const achRow = a => `<div class="small" style="margin-top:4px">${esc(a.title)}${a.place ? ` · <span class="num">${a.place}</span> место` : ''}${a.result && !(a.place && a.place <= 3) ? ` · ${esc(RESULT[a.result] || a.result)}` : ''}${a.discipline ? ` · ${esc(a.discipline)}` : ''}${a.sport_rank ? ` · <b>${esc(a.sport_rank)}</b>` : ''}${a.team ? ` · ${esc(a.team)}` : ''}${a.role ? ` · ${esc(a.role)}` : ''}
   <span class="muted">· ${a.verified ? 'подтверждено протоколом' : 'не подтверждено'}${a.date ? ', ' + DATE(a.date) : ''}</span></div>`;
 
 function achPanel() {
@@ -730,7 +735,8 @@ function achPanel() {
     <div class="row sb"><h3>Достижения</h3><span class="muted small">по желанию, на грейд не влияют</span></div>
     <div class="trust">
       <div><span class="dot ${A.fsp.some(a => a.verified) ? 'on' : ''}"></span><div><b>ФСП</b> · ${A.fsp.length ? '' : '<span class="muted">соревнований в протоколах ФСП не найдено</span>'}
-        ${A.fsp.map(achRow).join('')}<span class="muted small">Подтягивается из протоколов ФСП по ФСП ID</span></div></div>
+        ${A.sport_rank ? `<div class="small" style="margin-top:4px">Спортивный разряд: <b>${esc(A.sport_rank)}</b></div>` : ''}
+        ${A.fsp.map(achRow).join('')}<span class="muted small">Подтягивается из протоколов ФСП по ФСП ID: места, результат, дисциплина, разряд</span></div></div>
       <div><span class="dot ${A.hackathons.some(a => a.verified) ? 'on' : ''}"></span><div><b>Хакатоны</b> · ${A.hackathons.length ? '' : '<span class="muted">нет в импортированных протоколах</span>'}
         ${A.hackathons.map(achRow).join('')}<span class="muted small">Протоколы загружают организаторы</span></div></div>
       <div><span class="dot ${cf && cf.verified ? 'on' : ''}"></span><div>${cfBlock}</div></div>
@@ -813,7 +819,7 @@ V['/c/profile'] = () => {
       <p class="small muted">${ME && ME.pct != null ? `Перцентиль ${ME.pct}` : 'Перцентиль появится после теста'}</p>
       <div class="chips">${confirmed.map(s => `<span class="chip on">${esc(s)}</span>`).join('')}${claimedOnly.map(s => `<span class="chip">${esc(s)}</span>`).join('')}${claimedOnly.length ? '<span class="chip dim">не подтверждено</span>' : ''}</div>
       ${softChips(f.roles, f.soft)}
-      <div class="chips">${ACH ? badgeChips({ badges: [...ACH.fsp, ...ACH.hackathons, ...(ACH.ctftime ? ACH.ctftime.achievements : [])].filter(a => a.verified), cf: ACH.codeforces && ACH.codeforces.verified ? ACH.codeforces.rating : null }) : ''}</div>
+      <div class="chips">${ACH ? badgeChips({ badges: [...ACH.fsp, ...ACH.hackathons, ...(ACH.ctftime ? ACH.ctftime.achievements : [])].filter(a => a.verified), sport_rank: ACH.sport_rank, cf: ACH.codeforces && ACH.codeforces.verified ? ACH.codeforces.rating : null }) : ''}</div>
     </aside>
   </div>`;
 };
@@ -1752,7 +1758,7 @@ function candView() {
   if (!c) return `${crumbs([['Подборка', '/e/picks'], ['Кандидат']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
   const n = S.needObj, e = c.explanation, b = c.breakdown;
   const must = e ? e.confirmed.filter(s => n && n.must.includes(s)) : [];
-  const ach = [...(c.badges || []).map(x => x.title), c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
+  const ach = [...(c.badges || []).map(badgeTitle), c.sport_rank ? 'спортивный разряд: ' + c.sport_rank : '', c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id)]])}
   ${unverifiedBanner()}

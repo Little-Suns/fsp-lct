@@ -117,7 +117,8 @@ class Event(Base):
     source: Mapped[str] = mapped_column(String(16))  # fsp | hackathon | ctftime | codeforces
     external_id: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(String(255))
-    level: Mapped[str | None] = mapped_column(String(32))  # international | national | regional | local
+    level: Mapped[str | None] = mapped_column(String(32))  # international | national | regional | local — факт, на вес не влияет
+    discipline: Mapped[str | None] = mapped_column(String(64))  # дисциплина ФСП (catalog.DISCIPLINES), факт
     date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     participants: Mapped[int | None] = mapped_column(Integer)
     url: Mapped[str | None] = mapped_column(String(512))
@@ -136,6 +137,8 @@ class Achievement(Base):
     place: Mapped[int | None] = mapped_column(Integer)
     team: Mapped[str | None] = mapped_column(String(128))
     role: Mapped[str | None] = mapped_column(String(64))  # роль в команде: backend, ML, капитан…
+    result: Mapped[str | None] = mapped_column(String(16))  # winner | prize | finalist | participant (scoring.RESULT_WEIGHT)
+    sport_rank: Mapped[str | None] = mapped_column(String(32))  # разряд/звание по протоколу ФСП (catalog.SPORT_RANKS), факт
     weight: Mapped[float] = mapped_column(Float, default=0.0)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     data: Mapped[dict | None] = mapped_column(JSON)

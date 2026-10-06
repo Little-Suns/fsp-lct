@@ -21,7 +21,7 @@ from app.db import Base, SessionLocal, engine
 from app.deps import hash_secret, issue_token
 from app.integrations import codeforces, common, ctftime, hackathons
 from app.integrations.consent import lock_candidate, set_external_consent
-from app.integrations.scoring import combine, place_weight, rating_weight
+from app.integrations.scoring import RESULT_WEIGHT, combine, place_weight, rating_weight, result_of, signal
 from app.models import Achievement, AuditLog, Candidate, ConsentEvent, ExternalAccount, User
 from app.routers import achievements
 
@@ -84,10 +84,20 @@ def cf_routes(org: str):
 
 def test_weights_sane():
     assert 0 < rating_weight(1912) < rating_weight(2400) < 1
-    assert place_weight(1, 300, "national") > place_weight(30, 300, "national") > place_weight(250, 300, "national")
-    assert codeforces.contest_level("Codeforces Round 1 (Div. 3)") == "regional"
-    assert ctftime.level_by_weight(75) == "international" and ctftime.level_by_weight(5) == "local"
+    assert place_weight(1, 300) > place_weight(30, 300) > place_weight(250, 300) == place_weight(None, 300)
+    assert [result_of(p, 300) for p in (1, 2, 3, 30, 31, None)] == ["winner", "prize", "prize", "finalist", "participant", "participant"]
+    assert result_of(12, None) == "participant" and result_of(0, 10) == "participant"
+    # иерархии соревнований нет: Div. 1 и Div. 4, большой и малый CTF весят одинаково при одинаковом результате
+    assert codeforces.contest_result(1) == "winner" and codeforces.contest_result(57) == "finalist"
+    assert place_weight(1, 40) == place_weight(1, 4000) == RESULT_WEIGHT["winner"]
     assert combine([]) == 0.0
+    # убывающая отдача по числу соревнований: 30 онлайн-явок < один выход в финал < победа
+    assert combine([RESULT_WEIGHT["participant"]] * 30) < combine([RESULT_WEIGHT["finalist"]]) < combine([RESULT_WEIGHT["winner"]])
+    assert combine([0.8, 0.6]) > combine([0.8]) and combine([0.8, 0.6]) - combine([0.8]) < 0.6
+    # рейтинг — отдельный сигнал без дисконта; signal разделяет их по data.kind
+    rating = Achievement(weight=0.4, data={"kind": "rating"})
+    win = Achievement(weight=0.8, data={"kind": "protocol"})
+    assert signal([win, rating]) == combine([0.8], [0.4]) == round(1 - 0.2 * 0.6, 3)
 
 
 def test_consent_required():
@@ -125,7 +135,7 @@ def test_cf_verify_code_missing_then_success(monkeypatch):
     kinds = sorted(a["title"] for a in cf["achievements"])
     assert len(kinds) == 2  # рейтинг + Div.2 12-е место; 450-е место не «заметное»
     contest = next(a for a in cf["achievements"] if a["place"] == 12)
-    assert contest["level"] == "national" and contest["weight"] == place_weight(12, None, "national")
+    assert contest["level"] is None and contest["result"] == "finalist" and contest["weight"] == RESULT_WEIGHT["finalist"]
     assert 0 < body["signal"] <= 1
 
     # повторный refresh в течение часа — из кеша, без запросов
@@ -165,7 +175,7 @@ def test_ctftime_parse_and_link(monkeypatch):
     places = ctftime.team_places(77, {2025: CTF_RESULTS})
     assert [(p["event_id"], p["place"], p["participants"]) for p in places] == [(100, 2, 100), (101, 40, 40)]
 
-    h, email, _ = make_candidate()
+    h, email, cid = make_candidate()
     fake, _ = fake_api({
         "teams/77": {"id": 77, "name": "Котики", "country": "RU", "rating": {"2025": {"rating_place": 120, "rating_points": 210.5}}},
         "results/": CTF_RESULTS,
@@ -178,7 +188,10 @@ def test_ctftime_parse_and_link(monkeypatch):
     assert ct["team"] == "Котики" and ct["rank"] == "#120 в мире, 2025"
     big = next(a for a in ct["achievements"] if a["place"] == 2)
     assert not big["verified"] and big["role"] == "pwn"
-    assert big["weight"] == round(place_weight(2, 900, "international") * ctftime.UNVERIFIED_FACTOR, 3)
+    assert big["result"] == "prize" and big["weight"] == round(RESULT_WEIGHT["prize"] * ctftime.UNVERIFIED_FACTOR, 3)
+    small = next(a for a in ct["achievements"] if a["place"] == 40)  # последнее место из 40 — «участник», почти ноль
+    assert small["result"] == "participant" and small["weight"] == round(RESULT_WEIGHT["participant"] * ctftime.UNVERIFIED_FACTOR, 3)
+    assert body["signal"] == 0  # в сигнал (как и в подборе) идут только подтверждённые
 
     # тиммейт привязывает ту же команду — уникальность (provider, handle, candidate_id) это допускает
     h_mate, _, _ = make_candidate()
@@ -191,7 +204,18 @@ def test_ctftime_parse_and_link(monkeypatch):
                                          [{"email": email, "team": "Котики", "place": 2, "role": "pwn"}])
     assert rep["matched"] == 1 and rep["updated"] == 1
     big = next(a for a in client.get("/api/achievements", headers=h).json()["ctftime"]["achievements"] if a["place"] == 2)
-    assert big["verified"] and big["weight"] == place_weight(2, 900, "international")
+    assert big["verified"] and big["weight"] == RESULT_WEIGHT["prize"]
+
+    # повторная синхронизация CTFtime не затирает результат из протокола организатора
+    with SessionLocal() as db:
+        rep = hackathons.import_protocol(db, {"source": "ctftime", "external_id": "100", "title": "Big CTF 2025"},
+                                         [{"email": email, "team": "Котики", "place": 2, "result": "победитель"}])
+        acc = db.query(ExternalAccount).filter_by(candidate_id=cid, provider="ctftime").one()
+        acc.fetched_at = None
+        db.commit()
+    body = client.post("/api/achievements/ctftime/refresh", headers=h).json()
+    big = next(a for a in body["ctftime"]["achievements"] if a["place"] == 2)
+    assert big["verified"] and big["result"] == "winner" and big["weight"] == RESULT_WEIGHT["winner"]
 
 
 def test_import_csv_matching_and_idempotency(monkeypatch):
@@ -226,7 +250,8 @@ def test_import_csv_matching_and_idempotency(monkeypatch):
         assert db.query(Achievement).filter_by(candidate_id=cid, event_id=r1["event_id"]).count() == 1
 
     hk = client.get("/api/achievements", headers=h).json()["hackathons"]
-    assert hk[0]["verified"] and hk[0]["weight"] == place_weight(1, 300, "national") and hk[0]["role"] == "backend"
+    assert hk[0]["verified"] and hk[0]["weight"] == place_weight(1, 300) and hk[0]["role"] == "backend"
+    assert hk[0]["result"] == "winner" and hk[0]["result_label"] == "победитель" and hk[0]["sport_rank"] is None
     ev = next(e for e in client.get("/api/achievements/events?source=hackathon").json() if e["id"] == r1["event_id"])
     assert ev["candidates"] == 2 and ev["tags"] == ["ML", "Python"]
 
@@ -249,6 +274,46 @@ def test_import_csv_matching_and_idempotency(monkeypatch):
         assert db.query(AuditLog).filter_by(action="protocol_imported", actor_user_id=admin_id).count() == 1
     bad = client.post("/api/achievements/import", headers=org, json={"event": {"source": "x", "external_id": "1", "title": "t"}, "rows": []})
     assert bad.status_code == 422 and "source" in bad.json()["detail"]
+
+
+def test_import_fsp_discipline_result_rank(monkeypatch):
+    """Протокол ФСП: дисциплина события, результат и разряд строки — факты; вес — только по результативности."""
+    monkeypatch.setenv("ORGANIZER_TOKEN", "org-secret")
+    org = {"Authorization": "Bearer org-secret"}
+    h, email, _ = make_candidate()
+    csv_text = f"email;place;result;rank\n{email};;финалист;I разряд\n"
+    form = {"source": "fsp", "external_id": "reg-bas-2025", "title": "Региональный этап ФСП 2025, БАС",
+            "level": "regional", "discipline": "Программирование БАС", "participants": "80"}
+    r = client.post("/api/achievements/import", data=form, files={"file": ("p.csv", csv_text)}, headers=org)
+    assert r.status_code == 200 and r.json()["matched"] == 1
+    rj = client.post("/api/achievements/import", headers=org, json={
+        "event": {"source": "fsp", "external_id": "champ-algo-2025", "title": "Чемпионат России ФСП 2025",
+                  "level": "national", "discipline": "алгоритмическое", "participants": 400},
+        "rows": [{"email": email, "place": 2, "rank": "кмс"}]})
+    assert rj.status_code == 200
+
+    body = client.get("/api/achievements", headers=h).json()
+    fsp = {a["title"]: a for a in body["fsp"]}
+    bas, algo = fsp["Региональный этап ФСП 2025, БАС"], fsp["Чемпионат России ФСП 2025"]
+    assert bas["discipline"] == "программирование беспилотных авиационных систем" and bas["result"] == "finalist"
+    assert bas["sport_rank"] == "1 разряд" and bas["weight"] == RESULT_WEIGHT["finalist"]  # result без места — из протокола
+    assert algo["discipline"] == "алгоритмическое программирование" and algo["result"] == "prize" and algo["sport_rank"] == "КМС"
+    assert body["sport_rank"] == "КМС"  # высший разряд по подтверждённым протоколам
+    assert body["signal"] == combine([RESULT_WEIGHT["prize"], RESULT_WEIGHT["finalist"]])
+    ev = next(e for e in client.get("/api/achievements/events?source=fsp").json() if e["external_id"] == "reg-bas-2025")
+    assert ev["discipline"] == "программирование беспилотных авиационных систем" and ev["level"] == "regional"
+
+    # уровень и дисциплина на вес не влияют: тот же результат на «региональном» этапе весит как на чемпионате
+    assert bas["weight"] == place_weight(None, 80, "finalist") == place_weight(40, 400)
+
+    for bad, field in [({"discipline": "шахматы"}, "discipline"), ({"level": "galactic"}, "level")]:
+        r = client.post("/api/achievements/import", headers=org, json={
+            "event": {"source": "fsp", "external_id": "x", "title": "x", **bad}, "rows": []})
+        assert r.status_code == 422 and field in r.json()["detail"]
+    for row, field in [({"result": "чемпион мира"}, "result"), ({"rank": "гроссмейстер"}, "rank")]:
+        r = client.post("/api/achievements/import", headers=org, json={
+            "event": {"source": "fsp", "external_id": "x", "title": "x"}, "rows": [{"email": email, **row}]})
+        assert r.status_code == 422 and field in r.json()["detail"] and "строка 1" in r.json()["detail"]
 
 
 def test_synthetic_never_calls_external_api(monkeypatch):

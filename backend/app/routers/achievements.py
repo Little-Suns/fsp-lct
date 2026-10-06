@@ -19,10 +19,10 @@ from starlette.concurrency import run_in_threadpool
 
 from app.db import get_db
 from app.deps import current_candidate, current_user, hash_secret
-from app.integrations import codeforces, common, ctftime, hackathons
+from app.integrations import codeforces, common, ctftime, hackathons, scoring
 from app.integrations.consent import lock_candidate, set_external_consent
-from app.integrations.scoring import combine
 from app.models import Achievement, AuditLog, Candidate, Event, ExternalAccount
+from app.services import matching
 from app.services.matching import consent_ok
 
 router = APIRouter(prefix="/api/achievements", tags=["achievements"])
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/achievements", tags=["achievements"])
 VERIFY_ATTEMPTS = 5  # проверок на один код CF; новый код (link) сбрасывает счётчик
 CACHE_TTL = timedelta(hours=1)  # не дёргаем внешний API чаще раза в час на аккаунт
 MAX_UPLOAD = 2 * 1024 * 1024  # байт: CSV или JSON протокола
-EVENT_FIELDS = ("source", "external_id", "title", "level", "date", "participants", "url", "tags")
+EVENT_FIELDS = ("source", "external_id", "title", "level", "discipline", "date", "participants", "url", "tags")
 
 
 class ConsentIn(BaseModel):
@@ -99,13 +99,17 @@ def _ach(a: Achievement) -> dict:
     return {
         "id": a.id, "source": a.source, "title": a.title, "place": a.place, "team": a.team, "role": a.role,
         "weight": a.weight, "verified": a.verified, "event_id": a.event_id,
-        "level": ev.level if ev else None, "date": ev.date if ev else None,
+        "result": a.result, "result_label": scoring.RESULT_LABEL.get(a.result), "sport_rank": a.sport_rank,
+        "discipline": ev.discipline if ev else None, "level": ev.level if ev else None, "date": ev.date if ev else None,
         "participants": ev.participants if ev else None, "url": ev.url if ev else None,
     }
 
 
 def profile(db: Session, cand: Candidate) -> dict:
-    """Форма для экрана профиля: блоки по источникам + сводный сигнал (scoring.combine)."""
+    """Форма для экрана профиля: блоки по источникам, высший разряд ФСП и сводный сигнал.
+
+    signal считается как в подборе (matching.achievement_signal): только подтверждённые достижения.
+    """
     achs = db.scalars(
         select(Achievement).where(Achievement.candidate_id == cand.id)
         .options(selectinload(Achievement.event)).order_by(Achievement.weight.desc())
@@ -126,7 +130,8 @@ def profile(db: Session, cand: Candidate) -> dict:
             "rating": ct.rating, "rank": ct.rank, "verified": False, "fetched_at": ct.fetched_at,
             "achievements": by("ctftime"),
         },
-        "signal": combine([a.weight for a in achs]),
+        "sport_rank": matching.sport_rank(achs),
+        "signal": scoring.signal(a for a in achs if a.verified),
     }
 
 
@@ -309,7 +314,10 @@ def organizer(authorization: str = Header(default=""), db: Session = Depends(get
 
 @router.post("/import")
 async def import_results(request: Request, db: Session = Depends(get_db), actor: int | None = Depends(organizer)):
-    """JSON {event:{...}, rows:[...]} или multipart: поля события + файл file (CSV email,fsp_id,team,place,role)."""
+    """JSON {event:{...}, rows:[...]} или multipart: поля события + файл file (CSV email,fsp_id,team,place,role,result,rank).
+
+    Формат полей — hackathons.import_protocol (дисциплина события, результат и разряд строки).
+    """
     ctype = request.headers.get("content-type", "")
     try:
         if ctype.startswith("multipart/form-data"):
@@ -353,7 +361,8 @@ def list_events(source: str | None = None, db: Session = Depends(get_db)):
     if source:
         q = q.where(Event.source == source)
     return [
-        {"id": e.id, "source": e.source, "external_id": e.external_id, "title": e.title, "level": e.level, "date": e.date,
+        {"id": e.id, "source": e.source, "external_id": e.external_id, "title": e.title, "level": e.level,
+         "discipline": e.discipline, "date": e.date,
          "participants": e.participants, "url": e.url, "tags": e.tags, "candidates": n}
         for e, n in db.execute(q).all()
     ]
