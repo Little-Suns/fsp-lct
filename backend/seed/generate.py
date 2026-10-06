@@ -14,6 +14,7 @@ import inspect
 import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import numpy as np
 from sqlalchemy import func, select
@@ -25,7 +26,9 @@ from app.models import (Achievement, Application, Candidate, Company, ConsentEve
                         TaskSubmission, User, Vacancy)
 
 NOW = datetime.now(UTC)
-WEEK_START = (NOW - timedelta(days=NOW.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+# неделя квоты — с понедельника 00:00 МСК, как в employer.quota; в UTC с вс 21:00 до пн 00:00 неделя была бы прошлой
+_NOW_MSK = NOW.astimezone(ZoneInfo("Europe/Moscow"))
+WEEK_START = (_NOW_MSK - timedelta(days=_NOW_MSK.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
 DAY = timedelta(days=1)
 
 # ───────────────────────── справочники генератора ─────────────────────────

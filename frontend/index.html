@@ -1988,6 +1988,8 @@ const loadSearch = async () => { D.search = await api('GET', '/api/employer/sear
 const loadVac = async () => { D.vac = await api('GET', '/api/vacancies?' + qs({ ...S.vf, limit: 50 })); };
 
 async function load(r) {
+  // данные экрана — только из этой загрузки: после ошибки не показываем то, что осталось от прошлого визита
+  for (const k of Object.keys(D)) if (k !== 'co' && k !== 'coName') delete D[k];
   if (!META) {
     META = await api('GET', '/api/meta');
     CAP = META.cap;
@@ -2055,6 +2057,7 @@ function render() {
     html = `<div class="panel stack"><p>Не удалось показать экран: данные не загрузились.</p><div class="row"><button class="btn ghost small" data-act="reload">Повторить</button></div></div>`;
   }
   $app.innerHTML = html;
+  busy(false);
   const role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
   document.querySelectorAll('.roles button').forEach(b => b.setAttribute('aria-current', b.dataset.role === role));
   document.getElementById('logout').hidden = !(role === 'c' || role === 'e') || !TOK[role];
@@ -2063,15 +2066,18 @@ function render() {
 function rerender() { const y = scrollY; render(); scrollTo(0, y); }
 
 // смена экрана: без входа — на экран входа своей роли; загрузка данных, рендер
+// пока грузится следующий экран, прежний неактивен (inert): клик по устаревшей кнопке не уйдёт с параметрами старого экрана
+function busy(on) { $app.inert = on; on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
 async function show(keep) {
   const r = route(), my = ++seq, y = scrollY;
   const side = r.split('/')[1];
+  busy(true);
   if ((side === 'c' || side === 'e') && r !== `/${side}/signup` && !TOK[side]) { go(`/${side}/signup`); return; }
   try {
     await load(r);
   } catch (e) {
     if (my === seq) fail(e);
-    if (e.status === 401) return;
+    if (e.status === 401) { if (my === seq && r === route()) busy(false); return; }
   }
   if (my !== seq || r !== route()) return;
   render();

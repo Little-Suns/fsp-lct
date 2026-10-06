@@ -44,7 +44,9 @@ test('приглашения: открыть → просмотрено, отк�
   await expect(tasks.getByText('ждёт оценки').first()).toBeVisible();
   await page.getByRole('button', { name: 'Пройти тест по приглашению' }).click();
   await expect(page.getByText('Тест по приглашению: выбор заданий смещён')).toBeVisible();
-  await expect(page.getByText(/Повышение возможно с 3 января 2027/)).toBeVisible();
+  // срок повышения — из профиля (кулдаун 90 дн. от теста); после этой даты строки нет — проверка не завязана на сегодняшний день
+  const until = await page.evaluate(() => ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? DATE(ME.next_upgrade_at) : null);
+  if (until) await expect(page.getByText('Повышение возможно с ' + until)).toBeVisible();
   await page.locator('.roles').getByRole('button', { name: 'Кандидат' }).click();
   await expect(lad).toContainText('просмотрено');
 

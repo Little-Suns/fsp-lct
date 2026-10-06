@@ -436,13 +436,18 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
   await expect(card).toContainText(title + ' (ред.)');
 
   // вторая вакансия — для отказа; третья — закрываем
+  // тост «Вакансия опубликована» мог остаться от прошлой публикации — ждём сам ответ API
   await create(`QA отказ ${id}`, 250000, 320000);
+  let made = api(page, 'POST', '/api/vacancies');
   await page.getByRole('button', { name: 'Опубликовать' }).click();
-  await expect(toast(page)).toContainText('Вакансия опубликована');
+  expect((await made).status()).toBe(200);
+  await expect(page.getByRole('heading', { name: 'Новая вакансия' })).toHaveCount(0);
   const declineCard = page.locator('.panel', { hasText: `QA отказ ${id}` }).first();
   const declineId = (await declineCard.getByRole('button', { name: 'Отклики' }).getAttribute('data-go')).split('/').pop();
   await create(`QA закрыть ${id}`, 250000, 320000);
+  made = api(page, 'POST', '/api/vacancies');
   await page.getByRole('button', { name: 'Опубликовать' }).click();
+  expect((await made).status()).toBe(200);
   const closeCard = page.locator('.panel', { hasText: `QA закрыть ${id}` }).first();
   await closeCard.getByRole('button', { name: 'Закрыть' }).click();
   await expect(toast(page)).toHaveText('Вакансия закрыта');
@@ -456,8 +461,12 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
     await expect(page.getByRole('button', { name: 'Откликнуться' })).toBeVisible();
     await noXss(page);
     if (note) await page.getByLabel('Короткая заметка, по желанию').fill(note);
+    // одинаковый тост второго отклика неотличим от первого — проверяем ответ API и итог на экране
+    const applied = api(page, 'POST', `/api/vacancies/${vid}/apply`);
     await page.getByRole('button', { name: 'Откликнуться' }).click();
+    expect((await applied).status()).toBe(200);
     await expect(toast(page)).toHaveText('Отклик отправлен: компания видит ваши контакты');
+    await expect(page.getByText('Вы откликнулись:')).toBeVisible();
   }
   await expect(page.getByRole('heading', { name: `QA отказ ${id}` })).toBeVisible();
 

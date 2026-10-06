@@ -18,6 +18,7 @@ module.exports = defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     locale: 'ru-RU',
+    timezoneId: 'Europe/Moscow',  // даты на экране одинаковы локально и в CI (раннер в UTC)
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
