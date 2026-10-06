@@ -935,6 +935,7 @@ V['/c/home'] = () => {
   if (!ME) return noProfile('Кабинет кандидата');
   const list = (D.invites && D.invites.items) || [];
   const open = D.invites ? D.invites.open : 0;
+  const invErr = !D.invites;
   const tg = list.find(isOpen) || list[0];
   return `
   ${crumbs([['Главная', '/'], ['Кабинет кандидата']])}
@@ -961,6 +962,7 @@ V['/c/home'] = () => {
       </div>
 
       <div class="row sb"><h2>Приглашения</h2><span class="small muted num">открыто ${open} из ${CAP}</span></div>
+      ${invErr ? '<div class="panel small stack-s"><span>Не удалось загрузить приглашения.</span><div class="row"><button class="btn ghost small" data-act="reload">Повторить</button></div></div>' : ''}
       ${list.map(inv => `<button class="inv" data-go="/c/invite/${inv.id}">
           <span class="logo-sq" style="background:${esc(inv.color)}">${esc(inv.company[0])}</span>
           <span class="stack-s" style="gap:2px;min-width:0">
@@ -969,7 +971,7 @@ V['/c/home'] = () => {
             <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)}</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
           </span>
           <span class="stack-s" style="align-items:flex-end">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
-        </button>`).join('') || '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>'}
+        </button>`).join('') || (invErr ? '' : '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>')}
     </div>
     <aside class="stack">
       ${tg ? `<div class="panel tight stack">
@@ -2193,7 +2195,7 @@ async function load(r) {
     else if (page === 'result') {
       [D.result, ACH, D.history] = await Promise.all([S.finish || or404(api('GET', '/api/quest/result')), api('GET', '/api/achievements'), api('GET', '/api/quest/history')]);
     }
-    else if (page === 'home') D.invites = await api('GET', '/api/candidate/invites');
+    else if (page === 'home') { D.invites = null; D.invites = await api('GET', '/api/candidate/invites'); }  // null — признак ошибки загрузки
     else if (page === 'invite') {
       [D.inv, D.invTasks] = await Promise.all([or404(api('GET', '/api/candidate/invites/' + encodeURIComponent(arg))), or404(api('GET', '/api/tasks/for-invitation/' + encodeURIComponent(arg)))]);
       S.declineFor = null;

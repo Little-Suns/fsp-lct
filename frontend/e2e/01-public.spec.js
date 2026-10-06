@@ -109,8 +109,11 @@ test('ошибки сервера: тост на 5xx, «Сервер недос�
   await open(page, '/c/vacancies');
   await open(page, '/c/home');
   await expect(toast(page)).toHaveText('Внутренняя ошибка сервера');
-  await expect(page.getByText('Приглашений пока нет')).toBeVisible();
+  await expect(page.getByText('Не удалось загрузить приглашения')).toBeVisible();
+  await expect(page.getByText('Приглашений пока нет')).toHaveCount(0);
   await page.unroute('**/api/candidate/invites');
+  await page.getByRole('button', { name: 'Повторить' }).click();
+  await expect(page.getByText('Не удалось загрузить приглашения')).toHaveCount(0);
 
   await page.route('**/api/candidate/invites', r => r.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' }));
   await open(page, '/c/vacancies');
