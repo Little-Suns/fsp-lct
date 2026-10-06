@@ -20,7 +20,7 @@ import numpy as np
 from sqlalchemy import func, select
 
 from app import catalog as C
-from app.db import Base, SessionLocal, engine
+from app.db import SessionLocal, engine, init_db, reset_schema
 from app.integrations.scoring import place_weight
 from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Message, Need, Task,
                         TaskSubmission, User, Vacancy)
@@ -869,17 +869,15 @@ def summary(db, res: dict, secs: float) -> None:
 
 def main():
     ap = argparse.ArgumentParser(description="Синтетические данные ФСП Карьеры")
-    ap.add_argument("--reset", action="store_true", help="drop_all + create_all перед генерацией")
+    ap.add_argument("--reset", action="store_true", help="пустая схема (DROP SCHEMA public CASCADE) + все миграции перед генерацией")
     ap.add_argument("--candidates", type=int, default=1500)
     ap.add_argument("--needs", type=int, default=250)
     ap.add_argument("--seed", type=int, default=42)
     a = ap.parse_args()
-    from app import models  # noqa: F401 — регистрирует таблицы
-
     if a.reset:
-        print(f"--reset: пересоздаю таблицы в {engine.url.render_as_string(hide_password=True)}")
-        Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+        print(f"--reset: пересоздаю схему в {engine.url.render_as_string(hide_password=True)}")
+        reset_schema()
+    init_db()  # миграции (после --reset — no-op) и сверка схемы
     t0 = time.time()
     with SessionLocal() as db:
         if db.scalar(select(User).where(User.email == "d.orlov@example.ru")):
