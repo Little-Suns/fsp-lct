@@ -476,51 +476,83 @@ def _contacts(text: str) -> dict:
 _URL_RX = (r"(?:https?://|www\.)[^\s<>\"'«»()]+|(?<![\w.@-])(?:[a-z0-9-]+\.)*(?:github\.com|gitlab\.com|linkedin\.com|vk\.com|hh\.ru|"
            r"habr\.com|leetcode\.com|codeforces\.com|kaggle\.com|stackoverflow\.com|facebook\.com|instagram\.com|ok\.ru|about\.me|"
            r"t\.me)(?:/[^\s<>\"'«»()]*)?|(?<![\w.@-])[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,4}\.(?:ru|com|me|io|dev|рф|su|pro)/[^\s<>\"'«»()]+")
-# +7 / 8 / +375 … и 10 цифр с разделителями; голые 10 цифр с 9 — мобильный без кода страны. Годы и суммы не трогаем.
-_PHONE_RX = r"(?<![\d+])(?:(?:\+\s?\d{1,3}|8)[\s(-]{0,2}\d{3}[\s)-]{0,2}\d{3}[\s-]?\d{2}[\s-]?\d{2}|9\d{9})(?!\d)"
+# «ivan (at) gmail (dot) com», «ivan [собака] mail.ru», «ivan at gmail dot com»
+_EMAIL_OBF_RX = (r"(?<![\w.-])[a-z0-9._%+-]{1,64}[ \t]*(?:[(\[{][ \t]*(?:at|собака)[ \t]*[)\]}]|[ \t](?:at|собака)[ \t])[ \t]*[a-z0-9-]{1,63}"
+                 r"(?:[ \t]*(?:[(\[{][ \t]*(?:dot|точка)[ \t]*[)\]}]|[ \t](?:dot|точка)[ \t]|\.)[ \t]*[a-z0-9-]{1,63}){1,4}")
+# Telegram / Instagram с подписью без «@» и двоеточия («Telegram ivan_petrov», «тг: ivan»), голые @ники от 3 символов
+_HANDLE_RX = (r"(?<![\w-])(?:telegram|телеграм\w*|тг|tg|instagram|инстаграм\w*|insta)(?:[ \t]{0,3}[:—–-][ \t]{0,3}|[ \t]{1,3})@?[a-z][a-z0-9_.]{2,31}(?![\w@])"
+              r"|(?<![\w.@/])@[a-z][a-z0-9_]{2,31}(?![\w@]|\.\w)")
+# +7 / 8 / +375 … и 10 цифр с разделителями; мобильный 9XX — и без кода страны, и с «7» без плюса. Годы и суммы не трогаем.
+_PHONE_RX = (r"(?<![\d+])(?:(?:\+\s?\d{1,3}|8)[\s(-]{0,2}\d{3}[\s)-]{0,2}\d{3}[\s-]?\d{2}[\s-]?\d{2}"
+             r"|7?\(?9\d{2}\)?[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2})(?!\d)")
 _LABELED_RX = (r"(?<![\w-])(телефон|тел\.?|моб\.?|phone|mobile|whatsapp|viber|skype|github|gitlab|linkedin|vk|вконтакте|habr|хабр|"
-               r"leetcode|codeforces|сайт|site|website|portfolio|портфолио)(?:[ \t]{0,3}:|[ \t]{1,3}[—–-])[ \t]{0,3}[^\s|,;·•]+")
-# строки с адресом, датой рождения, гражданством и семейным положением в модель не идут целиком
-_PERSONAL_LINE_RX = (r"(?<![\w-])(?:адрес\w*[ \t]*(?::|прожив|регистр)|(?:home )?address[ \t]*:|ул\.|улиц[аеы] |проспект|пр-т|"
-                     r"переул\w*|бульвар|шоссе|набережн\w*|кв\.|квартир\w*|дата рождения|д\.[ \t]?р\.|родил(?:ся|ась)|date of birth|"
+               r"leetcode|codeforces|сайт|site|website|portfolio|портфолио)(?:[ \t]{0,3}:|[ \t]{1,3}[—–-])[ \t]{0,3}(?!\[)[^\s|,;·•]+")
+# строки с адресом, датой рождения, гражданством и семейным положением в модель не идут целиком;
+# признаки адреса — с номером или названием рядом, чтобы «2 кв. 2023» и «IP-адрес» не стирали строку с навыками
+_PERSONAL_LINE_RX = (r"(?<![\w-])(?:адрес[ \t]*(?::|прожив|регистр)|(?:home )?address[ \t]*:|ул\.[ \t]*[А-ЯЁ\d]|улиц[аеы][ \t]+[А-ЯЁ]|"
+                     r"(?:проспект|пр-т|переулок|пер\.|бульвар|б-р|шоссе|набережная|наб\.|площадь|пл\.)[ \t]*[А-ЯЁ\d]|"
+                     r"[А-ЯЁ][а-яё]+[ \t]+(?:проспект|переулок|бульвар|шоссе|набережная)|(?<!\d[ \t])(?<![IV][ \t])кв\.[ \t]?\d|"
+                     r"квартир[аеыу][ \t]*\d|д\.[ \t]?\d+[ \t]*,[ \t]*кв|дата рождения|д\.[ \t]?р\.|родил(?:ся|ась)|date of birth|"
                      r"гражданств\w*|citizenship|семейн\w* положен\w*|marital)")
 _PATRONYMIC = r"[А-ЯЁ][а-яё]+(?:ович|евич|ьич|овна|евна|ична|инична)(?:а|у|ем|ом|е|ой|ы)?"
+_SURNAME_END = r"(?:ов|ев|ёв|ин|ын|ский|цкий|ова|ева|ёва|ина|ына|ская|цкая|енко|ук|юк)"
 _NAME_RXS = [
     rf"(?im)^[ \t]*(?:фио|ф\.и\.о\.?|имя|фамилия|full name|name)[ \t]*[:—–-][ \t]*([^\n]+)",  # подпись поля → всё значение
     rf"(?i:меня зовут|my name is)[ \t]+({_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{0,2}})",
     rf"((?:{_NAME_WORD}[ \t]+){{1,2}}{_PATRONYMIC}(?:[ \t]+{_NAME_WORD})?)",  # Иванов Сергей Петрович / Сергей Петрович Иванов
     r"([А-ЯЁ][а-яё]{2,}[ \t]+[А-ЯЁ]\.[ \t]?(?:[А-ЯЁ]\.)?|[А-ЯЁ]\.[ \t]?(?:[А-ЯЁ]\.[ \t]?)?[А-ЯЁ][а-яё]{2,})",  # Иванов С. П. / С. П. Иванов
     # пара слов с заглавной, одно — с типичным окончанием фамилии: «Петров Иван», «Ivan Petrov»
-    r"([А-ЯЁ][а-яё]+[ \t]+[А-ЯЁ][а-яё]*(?:ов|ев|ёв|ин|ын|ский|цкий|ова|ева|ёва|ина|ына|ская|цкая|енко|ук|юк)"
-    r"|[А-ЯЁ][а-яё]*(?:ов|ев|ёв|ин|ын|ский|цкий|ова|ева|ёва|ина|ына|ская|цкая|енко|ук|юк)[ \t]+[А-ЯЁ][а-яё]+"
+    rf"([А-ЯЁ][а-яё]+[ \t]+[А-ЯЁ][а-яё]*{_SURNAME_END}|[А-ЯЁ][а-яё]*{_SURNAME_END}[ \t]+[А-ЯЁ][а-яё]+"
     r"|[A-Z][a-z]+[ \t]+[A-Z][a-z]*(?:ov|ev|ova|eva|ina|sky|skiy|skaya|enko|uk)|[A-Z][a-z]*(?:ov|ev|ova|eva|ina|sky|skiy|skaya|enko|uk)[ \t]+[A-Z][a-z]+)(?![\w-])",
 ]
+# частые имена — ловят имя без фамилии («Контакты: Иван», «О себе: Мария»); только с заглавной
+_FIRST_NAMES = (
+    "Александр Алексей Анатолий Андрей Антон Аркадий Арсений Артём Артем Артур Богдан Борис Вадим Валентин Валерий Василий Виктор Виталий "
+    "Владимир Владислав Всеволод Вячеслав Геннадий Георгий Глеб Григорий Даниил Данил Денис Дмитрий Евгений Егор Захар Иван Игорь Илья "
+    "Кирилл Константин Леонид Максим Марат Матвей Михаил Никита Николай Олег Павел Пётр Петр Платон Родион Роман Руслан Савелий Святослав "
+    "Семён Семен Сергей Станислав Степан Тимофей Тимур Фёдор Федор Филипп Эдуард Юрий Ярослав Александра Алина Алиса Алёна Алена Алла "
+    "Анастасия Ангелина Анна Антонина Арина Валентина Валерия Варвара Вероника Виктория Галина Дарья Диана Евгения Екатерина Елена "
+    "Елизавета Жанна Зарина Злата Инна Ирина Карина Кира Кристина Ксения Лариса Лидия Лилия Людмила Маргарита Марина Мария Милана Наталья "
+    "Наталия Нина Оксана Олеся Ольга Полина Регина Светлана София Софья Таисия Тамара Татьяна Ульяна Эвелина Юлия Яна "
+    "Alexander Alexey Andrey Anton Artem Boris Denis Dmitry Dmitriy Egor Evgeny Igor Ilya Ivan Kirill Konstantin Maxim Mikhail Nikita "
+    "Nikolay Oleg Pavel Roman Ruslan Sergey Sergei Stanislav Timur Vadim Vladimir Vladislav Yury Yuri Alina Anastasia Anna Daria Darya "
+    "Ekaterina Elena Irina Julia Yulia Ksenia Maria Marina Natalia Olga Polina Svetlana Sofia Tatiana Victoria Viktoria"
+).split()
+_FIRST_NAME_RX = rf"(?<![{_W}])(?:{'|'.join(sorted(_FIRST_NAMES, key=len, reverse=True))})(?:[ауеыой]|ом|ой|ей|ем)?(?![{_W}])"
 
 
 def _name_words(text: str) -> set[str]:
-    """Слова, похожие на ФИО: имя из шапки (как в контактах) + подписи, отчества, инициалы, «Фамилия Имя»."""
+    """Слова, похожие на ФИО: имя из шапки (как в контактах), подписи, отчества, инициалы, «Фамилия Имя»,
+    а в первых строках — ещё ФИО капсом («ИВАН ПЕТРОВ») и одиночная фамилия («Петров, Python Developer»)."""
     found = [n] if (n := _name(text)) else []
     for rx in _NAME_RXS:
         found += [m[1] for m in re.finditer(rx, text)]
+    for line in [ln for ln in text.splitlines() if ln.strip()][:3]:
+        if re.fullmatch(r"[ \t]*[А-ЯЁA-Z]{2,}(?:-[А-ЯЁA-Z]{2,})?(?:[ \t]+[А-ЯЁA-Z]{2,}(?:-[А-ЯЁA-Z]{2,})?){1,2}[ \t]*", line):
+            found.append(line)
+        found += re.findall(rf"(?<![{_W}])[А-ЯЁ][а-яё]+{_SURNAME_END}(?![{_W}])", line)
     words = {w for f in found for w in re.findall(r"[A-Za-zА-Яа-яЁё]{2,}", f)}
     return {w for w in words if w.lower() not in _NOT_NAME and _spec(w.lower(), []) is None}
 
 
 def mask_pii(text: str) -> str:
     """Текст для внешней модели: ПДн заменены метками, навыки, стаж и места работы остаются.
-    ponytail: правила, а не NER — редкие имена вне шапки без отчества и «фамильного» окончания пройдут; NER (Natasha), если понадобится."""
+    ponytail: правила, а не NER — редкое имя вне шапки без отчества, «фамильного» окончания и не из списка частых пройдёт;
+    NER (Natasha), если понадобится."""
     names = _name_words(text)
     lines = ["[личное]" if re.search(_PERSONAL_LINE_RX, ln, re.IGNORECASE) else ln for ln in text.split("\n")]
     text = "\n".join(lines)
     text = re.sub(_EMAIL_RX, "[почта]", text, flags=re.IGNORECASE)
+    text = re.sub(_EMAIL_OBF_RX, "[почта]", text, flags=re.IGNORECASE)
     text = re.sub(_URL_RX, "[ссылка]", text, flags=re.IGNORECASE)
     text = re.sub(_TG_RX, "[telegram]", text, flags=re.IGNORECASE)
+    text = re.sub(_HANDLE_RX, "[telegram]", text, flags=re.IGNORECASE)
     text = re.sub(_PHONE_RX, "[телефон]", text)  # до подписей: иначе «Телефон: +7 (999)…» съест только «+7»
     text = re.sub(_LABELED_RX, r"\1: [контакт]", text, flags=re.IGNORECASE)
     if names:  # и все упоминания тех же слов дальше по тексту, с падежным окончанием
         alt = "|".join(re.escape(w) for w in sorted(names, key=len, reverse=True))
         text = re.sub(rf"{_B}(?:{alt})[а-яёa-z]{{0,3}}(?![{_W}])", "[имя]", text, flags=re.IGNORECASE)
-    return text
+    return re.sub(_FIRST_NAME_RX, "[имя]", text)
 
 
 # ---------- подсказка грейда ----------
@@ -556,7 +588,7 @@ def _marker(s: str) -> tuple[str, str] | None:
 
 def grade_hint(text: str, years: float | None, roles: list[str], experience: list[dict]) -> dict | None:
     """Предполагаемый грейд по резюме: {"grade", "why"} или None. Только предвыбор в форме — кандидат выбирает
-    сам, тест подтверждает. Порядок: маркер в шапке или последней должности → роль тимлида → маркер в тексте → стаж.
+    сам, тест подтверждает. Порядок: маркер в шапке или последней должности → роль тимлида → стаж → маркер в тексте.
     Достижения ФСП сюда не входят: по инварианту они меняют место в категории, но не грейд."""
     # шапка — первые строки без периодов работы: «2015 — 2018 Банк, junior» — прошлая должность, а не текущий уровень
     head = " ".join(ln for ln in [ln.strip() for ln in text.splitlines() if ln.strip()][:3] if len(ln) <= 80 and not _RANGE_RX.search(ln))
@@ -568,8 +600,10 @@ def grade_hint(text: str, years: float | None, roles: list[str], experience: lis
             break
     if not grade and {"Тимлид", "Техлид"} & set(roles):
         grade, why = "Lead", ["в резюме — руководство командой"]
-    if not grade and (m := _marker(text.lower())):
-        grade, why = m[0], [f"в тексте резюме — «{m[1]}»"]
+    if not grade and (m := _marker(text.lower())):  # маркер где-то в тексте слабее стажа: «Intern at Yandex 2015» у сеньора
+        why = [f"в тексте резюме — «{m[1]}»"]
+        if years is None:
+            grade = m[0]
     if years is not None:
         by_years = _years_grade(years)
         if not grade:

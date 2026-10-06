@@ -21,12 +21,15 @@ from app import config
 log = logging.getLogger(__name__)
 _down_until = 0.0  # после сбоя не дёргаем модель минуту, чтобы не копить таймауты
 _token = ("", 0.0)  # GigaChat: access token и момент истечения (time.time())
-_token_lock = threading.Lock()
+_token_lock = threading.Lock()  # один запрос токена на всех: остальные потоки ждут его, а не шлют свои
+_PROVIDERS = ("none", "ollama", "openai_compatible", "yandexgpt", "gigachat")
+if config.LLM_PROVIDER not in _PROVIDERS:
+    log.warning("LLM_PROVIDER=%r не поддерживается (%s) — работаю на правилах", config.LLM_PROVIDER, ", ".join(_PROVIDERS))
 
 
 def _enabled() -> bool:
     p = config.LLM_PROVIDER
-    if p not in ("ollama", "openai_compatible", "yandexgpt", "gigachat") or not config.LLM_BASE_URL:
+    if p not in _PROVIDERS or p == "none" or not config.LLM_BASE_URL:
         return False
     if p == "yandexgpt":
         return bool(config.LLM_API_KEY and config.YANDEX_FOLDER_ID)
@@ -46,12 +49,13 @@ def _verify() -> ssl.SSLContext | bool:
     return _ssl_context(config.LLM_CA_BUNDLE) if config.LLM_CA_BUNDLE else True
 
 
-def _gigachat_token(force: bool = False) -> str:
-    """OAuth-токен GigaChat по ключу авторизации; живёт 30 минут, обновляем за минуту до истечения."""
+def _gigachat_token(stale: str = "") -> str:
+    """OAuth-токен GigaChat по ключу авторизации; живёт 30 минут, обновляем за минуту до истечения.
+    stale — токен, на который API ответил 401: обновляем, только если его ещё не заменил соседний поток."""
     global _token
     with _token_lock:
         tok, exp = _token
-        if tok and not force and time.time() < exp - 60:
+        if tok and tok != stale and time.time() < exp - 60:
             return tok
         r = httpx.post(
             config.GIGACHAT_OAUTH_URL,
@@ -66,19 +70,18 @@ def _gigachat_token(force: bool = False) -> str:
         return _token[0]
 
 
-def _headers(force_token: bool = False) -> dict:
+def _headers(stale: str = "") -> dict:
     p = config.LLM_PROVIDER
     if p == "gigachat":
-        return {"Authorization": f"Bearer {_gigachat_token(force_token)}"}
+        return {"Authorization": f"Bearer {_gigachat_token(stale)}"}
     if p == "yandexgpt":
         # логирование запросов на стороне Yandex для дообучения выключаем явно
         return {"Authorization": f"Api-Key {config.LLM_API_KEY}", "x-folder-id": config.YANDEX_FOLDER_ID, "x-data-logging-enabled": "false"}
     return {"Authorization": f"Bearer {config.LLM_API_KEY}"} if config.LLM_API_KEY else {}
 
 
-def _send(path: str, body: dict, force_token: bool = False) -> httpx.Response:
-    return httpx.post(config.LLM_BASE_URL.rstrip("/") + path, json=body, headers=_headers(force_token),
-                      timeout=config.LLM_TIMEOUT, verify=_verify())
+def _send(path: str, body: dict, headers: dict) -> httpx.Response:
+    return httpx.post(config.LLM_BASE_URL.rstrip("/") + path, json=body, headers=headers, timeout=config.LLM_TIMEOUT, verify=_verify())
 
 
 def _post(path: str, body: dict) -> dict | None:
@@ -86,13 +89,16 @@ def _post(path: str, body: dict) -> dict | None:
     if not _enabled() or time.monotonic() < _down_until:
         return None
     try:
-        r = _send(path, body)
+        h = _headers()
+        r = _send(path, body, h)
         if r.status_code == 401 and config.LLM_PROVIDER == "gigachat":  # токен отозван раньше срока — один повтор с новым
-            r = _send(path, body, force_token=True)
+            r = _send(path, body, _headers(stale=h["Authorization"].removeprefix("Bearer ")))
         r.raise_for_status()
         return r.json()
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:  # ValueError — не JSON; KeyError/TypeError — ответ OAuth
-        log.warning("LLM недоступна (%s), переключаюсь на правила", type(e).__name__)
+    # ValueError — не JSON; KeyError/TypeError — ответ OAuth; OSError — не читается LLM_CA_BUNDLE
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, OSError) as e:
+        status = getattr(getattr(e, "response", None), "status_code", "")  # только тип и код: в тексте ошибки бывает адрес
+        log.warning("LLM недоступна (%s %s), переключаюсь на правила", type(e).__name__, status)
         _down_until = time.monotonic() + 60
         return None
 

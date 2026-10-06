@@ -221,6 +221,27 @@ def test_gigachat_token_refresh_on_expiry_and_401(giga):
     assert llm.chat_json("s", "u") == {"auth": "Bearer tok3"} and llm._down_until == 0.0
 
 
+def test_gigachat_401_does_not_refetch_token_refreshed_by_neighbour(giga):
+    llm._token = ("fresh", time.time() + 1800)  # соседний поток уже обновил токен
+    assert llm._gigachat_token(stale="old") == "fresh" and giga.state["n"] == 0
+
+
+def test_bad_ca_bundle_falls_back_to_rules(model, monkeypatch):
+    monkeypatch.setattr(config, "LLM_CA_BUNDLE", "/nonexistent/russian_trusted_root_ca.pem")  # не смонтировали сертификат
+    assert llm.chat_json("s", "u") is None and llm._down_until > 0  # не 500, а правила
+
+
+def test_unknown_provider_warns_at_import(monkeypatch, caplog):
+    import importlib
+
+    monkeypatch.setattr(config, "LLM_PROVIDER", "yandex")
+    with caplog.at_level("WARNING"):
+        importlib.reload(llm)
+    assert "не поддерживается" in caplog.text
+    monkeypatch.undo()
+    importlib.reload(llm)
+
+
 def test_gigachat_oauth_failure_falls_back(giga):
     giga.state["oauth"] = 401
     assert llm.chat_json("s", "u") is None and llm._down_until > 0
@@ -535,6 +556,16 @@ def test_need_pii_not_sent_to_model(model):
         ("Name: Ivan Petrov\nGo, gRPC", ["Ivan", "Petrov"], ["Go, gRPC"]),
         ("ФИО: Ли Ван\nk8s", ["Ли", "Ван"], ["k8s"]),
         ("phone - 89161234567, skype: ivan.p", ["89161234567", "ivan.p"], ["phone"]),
+        # найдено ревью: ник без «@» и двоеточия, ФИО капсом, одиночное имя, «(at)», телефоны без «+», имя перед стеком
+        ("Telegram ivan_petrov; тг: vanya; Instagram: @foo; пишите @ivan", ["ivan_petrov", "vanya", "foo", "@ivan"], []),
+        ("ИВАН ПЕТРОВ\nPython Developer\nПетрова Мария — коллега", ["ИВАН", "ПЕТРОВ", "Петрова", "Мария"], ["Python Developer"]),
+        ("Python.\nКонтакты: Иван\nО себе: Ивану интересен Go", ["Иван"], ["Python", "Go"]),
+        ("ivan.petrov (at) gmail.com, ivan [at] mail [dot] ru, ivan at yandex dot ru", ["ivan", "gmail", "yandex"], []),
+        ("916-123-45-67, 79161234567, (916) 123 45 67", ["916", "79161234567"], []),
+        ("Сидоров Python Developer Москва", ["Сидоров"], ["Python Developer"]),
+        ("Улица: ул. Ленина, д. 5\nЖиву: Невский проспект 10", ["Ленина", "Невский"], []),
+        # не ПДн: квартал, Telegram-боты, установка, Java-аннотации на месте ника допустимы
+        ("Во 2 кв. 2023 вывел продукт; Python\nTelegram-боты на aiogram, installation scripts", [], ["2 кв. 2023", "Python", "aiogram", "installation"]),
         # не ПДн: годы, суммы, периоды, индексы БД, IP-адрес, GitHub Actions, стек через «/»
         ("2019-2021, 150000-200000 руб, оптимизировал индексы, IP-адрес, GitHub Actions, github-actions, Node.js/TypeScript", [],
          ["2019-2021", "150000-200000", "индексы", "IP-адрес", "GitHub Actions", "github-actions", "Node.js/TypeScript"]),
@@ -560,7 +591,9 @@ def test_mask_pii(text, gone, kept):
         ("Go. Опыт 3 года", "Middle", "опыт 3 г."),
         ("Go. Опыт 7 лет", "Senior", "опыт 7 г."),
         ("Стажёр-аналитик. SQL", "Intern", "«стажёр»"),
-        ("Python. Сейчас работаю как junior developer в стартапе. Опыт 4 года", "Junior", "скорее Middle"),
+        ("Резюме\nPython\nGo\nСейчас работаю как junior developer в стартапе. Опыт 4 года", "Middle", "в тексте резюме — «junior»; опыт 4 г."),
+        ("Резюме\nPython\nGo\nIntern at Yandex 2015, потом senior. 7 лет опыта", "Senior", "«intern»; опыт 7 г."),  # стаж сильнее маркера в тексте
+        ("Резюме\nPython\nGo\nСейчас работаю как junior developer в стартапе", "Junior", "в тексте резюме — «junior»"),
     ],
 )
 def test_grade_hint(no_llm, text, grade, why):
