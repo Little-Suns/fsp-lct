@@ -60,6 +60,7 @@ jobs:
       - name: Песочница из docker-compose (read_only, cgroup private, внутренняя сеть) — здорова и без выхода наружу
         run: |
           export SANDBOX_TOKEN=$(openssl rand -hex 16)
+          export SANDBOX_CPUS=$(nproc)  # раннер — 2 CPU, а cpus в compose не может превышать число CPU хоста
           docker compose up -d --build --wait sandbox
           docker compose exec -T sandbox python3 -c "import socket
           for h in [('1.1.1.1', 80), ('github.com', 443)]:
