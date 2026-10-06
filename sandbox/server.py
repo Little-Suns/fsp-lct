@@ -127,11 +127,12 @@ def _snippet(text: str) -> str | None:
 
 def _classify(rc: int, wall_ms: int, time_ms: int, out: str, err: str) -> tuple[str, object, str | None]:
     """(статус, значение, сообщение) по коду выхода, стенке и выводу обвязки."""
-    lines = [ln for ln in out.split("\n") if ln.startswith(MARK)]
+    # последняя строка-маркер (rfind, а не split: 4 МБ из переводов строк не раздувают память сервиса)
+    i = out.rfind(MARK)
     res = None
-    if lines:
+    if i >= 0:
         try:
-            res = json.loads(lines[-1][len(MARK):])
+            res = json.loads(out[i + len(MARK):].split("\n", 1)[0])
         except (ValueError, RecursionError):  # строку мог написать сам кандидат (fd 1): битый или сверхвложенный JSON — не наш сбой
             res = None
     if isinstance(res, dict) and "ok" in res:
@@ -139,7 +140,8 @@ def _classify(rc: int, wall_ms: int, time_ms: int, out: str, err: str) -> tuple[
     if wall_ms >= time_ms:
         return "tle", None, None
     if isinstance(res, dict) and res.get("error") in ("ce", "re", "mle"):
-        return res["error"], None, res.get("msg")
+        msg = res.get("msg")
+        return res["error"], None, msg if isinstance(msg, str) else None  # маркер мог подделать сам кандидат
     if "heap out of memory" in err or "Allocation failed" in err or "Cannot allocate Wasm memory" in err:
         return "mle", None, None
     if "SyntaxError" in err or "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX" in err or "ERR_INVALID_TYPESCRIPT_SYNTAX" in err:

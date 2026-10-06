@@ -291,6 +291,16 @@ def test_forged_deep_result_is_not_a_crash():
     assert code == 200 and r["results"][0]["status"] in ("re", "wrong"), r
 
 
+def test_forged_error_marker_with_odd_msg():
+    for msg in ("123", "[1, [2]]", "{\"a\": 1}"):
+        code = f"import os\n\nos.write(1, b'\\x1eRESULT {{\"error\": \"re\", \"msg\": {msg}}}\\n')\nos._exit(0)\n\ndef f():\n    return 1\n"
+        st, r = one("python", code, 1)
+        assert st == "re" and r["stderr"] is None, (msg, r)
+    # маркер после вывода без перевода строки тоже находится
+    st, _ = one("python", "import os\n\ndef f():\n    os.write(1, 'шум'.encode())  # без буфера и без перевода строки — прямо перед маркером\n    return 1\n", 1)
+    assert st == "ok"
+
+
 def test_unexpected_error_is_500(monkeypatch):
     def boom(*a):
         raise OSError("диск")
