@@ -280,6 +280,26 @@ def test_forged_jail_error_is_candidate_error():
     assert st == "re"
 
 
+def test_forged_deep_result_is_not_a_crash():
+    """Сверхвложенная строка-маркер от самого решения — вердикт, а не падение обработчика (иначе API обнулил бы задачу)."""
+    deep = "import os\n\nos.write(1, b'\\x1eRESULT ' + b'[' * 100000 + b']' * 100000 + b'\\n')\nos._exit(0)\n\ndef f():\n    return 1\n"
+    code, r = server.handle_run({"lang": "python", "code": deep, "harness": {"entry": "f"}, "tests": [{"args": [], "expected": 1}]})
+    assert code == 200 and r["results"][0]["status"] in ("re", "wrong"), r
+    ts = ("import * as fs from 'node:fs';\nfs.writeSync(1, '\\x1eRESULT {\"ok\":' + '['.repeat(100000) + ']'.repeat(100000) + '}\\n');\n"
+          "process.exit(0);\nfunction f() { return 1; }")
+    code, r = server.handle_run({"lang": "typescript", "code": ts, "harness": {"entry": "f"}, "tests": [{"args": [], "expected": 1}], "echo": True})
+    assert code == 200 and r["results"][0]["status"] in ("re", "wrong"), r
+
+
+def test_unexpected_error_is_500(monkeypatch):
+    def boom(*a):
+        raise OSError("диск")
+
+    monkeypatch.setattr(server, "_prepare", boom)
+    code, r = server.handle_run({"lang": "python", "code": "def f():\n    return 1\n", "harness": {"entry": "f"}, "tests": [{"args": [], "expected": 1}]})
+    assert code == 500 and r["detail"] == "Внутренняя ошибка песочницы"
+
+
 def test_overload_returns_429(monkeypatch):
     monkeypatch.setattr(server, "QUEUE_WAIT_S", 0.1)
     for _ in range(server.WORKERS):

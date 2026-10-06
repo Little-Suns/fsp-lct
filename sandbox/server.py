@@ -132,7 +132,7 @@ def _classify(rc: int, wall_ms: int, time_ms: int, out: str, err: str) -> tuple[
     if lines:
         try:
             res = json.loads(lines[-1][len(MARK):])
-        except ValueError:
+        except (ValueError, RecursionError):  # строку мог написать сам кандидат (fd 1): битый или сверхвложенный JSON — не наш сбой
             res = None
     if isinstance(res, dict) and "ok" in res:
         return "ok", res["ok"], None
@@ -236,11 +236,15 @@ def run(req: dict) -> dict:
                 results.append({"status": stop or "skip", "time_ms": 0})
                 continue
             status, ms, got, msg = _run_one(task, io, req["lang"], req["entry"], t["args"], req["time_ms"], req["memory_mb"])
-            if status == "ok" and not _same(got, t["expected"]):
-                status = "wrong"
+            try:
+                if status == "ok" and not _same(got, t["expected"]):
+                    status = "wrong"
+                shown = json.dumps(got, ensure_ascii=False)[:200] if req["echo"] and status in ("ok", "wrong") else None
+            except (RecursionError, ValueError, TypeError):  # сверхвложенный результат — неверный ответ, а не падение сервиса
+                status, shown = "wrong", None
             r = {"status": status, "time_ms": ms}
             if req["echo"]:
-                r["got"] = json.dumps(got, ensure_ascii=False)[:200] if status in ("ok", "wrong") else None
+                r["got"] = shown
             results.append(r)
             if msg and stderr is None:
                 stderr = msg[:SNIPPET_MAX]
@@ -276,6 +280,9 @@ def handle_run(req) -> tuple[int, dict]:
         except JailError as e:
             print(f"sandbox: сбой nsjail: {e}", file=sys.stderr, flush=True)
             return 503, {"detail": "Песочница неисправна"}
+        except Exception as e:  # noqa: BLE001 — непредвиденная ошибка сервиса: ответ 500 вместо оборванного соединения
+            print(f"sandbox: внутренняя ошибка: {type(e).__name__}", file=sys.stderr, flush=True)
+            return 500, {"detail": "Внутренняя ошибка песочницы"}
         finally:
             with _pending_lock:
                 _busy -= 1

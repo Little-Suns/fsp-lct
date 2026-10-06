@@ -71,6 +71,8 @@ def box(monkeypatch):
             raise sandbox.Busy("тест")
         if "REJECT" in code:
             raise sandbox.Rejected("тест")
+        if "FAULTY" in code:
+            raise sandbox.Faulty("тест")
         st = "ok" if "OK" in code else "wrong"
         res = [{"status": st if i == 0 or st == "ok" else "skip", "time_ms": 5, **({"got": "0"} if echo else {})} for i in range(len(tests))]
         return {"status": st, "passed": sum(r["status"] == "ok" for r in res), "total": len(tests), "results": res, "stderr": None if st == "ok" else "AssertionError"}
@@ -262,6 +264,14 @@ def test_rejected_solution_is_wrong_not_void(env, box):
     rec = next(a for a in _session(cand_id).answers if a["item_id"] == it["id"])
     assert rec["correct"] is False and rec["rejected"] and not rec.get("void") and rec["tests"] is None
 
+    # ответ песочницы — не вердикт (500, битый JSON): не void и не заморозка часов, задание остаётся текущим
+    client, cand_id = env["clients"][7], env["cand_ids"][7]
+    it = _to_code(client, items)["item"]
+    r = client.post("/api/quest/answer", json={"item_id": it["id"], "lang": "python", "code": "FAULTY"})
+    assert r.status_code == 503 and r.json()["detail"] == quest.SANDBOX_FAULTY
+    pend = _session(cand_id).answers[-1]
+    assert pend["item_id"] == it["id"] and pend["response"] is None and not pend.get("void") and not pend.get("submitted_at")
+
 
 def test_sandbox_down_voids_item(env, box):
     client, items, cand_id = env["clients"][3], env["items"], env["cand_ids"][3]
@@ -380,9 +390,12 @@ def test_sandbox_client(monkeypatch):
     for reply, ok in [((200, good), True), ((503, {"detail": "x"}), False), ((200, b"not json"), False),
                       ((200, {**good, "results": []}), False), ((200, {**good, "passed": 0}), False),
                       ((200, {**good, "results": [{"status": "pwned"}]}), False), (httpx.ConnectError("x"), False), ((429, {"detail": "x"}), "busy"),
-                      ((422, {"detail": "x"}), "rejected")]:
+                      ((422, {"detail": "x"}), "rejected"), ((500, {"detail": "x"}), "faulty")]:
         monkeypatch.setattr(httpx, "post", lambda url, json, headers, timeout, reply=reply: post(url, json, headers, timeout, reply))
-        if ok == "rejected":
+        if ok == "faulty":
+            with pytest.raises(sandbox.Faulty):
+                sandbox.run("python", "code", "f", tests, time_ms=1000, memory_mb=128)
+        elif ok == "rejected":
             with pytest.raises(sandbox.Rejected):
                 sandbox.run("python", "code", "f", tests, time_ms=1000, memory_mb=128)
         elif ok == "busy":

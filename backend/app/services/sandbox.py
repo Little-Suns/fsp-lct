@@ -29,6 +29,11 @@ class Busy(Unavailable):
     """Песочница перегружена (или заняты все слоты API) — решение не проверено, повторить можно."""
 
 
+class Faulty(Unavailable):
+    """Песочница ответила, но не вердиктом (500, битый ответ). Не void: такой ответ мог спровоцировать сам код кандидата —
+    задание остаётся текущим (время не замораживается), отправить можно ещё раз."""
+
+
 class Rejected(Exception):
     """Песочница отказалась принять решение (4xx: размер, недопустимые символы) — это ответ на само решение, не сбой.
     Не void: иначе кандидат пропускал бы задачу, нарочно присылая неприемлемый код."""
@@ -77,7 +82,8 @@ def run(lang: str, code: str, entry: str, tests: list[dict], *, time_ms: int, me
         raise Rejected(f"песочница отклонила решение ({r.status_code})")
     if r.status_code != 200:
         log.warning("песочница ответила %s", r.status_code)
-        raise Unavailable(f"песочница ответила {r.status_code}")
+        # void — только когда песочница сама сообщила о неисправности стенда (503) или до неё не достучаться
+        raise (Unavailable if r.status_code == 503 else Faulty)(f"песочница ответила {r.status_code}")
     try:
         data = r.json()
         res = data["results"]
@@ -87,5 +93,5 @@ def run(lang: str, code: str, entry: str, tests: list[dict], *, time_ms: int, me
         ok = False
     if not ok:
         log.warning("песочница вернула некорректный ответ")
-        raise Unavailable("некорректный ответ песочницы")
+        raise Faulty("некорректный ответ песочницы")
     return data

@@ -44,6 +44,7 @@ RUNS_MAX = 20  # запусков «на примерах» на одну зад
 PASTE_SHARE = 0.5  # флаг code_pasted: верное решение, больше половины которого вставлено из буфера
 SANDBOX_DOWN = "Песочница для проверки кода сейчас недоступна. Задание не засчитано ни в плюс, ни в минус — переходим к следующему."
 SANDBOX_BUSY = "Песочница сейчас занята, решение не проверено. Отправьте его ещё раз через минуту: время ответа считается по первой отправке."
+SANDBOX_FAULTY = "Проверка решения не удалась. Задание не потеряно: отправьте решение ещё раз (время на задание идёт)."
 RUN_GAP_S = 3  # пауза между запусками на примерах
 
 # компетенция → навыки, которые она подтверждает (канон catalog.SKILLS)
@@ -318,7 +319,7 @@ def _answer_code(db: Session, cand: Candidate, sess: QuestSession, pend: dict, i
     sid, served_at = sess.id, pend["served_at"]
     db.commit()
     submitted_at = pend.get("submitted_at") or _now().isoformat()
-    res, down, busy, rejected = None, False, False, False
+    res, down, busy, faulty, rejected = None, False, False, False, False
     if not timeout:  # опоздавший ответ — неверный, как у остальных заданий; песочницу не гоняем
         with _one_check(sid):
             try:
@@ -326,6 +327,8 @@ def _answer_code(db: Session, cand: Candidate, sess: QuestSession, pend: dict, i
                                   time_ms=code_items.TIME_MS, memory_mb=code_items.MEMORY_MB, fail_fast=True)
             except sandbox.Busy:
                 busy = True
+            except sandbox.Faulty:
+                faulty = True
             except sandbox.Unavailable:
                 down = True
             except sandbox.Rejected:
@@ -339,6 +342,8 @@ def _answer_code(db: Session, cand: Candidate, sess: QuestSession, pend: dict, i
         sess.answers = [*sess.answers[:-1], {**pend, "submitted_at": submitted_at}]
         db.commit()
         raise HTTPException(503, SANDBOX_BUSY)
+    if faulty:  # не вердикт и не сбой стенда — задание остаётся текущим, часы идут
+        raise HTTPException(503, SANDBOX_FAULTY)
     bank = _bank(db, cand.spec)
     rec = {**pend, "lang": lang, "code": code, "pasted": max(0, min(body.pasted or 0, len(code))), "ms": body.ms, "server_ms": server_ms,
            "comment": None, "timeout": timeout}

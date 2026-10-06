@@ -71,6 +71,9 @@ jobs:
           print('выхода наружу нет')"
           test -z "$(docker compose port sandbox 8080 2>/dev/null)"
           docker compose down
+      - name: Логи песочницы из compose
+        if: failure()
+        run: docker compose logs sandbox || true
 
   frontend-e2e:
     runs-on: ubuntu-latest
