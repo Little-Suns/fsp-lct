@@ -403,3 +403,20 @@ class RetiredPublicId(Base):
 
     __tablename__ = "retired_public_ids"
     public_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+
+
+class Message(Base):
+    """Сообщение во внутреннем чате между кандидатом и компанией."""
+
+    __tablename__ = "messages"
+    __table_args__ = (
+        Index("idx_chat_history", "company_id", "candidate_id", "id"),
+        Index("idx_chat_candidate", "candidate_id", "id"),  # диалоги кандидата: фильтр без company_id
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"))
+    sender: Mapped[str] = mapped_column(String(16))  # employer | candidate
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

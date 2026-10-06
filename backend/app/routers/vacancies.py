@@ -19,6 +19,7 @@ from app.deps import current_candidate, current_company, current_user
 from app.models import Application, AuditLog, Candidate, Company, Vacancy
 from app.routers.employer import MSK, company_trust, validate_fork
 from app.services import matching
+from app.services.chat import peers_linked
 from app.services.parsing import canon_skills
 
 router = APIRouter(prefix="/api/vacancies", tags=["vacancies"])
@@ -245,7 +246,9 @@ def vacancy_applications(vacancy_id: int, co: Company = Depends(current_company)
         .order_by(Application.created_at.desc(), Application.id.desc())
     ).all()
     _reveal(db, co, [a for a in apps if _shown(a)])
-    return {"vacancy": vacancy_out(v), "items": [_employer_row(a, v) for a in apps]}
+    chat = peers_linked(db, "employer", co.id, [a.candidate_id for a in apps])
+    items = [{**_employer_row(a, v), "chat_peer": a.candidate.public_id if a.candidate_id in chat else None} for a in apps]
+    return {"vacancy": vacancy_out(v), "items": items}
 
 
 class AppStatusIn(BaseModel):
@@ -339,7 +342,9 @@ def my_applications(c: Candidate = Depends(current_candidate), db: Session = Dep
         .order_by(Application.created_at.desc(), Application.id.desc())
     ).all()
     used, free_at = _app_limit(db, c)
-    return {"items": [_cand_row(a) for a in apps], "limit": {"used": used, "max": catalog.APPLICATIONS_PER_WEEK, "free_at": free_at}}
+    chat = peers_linked(db, "candidate", c.id, [a.vacancy.company_id for a in apps])
+    items = [{**_cand_row(a), "chat_peer": a.vacancy.company_id if a.vacancy.company_id in chat else None} for a in apps]
+    return {"items": items, "limit": {"used": used, "max": catalog.APPLICATIONS_PER_WEEK, "free_at": free_at}}
 
 
 @router.post("/applications/{application_id}/withdraw")
