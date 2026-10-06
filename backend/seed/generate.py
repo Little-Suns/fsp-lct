@@ -643,6 +643,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     # квота «Ладога Пэй»: 6 из 10 на этой неделе. Сколько демо-приглашений попало в неделю, зависит от дня недели,
     # поэтому выборка всегда из 5, а лишние — за минуты до начала недели (ещё открыты): нагрузка и поток rng от даты
     # не зависят, и валидация на засеве от любой --today даёт те же цифры
+    # ponytail: --today now в пн 00:00–00:05 МСК приглашение Орлову ещё в прошлой неделе — квота 5 из 10; полдень даты демо не задевает
     used = sum(1 for i in invs if i.company is ladoga and i.sent_at >= WEEK_START)
     lad_seen = {id(i.candidate) for i in invs if i.company is ladoga}
     fresh = [c for c in pool_bp if not load[id(c)] and id(c) not in lad_seen]

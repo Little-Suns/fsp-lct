@@ -153,6 +153,9 @@ def test_run_shape(db, tmp_path, monkeypatch):
     r = cl.post("/api/validation/run?k=5&seed=1", headers={"Authorization": "Bearer org-secret"})
     assert r.status_code == 200 and r.json()["today"] == DEMO_TODAY.isoformat()
     assert cl.get("/api/validation").json()["quality"] == r.json()["quality"]
+    org = {"Authorization": "Bearer org-secret"}
+    assert cl.post("/api/validation/run?k=5&seed=1&today=вчера", headers=org).status_code == 422
+    assert cl.post("/api/validation/run?k=5&seed=1&today=now", headers=org).json()["today"] is None  # засев от реального времени
 
 
 @pytest.mark.slow  # два прогона валидации + второй засев
