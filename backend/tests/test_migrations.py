@@ -128,6 +128,14 @@ def test_0002_candidate_profile_on_existing_candidates():
     assert tuple(got) == ("[]", "[]", True) and _diff() == []
 
 
+def test_chat_table_already_created_on_branch():
+    # база ветки чата до Alembic: messages создана create_all — 0002_chat_messages её не пересоздаёт
+    _legacy_main_db()
+    Base.metadata.tables["messages"].create(engine)
+    init_db()
+    assert _versions() == set(SCRIPT.get_heads()) and _diff() == []
+
+
 def test_legacy_main_db_gets_chat_table():
     # база схемы main до Alembic (без messages): stamp baseline, затем 0002_chat_messages создаёт таблицу чата
     _legacy_main_db()
