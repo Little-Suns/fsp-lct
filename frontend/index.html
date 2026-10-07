@@ -473,6 +473,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .fade { animation: fade .25s ease-out; }
+.still .fade { animation: none; }  /* перерисовка того же экрана (rerender): без анимации появления */
 @keyframes fade { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
@@ -2719,7 +2720,23 @@ function render() {
   if ((role === 'c' || role === 'e') && TOK[role]) { if (chatStreamSide !== role) chatStream(role); } else chatStop();
   startTimer();
 }
-function rerender() { const y = scrollY; render(); scrollTo(0, y); }
+// перерисовка того же экрана: без анимации появления, с сохранением прокрутки, фокуса и ввода полей, которых нет в capture()
+const KEEP_INPUTS = ['cf-h', 'ctf-id', 'ctf-role', 'hid-inns'];
+function rerender() {
+  const y = scrollY, a = document.activeElement;
+  // фокус — по id, иначе по data-act и остальным data-*: так различаются кнопки в разметке
+  const sel = a && a !== document.body && $app.contains(a)
+    ? a.id ? '#' + CSS.escape(a.id) : a.dataset.act ? Object.entries(a.dataset).map(([k, v]) => `[data-${k.replace(/[A-Z]/g, c => '-' + c.toLowerCase())}="${CSS.escape(v)}"]`).join('') : ''
+    : '';
+  const caret = sel && typeof a.selectionStart === 'number' ? [a.selectionStart, a.selectionEnd] : null;
+  const kept = KEEP_INPUTS.map(id => [id, document.getElementById(id)]).filter(([, el]) => el).map(([id, el]) => [id, el.value]);
+  $app.classList.add('still');
+  render();
+  scrollTo(0, y);
+  for (const [id, v] of kept) { const el = document.getElementById(id); if (el) el.value = v; }
+  const f = sel && $app.querySelector(sel);
+  if (f) { f.focus({ preventScroll: true }); if (caret && typeof f.setSelectionRange === 'function') try { f.setSelectionRange(...caret); } catch { /* тип поля без выделения */ } }
+}
 
 // смена экрана: без входа — на экран входа своей роли; загрузка данных, рендер
 // пока грузится следующий экран, прежний неактивен (inert): клик по устаревшей кнопке не уйдёт с параметрами старого экрана
@@ -2736,6 +2753,7 @@ async function show(keep) {
     if (e.status === 401) { if (my === seq && r === route()) busy(false); return; }
   }
   if (my !== seq || r !== route()) return;
+  $app.classList.remove('still');  // смена экрана — анимация появления есть
   render();
   scrollTo(0, keep ? y : 0);
 }
