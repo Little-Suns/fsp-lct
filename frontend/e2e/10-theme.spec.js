@@ -59,10 +59,8 @@ test.describe('системная тёмная', () => {
     await open(page, '/');
     const btn = page.getByRole('button', { name: 'Я разработчик' });
     await btn.hover();
-    await page.waitForTimeout(300);
+    await expect.poll(() => btn.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(75, 61, 240)');  // --blue-hover
     const s = await btn.evaluate(el => ({ bg: getComputedStyle(el).backgroundColor, fg: getComputedStyle(el).color }));
     expect(s.bg).not.toBe(s.fg);
-    expect(s.bg).not.toBe('rgb(181, 175, 255)');  // --blue-ink: белый на нём ≈ 2:1
-    expect(s.bg).toBe('rgb(75, 61, 240)');  // --blue-hover
   });
 });
