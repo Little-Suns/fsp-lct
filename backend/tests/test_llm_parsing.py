@@ -566,6 +566,12 @@ def test_need_pii_not_sent_to_model(model):
         ("Улица: ул. Ленина, д. 5\nЖиву: Невский проспект 10", ["Ленина", "Невский"], []),
         # не ПДн: квартал, Telegram-боты, установка, Java-аннотации на месте ника допустимы
         ("Во 2 кв. 2023 вывел продукт; Python\nTelegram-боты на aiogram, installation scripts", [], ["2 кв. 2023", "Python", "aiogram", "installation"]),
+        # раунд 2: «at» в местах работы, Telegram/Instagram как стек, язык Julia
+        ("Worked at Yandex.Cloud, then at Google.com. Developer at Mail.ru Group; python at scale.ai", [],
+         ["at Yandex.Cloud", "at Google.com", "at Mail.ru Group", "at scale.ai"]),
+        ("Telegram Bot API, Instagram API, Telegram bots, tg bot, Telegram-bot, Julia, Kotlin", [],
+         ["Telegram Bot API", "Instagram API", "Telegram bots", "tg bot", "Telegram-bot", "Julia"]),
+        ("Telegram @vanya, Telegram ivan99, tg: vanya", ["vanya", "ivan99"], []),
         # не ПДн: годы, суммы, периоды, индексы БД, IP-адрес, GitHub Actions, стек через «/»
         ("2019-2021, 150000-200000 руб, оптимизировал индексы, IP-адрес, GitHub Actions, github-actions, Node.js/TypeScript", [],
          ["2019-2021", "150000-200000", "индексы", "IP-адрес", "GitHub Actions", "github-actions", "Node.js/TypeScript"]),

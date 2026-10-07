@@ -477,10 +477,16 @@ _URL_RX = (r"(?:https?://|www\.)[^\s<>\"'«»()]+|(?<![\w.@-])(?:[a-z0-9-]+\.)*(
            r"habr\.com|leetcode\.com|codeforces\.com|kaggle\.com|stackoverflow\.com|facebook\.com|instagram\.com|ok\.ru|about\.me|"
            r"t\.me)(?:/[^\s<>\"'«»()]*)?|(?<![\w.@-])[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,4}\.(?:ru|com|me|io|dev|рф|su|pro)/[^\s<>\"'«»()]+")
 # «ivan (at) gmail (dot) com», «ivan [собака] mail.ru», «ivan at gmail dot com»
-_EMAIL_OBF_RX = (r"(?<![\w.-])[a-z0-9._%+-]{1,64}[ \t]*(?:[(\[{][ \t]*(?:at|собака)[ \t]*[)\]}]|[ \t](?:at|собака)[ \t])[ \t]*[a-z0-9-]{1,63}"
-                 r"(?:[ \t]*(?:[(\[{][ \t]*(?:dot|точка)[ \t]*[)\]}]|[ \t](?:dot|точка)[ \t]|\.)[ \t]*[a-z0-9-]{1,63}){1,4}")
-# Telegram / Instagram с подписью без «@» и двоеточия («Telegram ivan_petrov», «тг: ivan»), голые @ники от 3 символов
-_HANDLE_RX = (r"(?<![\w-])(?:telegram|телеграм\w*|тг|tg|instagram|инстаграм\w*|insta)(?:[ \t]{0,3}[:—–-][ \t]{0,3}|[ \t]{1,3})@?[a-z][a-z0-9_.]{2,31}(?![\w@])"
+# «ivan (at) gmail (dot) com», «ivan [собака] mail.ru», «ivan at yandex dot ru»; голое « at » — только с явным « dot »,
+# иначе «worked at Yandex.Cloud» стал бы почтой
+_OBF_DOT = r"[ \t]*(?:[(\[{][ \t]*(?:dot|точка)[ \t]*[)\]}]|[ \t](?:dot|точка)[ \t])[ \t]*"
+_EMAIL_OBF_RX = (rf"(?<![\w.-])[a-z0-9._%+-]{{1,64}}(?:[ \t]*(?:[(\[{{][ \t]*(?:at|собака)[ \t]*[)\]}}]|[ \t]собака[ \t])[ \t]*[a-z0-9-]{{1,63}}"
+                 rf"(?:(?:{_OBF_DOT}|\.)[a-z0-9-]{{1,63}}){{1,4}}|[ \t]at[ \t][a-z0-9-]{{1,63}}(?:{_OBF_DOT}[a-z0-9-]{{1,63}}){{1,4}})")
+# Telegram / Instagram: после «:» или тире — любой ник (кроме «bot», «api»…); через пробел — только с «@», цифрой или «_»,
+# чтобы «Telegram Bot API» и «tg bot» остались стеком. Голые @ники — от 3 символов
+_HANDLE_RX = (r"(?<![\w-])(?:telegram|телеграм\w*|тг|tg|instagram|инстаграм\w*|insta)"
+              r"(?:[ \t]{0,3}[:—–-][ \t]{0,3}@?(?!(?:bots?|api|sdk|webhooks?|channels?|mini)(?![\w]))[a-z][a-z0-9_.]{2,31}"
+              r"|[ \t]{1,3}(?:@[a-z][a-z0-9_.]{2,31}|(?=[a-z0-9_.]*[\d_])[a-z][a-z0-9_.]{2,31}))(?![\w@])"
               r"|(?<![\w.@/])@[a-z][a-z0-9_]{2,31}(?![\w@]|\.\w)")
 # +7 / 8 / +375 … и 10 цифр с разделителями; мобильный 9XX — и без кода страны, и с «7» без плюса. Годы и суммы не трогаем.
 _PHONE_RX = (r"(?<![\d+])(?:(?:\+\s?\d{1,3}|8)[\s(-]{0,2}\d{3}[\s)-]{0,2}\d{3}[\s-]?\d{2}[\s-]?\d{2}"
@@ -516,7 +522,7 @@ _FIRST_NAMES = (
     "Наталия Нина Оксана Олеся Ольга Полина Регина Светлана София Софья Таисия Тамара Татьяна Ульяна Эвелина Юлия Яна "
     "Alexander Alexey Andrey Anton Artem Boris Denis Dmitry Dmitriy Egor Evgeny Igor Ilya Ivan Kirill Konstantin Maxim Mikhail Nikita "
     "Nikolay Oleg Pavel Roman Ruslan Sergey Sergei Stanislav Timur Vadim Vladimir Vladislav Yury Yuri Alina Anastasia Anna Daria Darya "
-    "Ekaterina Elena Irina Julia Yulia Ksenia Maria Marina Natalia Olga Polina Svetlana Sofia Tatiana Victoria Viktoria"
+    "Ekaterina Elena Irina Yulia Ksenia Maria Marina Natalia Olga Polina Svetlana Sofia Tatiana Victoria Viktoria"
 ).split()
 _FIRST_NAME_RX = rf"(?<![{_W}])(?:{'|'.join(sorted(_FIRST_NAMES, key=len, reverse=True))})(?:[ауеыой]|ом|ой|ей|ем)?(?![{_W}])"
 
