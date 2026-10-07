@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 
 from app import catalog as C
 from app.db import SessionLocal, engine, init_db, reset_schema
-from app.integrations.scoring import place_weight
+from app.integrations.scoring import place_weight, result_of
 from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Message, Need, Task,
                         TaskSubmission, User, Vacancy)
 
@@ -187,11 +187,23 @@ EVENTS = [  # (source, external_id, title, level, participants, months_ago, tags
     ("ctftime", "ctf-fsp-2025", "CTF Кубка ФСП по информационной безопасности 2025", "national", 400, 5, ["security"]),
     ("ctftime", "ctf-uni-2024", "Университетский CTF 2024", "regional", 200, 11, ["security"]),
 ]
+# дисциплина ФСП по направлению этапа (факт карточки, на вес не влияет)
+FSP_DISCIPLINE = {"product": "продуктовое программирование", "algo": "алгоритмическое программирование",
+                  "security": "программирование систем информационной безопасности"}
 SPEC_TAGS = {"ML / DS": ["ml", "product", "algo"], "Mobile": ["mobile", "product"], "Security": ["security"],
              "Data Eng / Analytics": ["ml", "product"]}
 
 assert all(s in C.SKILLS for v in (*CORE.values(), *EXTRA.values(), *TRACK_EXTRA.values()) for s in v)
 assert set(CORE) == {t for ts in C.TRACKS.values() for t in ts} and len(CITIES) == 41
+
+
+def fsp_rank(source: str, result: str, level: str | None) -> str | None:
+    """Синтетический разряд по протоколу ФСП: детерминированно по результату и статусу этапа, без rng —
+    чтобы поток случайных чисел синтетики не сдвигался. Иерархия здесь — только правдоподобие факта, в вес не входит."""
+    if source != "fsp" or result == "participant":
+        return None
+    top = result in ("winner", "prize")
+    return ("КМС" if top else "1 разряд") if level == "national" else ("1 разряд" if top else "2 разряд")
 
 
 def inn_ok(inn: str) -> bool:
@@ -346,12 +358,14 @@ class Gen:
             n = ev.participants
             place = (int(self.rng.integers(1, 4)) if perf > 2.4 else int(self.rng.integers(4, max(5, n // 10))) if perf > 1.6
                      else int(self.rng.integers(n // 10, n // 2)) if perf > 0.6 else None)
-            title = ev.title + (f", {place} место" if place and place <= 3 else ", финалист" if place else ", участник")
+            result = result_of(place, n)
+            title = ev.title + (f", {place} место" if result in ("winner", "prize") else ", финалист" if result == "finalist" else ", участник")
             cand.consent_external = True  # внешние данные — только с отдельным согласием
             cand.achievements.append(Achievement(
                 event=ev, source=ev.source, title=title, place=place, team=f"Команда «{self.pick(CO_A)}»",
                 role=self.pick(["backend", "frontend", "ML", "капитан", "аналитик", "mobile"]),
-                weight=place_weight(place, n, ev.level), verified=bool(self.rng.random() < 0.85),
+                result=result, sport_rank=fsp_rank(ev.source, result, ev.level),
+                weight=place_weight(place, n, result), verified=bool(self.rng.random() < 0.85),
             ))
 
     def company(self, name=None, **kw) -> Company:
@@ -477,7 +491,8 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     set_clock(today)
     g = Gen(seed)
     r = g.rng
-    events = [Event(source=s, external_id=x, title=t, level=lv, participants=n, date=NOW - DAY * 30 * m, tags=tg)
+    events = [Event(source=s, external_id=x, title=t, level=lv, participants=n, date=NOW - DAY * 30 * m, tags=tg,
+                    discipline=FSP_DISCIPLINE.get(tg[0]) if s == "fsp" else None)
               for s, x, t, lv, n, m, tg in EVENTS]
     ev = {e.external_id: e for e in events}
     db.add_all(events)
@@ -496,8 +511,10 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     orlov.roles, orlov.soft_skills = ["Ментор", "Капитан команды"], ["Коммуникация", "Работа в команде", "Самостоятельность"]
     orlov.truth["skills_true"] = orlov.skills_confirmed + ["Docker"]  # Kubernetes заявлен, но не подтверждён тестом
     cup = ev["cup-2025-prod"]
+    res = result_of(12, cup.participants)
     orlov.achievements.append(Achievement(event=cup, source="fsp", title=cup.title, place=12, team="Команда «Сапсан»",
-                                          role="backend", weight=place_weight(12, cup.participants, cup.level), verified=True))
+                                          role="backend", result=res, sport_rank=fsp_rank("fsp", res, cup.level),
+                                          weight=place_weight(12, cup.participants, res), verified=True))
     orlov.accounts.append(ExternalAccount(provider="codeforces", handle="dorlov", verify_code="", verified_at=NOW - DAY * 60,
                                           rating=1912, rank="Candidate Master", fetched_at=NOW - DAY))
     g.handles.add("dorlov")
@@ -507,8 +524,10 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
                     consent_external=cf is not None or fsp is not None)
         if fsp:
             title, eid, place = fsp
+            res = result_of(place, ev[eid].participants)
             c.achievements.append(Achievement(event=ev[eid], source="fsp", title=title, place=place, role="backend",
-                                              weight=place_weight(place, ev[eid].participants, ev[eid].level), verified=True))
+                                              result=res, sport_rank=fsp_rank("fsp", res, ev[eid].level),
+                                              weight=place_weight(place, ev[eid].participants, res), verified=True))
         if cf:
             c.accounts.append(ExternalAccount(provider="codeforces", handle=g.handle(c.name), verify_code="",
                                               verified_at=NOW - DAY * 90, rating=cf, rank=cf_rank(cf), fetched_at=NOW - DAY))

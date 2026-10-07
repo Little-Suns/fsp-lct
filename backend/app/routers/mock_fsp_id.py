@@ -46,10 +46,11 @@ ACCOUNTS = {
         "name": "Дмитрий Орлов", "email": "d.orlov@example.ru", "email_verified": True,
         "achievements": [
             {"event": {"external_id": "cup-2025-prod", "level": "national", "participants": 600, "tags": ["product"],
+                       "discipline": "продуктовое программирование",
                        "title": "Финал Кубка России по спортивному программированию 2025, продуктовое направление"},
-             "place": 12, "team": "Команда «Сапсан»", "role": "backend"},
+             "place": 12, "team": "Команда «Сапсан»", "role": "backend", "rank": "1 разряд"},
             {"event": {"external_id": "reg-2024-moskva", "title": "Региональный этап ФСП 2024, Москва", "level": "regional",
-                       "participants": 120, "tags": ["product"]},
+                       "participants": 120, "tags": ["product"], "discipline": "продуктовое"},
              "place": 2, "team": "Команда «Сапсан»", "role": "backend"},
         ],
     },
@@ -57,8 +58,9 @@ ACCOUNTS = {
         "name": "Анна Соколова", "email": "a.sokolova@example.ru", "email_verified": True,
         "achievements": [
             {"event": {"external_id": "champ-2025-sec", "level": "national", "participants": 300, "tags": ["security"],
-                       "title": "Чемпионат России ФСП 2025, информационная безопасность", "date": "2025-07-10"},
-             "place": 3, "team": "Команда «Полюс»", "role": "pentest"},
+                       "title": "Чемпионат России ФСП 2025, информационная безопасность", "date": "2025-07-10",
+                       "discipline": "кибербезопасность"},
+             "place": 3, "team": "Команда «Полюс»", "role": "pentest", "result": "призёр", "rank": "КМС"},
         ],
     },
 }

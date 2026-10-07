@@ -147,6 +147,9 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(soft).toContainText('Ментор');
   await expect(soft).toContainText('в оценке не участвуют');
   await expect(page.getByText(/ФСП|Codeforces 1912/).first()).toBeVisible();
+  // разряд ФСП — фактом в карточке: чип и строка с дисциплиной и результатом
+  await expect(page.locator('.chips .chip', { hasText: '1 разряд' }).first()).toBeVisible();
+  await expect(page.getByText(/продуктовое программирование · финалист · .*спортивный разряд: 1 разряд/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Уже приглашён — к статусам' })).toBeVisible();
   // повторное приглашение — блокирующая ошибка от сервера прямо в форме
   await open(page, '/e/invite/A-1042');

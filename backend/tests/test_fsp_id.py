@@ -186,6 +186,9 @@ def test_login_existing_user_by_fsp_id_imports_achievements(client):
     assert me["id"] == uid and me["fsp_id"] == "FSP-1042"
     achs = _achs(uid)
     assert [(a.source, a.place, a.verified) for a in achs] == [("fsp", 12, True), ("fsp", 2, True)] and all(a.weight > 0 for a in achs)
+    # дисциплина, результат и разряд из claim — как в протоколе (синоним «продуктовое» → полное название дисциплины)
+    assert [(a.event.discipline, a.result, a.sport_rank) for a in achs] == [
+        ("продуктовое программирование", "finalist", "1 разряд"), ("продуктовое программирование", "prize", None)]
     assert login(client, "FSP-1042")["ach"] == "2" and len(_achs(uid)) == 2  # повторный вход идемпотентен
     assert "fsp_flow" not in client.cookies  # обмен снял куку потока
     with SessionLocal() as db:

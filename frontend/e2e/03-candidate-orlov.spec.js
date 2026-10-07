@@ -86,6 +86,10 @@ test('профиль и результат теста демо-кандидат�
   await expect(card).toContainText('Перцентиль 78');
   await expect(card.getByText('не подтверждено')).toBeVisible();
   await expect(card.locator('.chip', { hasText: 'ФСП' })).toBeVisible();
+  // данные ФСП из протокола: результат, дисциплина и разряд — факты; разряд — и чипом в превью карточки
+  await expect(page.getByText('Спортивный разряд: 1 разряд')).toBeVisible();
+  await expect(page.getByText(/финалист · продуктовое программирование · 1 разряд/)).toBeVisible();
+  await expect(card.locator('.chip', { hasText: '1 разряд' })).toBeVisible();
   // роли и софт-скиллы из сида: отмечены в форме и видны в превью карточки
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Ментор' })).toHaveClass(/on/);
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Работа в команде' })).toHaveClass(/on/);

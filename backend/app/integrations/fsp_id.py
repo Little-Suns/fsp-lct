@@ -6,7 +6,8 @@
 
 PKCE-верификатор и nonce не хранятся: выводятся HMAC(SECRET_KEY, state) — по дампу БД их не восстановить.
 Достижения — custom claim fsp_achievements в userinfo (в Keycloak — protocol mapper) в формате протокола
-hackathons.import_protocol: [{event: {external_id, title, level, date, participants, url, tags}, place, team, role}].
+hackathons.import_protocol: [{event: {external_id, title, level, discipline, date, participants, url, tags}, place, team, role,
+result, rank}].
 """
 
 import base64
@@ -232,7 +233,9 @@ def import_achievements(db: Session, cand: Candidate | None, sub: str, info: dic
     for it in items[:MAX_ACH]:
         if not isinstance(it, dict) or not isinstance(it.get("event"), dict):
             continue
-        row = {"fsp_id": sub, "place": it.get("place"), "team": _text(it.get("team"), 128), "role": _text(it.get("role"), 64)}
+        # result и rank — как в протоколе (победитель/призёр/…, спортивный разряд); неизвестное значение → запись пропущена
+        row = {"fsp_id": sub, "place": it.get("place"), "team": _text(it.get("team"), 128), "role": _text(it.get("role"), 64),
+               "result": _text(it.get("result"), 32), "rank": _text(it.get("rank"), 32)}
         try:
             n += hackathons.import_protocol(db, {**it["event"], "source": "fsp"}, [row])["matched"]
         except (ValueError, TypeError, SQLAlchemyError) as e:  # формат записи или значение не влезло в схему
