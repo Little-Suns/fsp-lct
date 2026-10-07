@@ -32,9 +32,10 @@ from app import catalog, config
 from app.db import get_db
 from app.deps import current_candidate, current_company
 from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession
+from app.routers.employer import check_category
 from app.services import code_items, irt, sandbox
 from app.services.items import STORY, plan_for_need
-from app.services.parsing import parse_need
+from app.services.parsing import canon_skills, parse_need
 
 router = APIRouter(prefix="/api/quest", tags=["quest"])
 
@@ -85,6 +86,12 @@ class StartIn(BaseModel):
 class PlanIn(BaseModel):
     text: str | None = None
     need_id: int | None = None
+    # структура, поправленная на экране после разбора, — без повторного разбора текста
+    spec: str | None = Field(default=None, max_length=64)
+    track: str | None = Field(default=None, max_length=64)
+    grade: str | None = Field(default=None, max_length=16)
+    must: list[str] = Field(default=[], max_length=50)
+    nice: list[str] = Field(default=[], max_length=50)
 
 
 class AnswerIn(BaseModel):
@@ -619,12 +626,16 @@ def _clean_text(text: str | None, limit: int) -> str:
 
 @router.post("/plan")
 def plan(body: PlanIn, comp: Company = Depends(current_company), db: Session = Depends(get_db)):
-    """План теста под потребность работодателя: по тексту или по своей сохранённой потребности."""
+    """План теста под потребность работодателя: по своей сохранённой потребности (need_id), по структуре с экрана (spec)
+    или по тексту — в этом порядке; без spec поля структуры не учитываются."""
     if body.need_id is not None:
         need = db.get(Need, body.need_id)
         if not need or need.company_id != comp.id:
             raise HTTPException(404, "Потребность не найдена")
         return _plan({"spec": need.spec, "track": need.track, "grade": need.grade, "must": need.must, "nice": need.nice, "parsed_by": need.parsed_by})
+    if body.spec is not None:
+        check_category(body.spec, body.track, body.grade)
+        return _plan({"spec": body.spec, "track": body.track, "grade": body.grade, "must": canon_skills(body.must), "nice": canon_skills(body.nice)})
     return _plan(parse_need(_clean_text(body.text, PLAN_TEXT_MAX)))
 
 

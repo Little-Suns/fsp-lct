@@ -110,6 +110,13 @@ def test_demo_flow(client):
     assert (p["spec"], p["track"], p["grade"], p["must"], p["nice"]) == ("Backend", "Python", "Middle", ["Python", "PostgreSQL", "Kafka"], ["Kubernetes"])
     assert (p["from"], p["to"], p["format"], p["city"]) == (240000, 300000, "Гибрид", "Москва")
     assert p["category"]["count"] == 4 and p["market"]["p25"] == 210000  # A, B, H, U (без теста): счётчик категории не учитывает скрытие
+    # категория поправлена вручную: рынок и счётчик — под новую категорию, без повторного разбора
+    c = client.post("/api/employer/needs/category", json={"spec": "Backend", "track": "Go", "grade": "Senior", "city": "Москва", "salary_to": 300000}, headers=E).json()
+    assert c["category"] == {**c["category"], "spec": "Backend", "track": "Go", "grade": "Senior"} and c["market"]["p50"] > p["market"]["p50"]
+    assert c["market_hint"] and c["market"] == client.post("/api/employer/needs/category", json={"spec": "Backend", "grade": "Senior", "city": "Москва"}, headers=E).json()["market"]
+    for bad in ({"spec": "Project Manager", "grade": "Middle"}, {"spec": "Backend", "track": "React", "grade": "Middle"}, {"spec": "Backend", "grade": "Гуру"}):
+        assert client.post("/api/employer/needs/category", json=bad, headers=E).status_code == 422
+    assert client.post("/api/employer/needs/category", json={"spec": "Backend", "grade": "Middle"}).status_code == 401
     need = client.post("/api/employer/needs", json={**p, "text": NEED_TEXT}, headers=E).json()
 
     # 2. подборка: анонимно, по взаимному интересу
