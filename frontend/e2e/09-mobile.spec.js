@@ -313,10 +313,18 @@ for (const [name, viewport] of [['узкий телефон', { width: 320, heig
       const pos = sel => page.locator(sel).evaluate(e => getComputedStyle(e).position);
       if (viewport.height < 480) expect(await pos('header.top')).toBe('static');  // телефон боком: шапка сайта не прилипает
       if (viewport.width <= 640 && viewport.height < 480) {  // и шапка задания с «Дальше» — иначе съели бы пол-экрана
-        await demo(page, 'c');
+        // новый кандидат: у демо-персонажа осталась бы незаконченная сессия теста
+        await page.evaluate(async email => {
+          const post = (u, b, t) => fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: 'Bearer ' + t } : {}) }, body: JSON.stringify(b) }).then(r => r.json());
+          const { otp } = await post('/api/auth/email', { email, role: 'candidate' });
+          const { token } = await post('/api/auth/verify', { email, otp });
+          await post('/api/candidate/profile', { name: 'Лана Боковая', spec: 'Backend', track: 'Python', grade_claimed: 'Middle', min_salary: 180000, formats: ['Удалённо'], city: 'Москва', skills_claimed: [], consent_152: true, consent_publish: false }, token);
+          localStorage.setItem('fsp.tok.c', token);
+        }, `side-${uniq()}@example.ru`);
+        await page.reload();
         await open(page, '/c/quest');
         await page.getByRole('button', { name: 'Полный тест (~40 мин)' }).click();
-        await settled(page);
+        await expect(page.locator('#timer')).toBeVisible();  // экран задания, а не вводной
         await noHScroll(page, 'задание');
         expect([await pos('.quest-top'), await pos('.quest-foot')]).toEqual(['static', 'static']);
       }
