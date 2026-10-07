@@ -32,6 +32,7 @@ _EDGE = " .,;:!?\"'«»`“”„()[]"
 _NUMBER = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?", re.ASCII)
 _ESCAPED = re.compile(r"\\.", re.S)  # экранированная пара «\x» — до поиска счётчиков, иначе «\\{100}» сойдёт за литерал
 _COUNTED = re.compile(r"\{([^}]*)\}")
+_RECURSION = re.compile(r"\(\?(R|[+-]?\d|&|P>)")  # (?R), (?1), (?&имя), (?P>имя): рекурсия ест память и в пределах таймаута
 _BOUNDS = re.compile(r"(\d{1,3})?(,(\d{1,3})?)?", re.ASCII)
 
 
@@ -51,9 +52,10 @@ def parse_number(s: str) -> float | None:
 
 def _safe_pattern(pattern: str) -> bool:
     """Счётчики {m,n}: не больше REPEATS_MAX, границы ≤ REPEAT_MAX, произведение ≤ REPEAT_PRODUCT; другие конструкции
-    в фигурных скобках (нечёткий поиск, \\p{…}, \\N{…}) — нет. Экранированные пары вырезаются до поиска."""
-    counted = _COUNTED.findall(_ESCAPED.sub("", pattern))
-    if len(counted) > REPEATS_MAX:
+    в фигурных скобках (нечёткий поиск, \\p{…}, \\N{…}), рекурсии и вызовов групп — нет. Экранированные пары вырезаются до поиска."""
+    bare = _ESCAPED.sub("", pattern)
+    counted = _COUNTED.findall(bare)
+    if len(counted) > REPEATS_MAX or _RECURSION.search(bare) or "\\g<" in pattern:
         return False
     product = 1
     for body in counted:
@@ -169,7 +171,8 @@ if __name__ == "__main__":
     for bad in [("regex", None, {"pattern": "((((a{20}){20}){20}){20})"}), ("regex", None, {"pattern": "a{101}"}),
                 ("regex", None, {"pattern": "(?:ab){e<=1}"}), ("regex", None, {"pattern": "a{,}"}),
                 ("regex", None, {"pattern": r"(((a\\{100}){100}){100}){100}"}), ("regex", None, {"pattern": r"a\\{e<=1000}"}),
-                ("regex", None, {"pattern": "((a{100}){100}){100}"}),
+                ("regex", None, {"pattern": "((a{100}){100}){100}"}), ("regex", None, {"pattern": "(a|(?R))*"}),
+                ("regex", None, {"pattern": "(a)(?1)"}), ("regex", None, {"pattern": "(?P<x>a)(?&x)"}), ("regex", None, {"pattern": r"(a)\g<1>"}),
                 ("choice", ["a", "b"], {"correct": [0, 1]}), ("choice", ["a", "A"], {"correct": [0]}), ("number", None, {"value": True}),
                 ("regex", None, {"pattern": "("}), ("text", ["a"], {"answers": ["x"]}), ("magic", None, None)]:
         try:

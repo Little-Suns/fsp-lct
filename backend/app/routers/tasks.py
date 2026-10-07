@@ -321,6 +321,8 @@ def submit(task_id: int, body: SubmitIn, c: Candidate = Depends(current_candidat
         raise HTTPException(404, "Задание не найдено")
     if not matching.consent_ok(c, "processing"):
         raise HTTPException(403, "Нужно согласие на обработку персональных данных")
+    if db.scalar(select(TaskSubmission.id).where(TaskSubmission.task_id == t.id, TaskSubmission.candidate_id == c.id)):
+        raise HTTPException(409, "Решение уже отправлено")  # до сверки: повтор не тратит время на шаблон
     try:
         answer = autocheck.answer_text(t.answer_type, t.options, body.answer, body.choices)
     except ValueError as e:
