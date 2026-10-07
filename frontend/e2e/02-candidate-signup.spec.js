@@ -83,6 +83,10 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.getByText('eva_cv.pdf')).toBeVisible();
   await expect(page.getByText(/Распознано: .*Python/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Заменить' })).toBeVisible();
+  // подсказка грейда по резюме: предвыбор с объяснением, выбирает кандидат, тест подтверждает
+  expect(parsed.grade_hint).toEqual({ grade: 'Lead', why: 'в резюме — руководство командой; опыт 4 г. (по стажу — скорее Middle)' });
+  await expect(page.locator('#grade-hint')).toHaveText('По резюме похоже на Lead: в резюме — руководство командой; опыт 4 г. (по стажу — скорее Middle). Это подсказка — выберите сами, тест подтвердит или нет.');
+  await expect(page.getByRole('button', { name: 'Lead', exact: true })).toHaveAttribute('aria-pressed', 'true');
   // расширенный разбор: контакты и места работы видны, имя уже введено — не перетираем, пустой Telegram — заполняем
   await expect(page.getByText('Контакты: Eva Testova · eva@example.ru · @eva_dev')).toBeVisible();
   await expect(page.getByText('Места работы: 2021 — н. в. · Acme Corp')).toBeVisible();

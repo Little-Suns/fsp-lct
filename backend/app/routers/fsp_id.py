@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.db import get_db
-from app.deps import EMAIL_RE, _has_profile, current_user, hash_secret, issue_token
+from app.deps import EMAIL_RE, _has_profile, current_user, hash_secret, login_token
 from app.integrations import fsp_id
 from app.integrations.fsp_id import FspIdError
 from app.models import AuditLog, Candidate, FspLogin, User
@@ -202,7 +202,7 @@ def exchange(body: TicketIn, response: Response, fsp_flow: str = Cookie(default=
         raise HTTPException(401, "Вход через ФСП ID устарел — начните заново")
     response.delete_cookie(COOKIE, path=COOKIE_PATH)
     has_profile = bool(db.scalar(select(Candidate.id).where(Candidate.user_id == user.id)))
-    return {"token": issue_token(db, user), "role": user.role, "has_profile": has_profile}  # issue_token коммитит удаление билета
+    return login_token(user, db) | {"has_profile": has_profile}  # login_token коммитит удаление билета
 
 
 @router.post("/unlink")

@@ -23,7 +23,7 @@ from sqlalchemy import select
 from app import config
 from app.catalog import CONSENT_VERSION
 from app.db import SessionLocal, engine, reset_schema
-from app.deps import issue_token
+from app.deps import DEMO_PERSONAS, issue_token
 from app.integrations import fsp_id
 from app.integrations.fsp_id import FspIdError
 from app.main import app
@@ -190,6 +190,15 @@ def test_login_existing_user_by_fsp_id_imports_achievements(client):
     assert "fsp_flow" not in client.cookies  # обмен снял куку потока
     with SessionLocal() as db:
         assert db.scalar(select(FspLogin).where(FspLogin.user_id == uid)) is None  # билет потреблён
+
+
+def test_demo_persona_login_keeps_shared_demo_token(client):
+    """В DEMO вход через ФСП ID за демо-персонажа даёт общий демо-токен и не выбивает зрителей, вошедших кнопкой."""
+    email = DEMO_PERSONAS["candidate"]
+    make_candidate(email, fsp=account("FSP-DEMO-1", email))
+    shared = client.post("/api/auth/demo/candidate").json()["token"]
+    assert login(client, "FSP-DEMO-1")["token"] == shared
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {shared}"}).status_code == 200
 
 
 def test_login_creates_candidate_only_by_verified_email(client):
