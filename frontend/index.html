@@ -111,7 +111,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 .msg.me { align-self: flex-end; background: var(--blue-soft); }
 .msg p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .msg time { display: block; text-align: right; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
-.dot { background: var(--red); color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; }
+.unread { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 1; vertical-align: middle; flex: none; }
 @media (max-width: 900px) { .chat { grid-template-columns: minmax(0, 1fr); } .chat-list { max-height: 30vh; } }
 @media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -586,7 +586,7 @@ const NAV = {
 const NAV_OF = { '/c/invite': '/c/home', '/c/vacancy': '/c/vacancies', '/c/task': '/c/tasks', '/c/quest': '/c/result', '/e/vacancy': '/e/vacancies', '/e/task': '/e/tasks', '/e/need': '/e/picks', '/e/invite': '/e/pipeline' };
 function subnav(side) {
   const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
-  return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="dot">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
+  return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
 }
 // плашка неподтверждённой компании (квота урезана, кандидаты видят предупреждение)
 const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/signup">Данные компании</button></span></div>` : '';
@@ -1787,7 +1787,7 @@ function chatList() {
   if (peer != null && d && !list.some(c => String(c.peer_id) === peer)) list = [{ peer_id: peer, peer_name: d.peer.name, unread_count: 0, last_message: null }, ...list];
   return list.map(c => `<button class="chat-peer ${String(c.peer_id) === peer ? 'on' : ''}" data-go="/${side}/chat/${esc(encodeURIComponent(c.peer_id))}">
       <span class="stack-s" style="min-width:0;flex:1"><b>${esc(c.peer_name)}</b><span class="small muted">${c.last_message ? (c.last_message.sender === chatMe() ? 'Вы: ' : '') + esc(c.last_message.text) : 'Нет сообщений'}</span></span>
-      ${c.unread_count ? `<span class="dot">${c.unread_count}</span>` : ''}
+      ${c.unread_count ? `<span class="unread">${c.unread_count}</span>` : ''}
     </button>`).join('') || '<span class="small muted">Диалогов пока нет. Писать можно после принятия приглашения или отклика на вакансию.</span>';
 }
 
