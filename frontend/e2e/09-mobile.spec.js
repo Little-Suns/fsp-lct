@@ -80,6 +80,9 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await noHScroll(page, 'приглашение');
       // сумма вилки не рвётся посередине: каждая — одной строкой
       for (const m of await page.locator('.stat .money').all()) expect(await m.evaluate(e => e.getClientRects().length)).toBe(1);
+      // логотип и название компании — в одной строке
+      const head = page.locator('.co-head');
+      expect(Math.abs((await box(head.locator('.logo-sq'))).top - (await box(head.locator('b'))).top)).toBeLessThan(30);
     });
 
     test(`${name}: кабинет работодателя`, async ({ page }) => {
@@ -96,6 +99,8 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       // форма приглашения — по адресу: после предыдущих сценариев первый из подборки может быть уже приглашён
       await open(page, '/e/invite/' + page.url().split('/e/cand/')[1]);
       await noHScroll(page, 'форма приглашения');
+      // «от» и «до» вилки — рядом, в одной строке
+      expect(await oneLine(page.locator('#inv-form .pfx'))).toBe(true);
 
       await open(page, '/e/pipeline');
       const thead = page.locator('table.tbl.stack thead');
@@ -115,3 +120,34 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
     });
   });
 }
+
+test.describe('телефон: вход и тест', () => {
+  test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
+
+  test('вход клавишей Enter, профиль, тест с прилипающими таймером и «Дальше»', async ({ page }) => {
+    const email = `mobile-${uniq()}@example.ru`;
+    await open(page, '/c/signup');
+    await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
+    await page.getByLabel('Присылать приглашения в Telegram').uncheck();
+    await page.getByLabel('Почта').fill(email);
+    await page.getByLabel('Почта').press('Enter');  // клавиша «Отправить» — получить код
+    await expect(toast(page)).toHaveText('Код отправлен на ' + email);
+    await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
+    await page.getByLabel('Код из письма').press('Enter');  // «Войти»
+    await expect(page.getByRole('heading', { name: 'Профиль', exact: true })).toBeVisible();
+    await noHScroll(page, 'профиль');
+    // грейды — одной строкой, поле зарплаты — с цифровой клавиатурой
+    expect(await oneLine(page.locator('[data-act=pgrade]'))).toBe(true);
+    await expect(page.getByLabel('Минимальная зарплата на руки')).toHaveAttribute('inputmode', 'numeric');
+    await page.getByLabel('Имя и фамилия').fill('Мира Мобильная');
+    await page.getByLabel('Минимальная зарплата на руки').fill('180000');
+    await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+    await expect(page.getByRole('button', { name: 'Полный тест (~40 мин)' })).toBeVisible();
+    await noHScroll(page, 'вводная теста');
+    await page.getByRole('button', { name: 'Полный тест (~40 мин)' }).click();
+    await settled(page);
+    await expect(page.locator('#timer')).toBeVisible();
+    await noHScroll(page, 'задание');
+
+  });
+});
