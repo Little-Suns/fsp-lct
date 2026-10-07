@@ -2843,7 +2843,10 @@ const ACT = {
   async 'otp-verify'() {
     await verifyLogin('c', S.signup.email, S.signup.otp);
     S.signup.sent = false;
-    go('/c/profile');
+    // профиль уже есть — в кабинет (как вход через ФСП ID с has_profile), иначе — шаг «Профиль» регистрации
+    // сбой /me (сеть, 5xx) после входа — тоже в кабинет: загрузчик повторит запрос, ошибка — тостом (см. table.md про noProfile)
+    try { await loadMe(); } catch { return go('/c/home'); }
+    if (ME) { toast('Вход выполнен'); go('/c/home'); } else go('/c/profile');
   },
   async 'eotp-send'() {
     if (!S.esignup.email) throw new Error('Укажите рабочую почту');
