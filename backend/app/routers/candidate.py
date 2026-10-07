@@ -49,6 +49,10 @@ class ProfileIn(BaseModel):
     consent_152: bool = False
     consent_publish: bool | None = None  # показывать обезличенную карточку работодателям; None — не менять
     consent_external: bool | None = None  # None — не менять; False — отзыв, внешние данные удаляются
+    # резюме, загруженное до создания профиля: POST /cv без профиля ничего не хранит и возвращает текст, клиент
+    # присылает его здесь — сохраняется только вместе с согласием на обработку; у существующего профиля игнорируется
+    cv_text: str | None = Field(default=None, max_length=CV_MAX_CHARS)
+    cv_filename: str | None = Field(default=None, max_length=255)
 
 
 class ConsentsIn(BaseModel):
@@ -191,6 +195,9 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
     if body.soft_skills is not None:
         c.soft_skills = canon_terms(body.soft_skills, catalog.SOFT_SKILLS)
     if new:
+        cv = (body.cv_text or "").replace("\x00", "").strip()  # NUL Postgres в тексте не примет
+        if cv:
+            c.cv_text, c.cv_filename = cv, (body.cv_filename or "").replace("\x00", "") or "resume.pdf"
         db.flush()  # нужен id для журнала согласий
         _set_consent(db, c, "processing", True, force=True)
         _set_consent(db, c, "publish", bool(body.consent_publish), force=True)
@@ -231,6 +238,7 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
         "format": matching.format_text(c.formats, c.city),
         "city": c.city,
         "status": c.status,
+        "visible": matching.visible(c),  # карточку видят работодатели (статус, действующие согласия); без теста — с пометкой
         "notif": c.notif,
         "hidden_from": c.hidden_from or [],
         "years_exp": c.years_exp,
@@ -269,8 +277,10 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
 
 
 @router.post("/cv")
-async def upload_cv(file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """PDF → текст → разбор. Возвращает распознанное для правки; профиль сам не меняет (кроме текста резюме)."""
+async def upload_cv(response: Response, file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """PDF → текст → разбор. Возвращает распознанное для правки; профиль сам не меняет (кроме текста резюме).
+    Профиля ещё нет (нет и согласия на обработку) — сервер ничего не хранит: текст уходит в ответе (`text`),
+    клиент передаёт его в POST /profile вместе с согласием, и резюме сохраняется уже у созданного кандидата."""
     c = db.scalar(select(Candidate).where(Candidate.user_id == user.id))
     _require_152(c)
     data = await file.read(CV_MAX_BYTES + 1)
@@ -279,15 +289,21 @@ async def upload_cv(file: UploadFile = File(...), user: User = Depends(current_u
     if not data.startswith(b"%PDF"):
         raise HTTPException(422, "Нужен PDF-файл")
     try:  # разбор PDF и текста — CPU, в пуле потоков, чтобы не держать цикл событий для всех запросов
-        text = (await run_in_threadpool(lambda: "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)))[:CV_MAX_CHARS].strip()
+        text = (await run_in_threadpool(lambda: "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)))[:CV_MAX_CHARS]
+        text = text.replace("\x00", "").strip()  # NUL (бывает у странных шрифтов) Postgres не примет
     except (PdfReadError, ValueError) as e:
         raise HTTPException(422, "Не удалось прочитать PDF") from e
     if not text:
         raise HTTPException(422, "В PDF нет текстового слоя (скан?). Заполните поля вручную")
+    name = (file.filename or "").replace("\x00", "")[:255] or "resume.pdf"
+    out = {"filename": name, "chars": len(text), "parsed": await run_in_threadpool(parse_cv, text)}
     if c:
-        c.cv_filename, c.cv_text = file.filename, text
+        c.cv_filename, c.cv_text = name, text
         db.commit()
-    return {"filename": file.filename, "chars": len(text), "parsed": await run_in_threadpool(parse_cv, text)}
+    else:
+        out["text"] = text  # своё же резюме — назад кандидату, до согласия ничего не храним
+        response.headers.update(NO_STORE)
+    return out
 
 
 @router.get("/profile.pdf")

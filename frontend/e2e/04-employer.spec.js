@@ -314,6 +314,41 @@ test('Ладога: поиск по банку — фасеты, флаги, т�
   await expect(page.getByRole('heading', { name: /^Кандидат [A-Z]-\d+$/ })).toBeVisible();
 });
 
+test('Ладога: без теста — в выдаче с пометкой и после прошедших; тест ниже заявленного — оба грейда видны', async ({ page }) => {
+  await demo(page, 'e');
+  await page.locator('.roles').getByRole('button', { name: 'Работодатель' }).click();
+  await expect(page.getByText('Кандидаты без пройденного теста — в категории по заявленному грейду')).toBeVisible();
+  // подборка и поиск: не подтверждённые тестом — строго после прошедших, без перцентиля и θ
+  const tail = items => { const t = items.map(c => c.grade_tested), i = t.indexOf(false); return [i, t.slice(i).every(x => x === false)]; };
+  const P = await page.evaluate(() => api('GET', `/api/employer/needs/${S.needId}/picks?limit=500`));
+  const [pi, pOk] = tail(P.items);
+  expect(pi).toBeGreaterThan(0);
+  expect(pOk).toBe(true);
+  expect(P.items.find(c => c.id === 'K-2077')).toMatchObject({ grade: 'Middle', grade_tested: false, pct: null, theta: null });
+  const R = await page.evaluate(() => api('GET', '/api/employer/search?spec=Backend&track=Python&grade=Middle&limit=100'));
+  const [si, sOk] = tail(R.items);
+  expect(si).toBeGreaterThan(0);
+  expect(sOk).toBe(true);
+
+  // карточка без теста: пометка, заявленные навыки, без компетенций; ожидания «на руки»
+  await open(page, '/e/cand/K-2077');
+  await expect(page.getByRole('heading', { name: 'Кандидат K-2077' })).toBeVisible();
+  await expect(page.locator('.chip', { hasText: 'грейд не подтверждён тестом' })).toBeVisible();
+  await expect(page.getByText('Тест не пройден: грейд Middle заявлен кандидатом')).toBeVisible();
+  await expect(page.getByText(/Навыки — со слов кандидата: Python, PostgreSQL, Kafka, Docker/)).toBeVisible();
+  await expect(page.getByText(/Грейд Middle заявлен кандидатом, тестом не подтверждён/)).toBeVisible();
+  await expect(page.getByText(/Ожидания от .+ на руки/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Компетенции' })).toHaveCount(0);
+  await expect(page.getByText(/грейд подтверждён/)).toHaveCount(0);
+  // тест показал Middle при заявленном Senior: категория по тесту, заявленный — рядом
+  await open(page, '/e/cand/L-3141');
+  await expect(page.locator('.chip', { hasText: 'заявлен Senior, тест — Middle' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Компетенции' })).toBeVisible();
+  // приглашение: рынок и ожидания кандидата подписаны «на руки»
+  await page.getByRole('button', { name: 'Пригласить', exact: true }).click();
+  await expect(page.getByText(/^от .+ на руки$/)).toBeVisible();
+});
+
 test('Ладога: квалифицированная лотерея — пул, жребий, проверка, публичная ссылка, приглашение по жребию', async ({ page }) => {
   await demo(page, 'e');
   const panel = page.locator('.panel', { has: page.getByRole('heading', { name: 'Лотерея среди прошедших порог' }) });
@@ -329,7 +364,7 @@ test('Ладога: квалифицированная лотерея — пул
   await free.click();
   await panel.locator('#lot-fork').fill('');
   await panel.getByRole('button', { name: 'Зафиксировать пул' }).click();
-  await expect(toast(page)).toHaveText('Укажите верхнюю границу ожиданий');
+  await expect(toast(page)).toHaveText('Укажите верхнюю границу ожиданий на руки');
   await panel.locator('#lot-fork').fill('290 000');  // не выше верхней границы вилки потребности
   await panel.locator('#lot-k').fill('2');
   const created = api(page, 'POST', '/api/lottery/');

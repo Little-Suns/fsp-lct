@@ -58,6 +58,15 @@ def test_generate_cli(seeded, capsys):
     gen = [c for c in synth if c.is_synthetic]
     assert all(set(c.roles) <= set(catalog.ROLES) and set(c.soft_skills) <= set(catalog.SOFT_SKILLS) and len(c.soft_skills) <= 4 for c in gen)
     assert sum(bool(c.roles) for c in gen) >= len(gen) // 5 and sum(bool(c.soft_skills) for c in gen) >= len(gen) // 2
+    # часть синтетики без теста: ни грейда по тесту, ни θ, ни перцентиля, ни подтверждённых навыков — категория по заявленному
+    untested = [c for c in gen if c.theta is None]
+    assert untested and len(untested) < len(gen) // 3
+    assert all(c.grade is None and c.percentile is None and c.tested_at is None and not c.competencies and not c.skills_confirmed
+               and c.grade_claimed in catalog.GRADES for c in untested)
+    assert all(c.percentile is not None for c in gen if c.theta is not None)
+    k, lo = (db.scalar(select(Candidate).where(Candidate.public_id == pid)) for pid in ("K-2077", "L-3141"))
+    assert k.theta is None and k.grade is None and k.grade_claimed == "Middle" and k.consent_publish and k.skills_claimed
+    assert (lo.grade, lo.grade_claimed) == ("Middle", "Senior")
     # вилка в каждом приглашении обязательна и не перевёрнута
     for inv in db.scalars(select(Invitation)):
         assert inv.salary_from and inv.salary_to and inv.salary_from <= inv.salary_to and inv.expires_at > inv.sent_at

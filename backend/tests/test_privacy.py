@@ -266,7 +266,8 @@ def test_search_does_not_load_pii_columns(world):
             assert client.get(f"/api/employer/search{q}", headers=h).status_code == 200
     finally:
         event.remove(engine, "before_cursor_execute", listen)
-    bank = [s for s in sqls if "FROM candidates" in s and "candidates.theta IS NOT NULL" in s]
+    # запрос банка — выборка открытых кандидатов (без теста тоже видны — фильтра по theta нет)
+    bank = [s for s in sqls if "FROM candidates" in s and "candidates.status = " in s]
     assert len(bank) == 3, "запрос банка не найден"
     for col in ("name", "email", "tg", "cv_text", "embedding", "truth", "competencies", "notif"):
         assert not any(re.search(rf"candidates\.{col}\b", s) for s in bank), col

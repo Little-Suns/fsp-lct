@@ -98,6 +98,7 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
     per = {v: [] for v, _ in VARIANTS}
     kinds = {kd: {v: [] for v, _ in VARIANTS} for kd in KINDS}
     ranked_pool, skipped, ceiling = {}, 0, []
+    unc = Counter()  # не подтверждённые тестом: в пуле, среди годных по эталону, в топ-k «full»
     for n in needs:
         pool = pools[n.id]
         rel = {c.id: relevance(c, n) for c in pool}
@@ -107,11 +108,15 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
             skipped += 1
             continue
         n_rel = sum(r >= REL_TH for r in rel.values())
+        unc.update(pool=len(pool), pool_u=sum(not matching.tested(c) for c in pool), rel=n_rel,
+                   rel_u=sum(rel[c.id] >= REL_TH and not matching.tested(c) for c in pool),
+                   top=len(full[:k]), top_u=sum(not matching.tested(r.candidate) for r in full[:k]))
         ceiling.append(min(k, n_rel) / k)  # лучшая достижимая precision@k для этой потребности
         tops = {
             "embed": [r.candidate for r in matching.score_candidates(db, n, pool, variant="embed", limit=k)],
-            # «rerank» = тот же пул RETRIEVE_K, отсортированный по соответствию — ровно как score_candidates(variant="rerank")
-            "rerank": [r.candidate for r in sorted(full, key=lambda r: (-r.match, r.candidate.public_id))[:k]],
+            # «rerank» = тот же пул RETRIEVE_K, отсортированный по соответствию — ровно как score_candidates(variant="rerank"):
+            # не подтверждённые тестом — после прошедших (matching.order_key)
+            "rerank": [r.candidate for r in sorted(full, key=lambda r: (not matching.tested(r.candidate), -r.match, r.candidate.public_id))[:k]],
             "full": [r.candidate for r in full[:k]],
         }
         for v, top in tops.items():
@@ -131,15 +136,19 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
         "precision_ideal": round(float(np.mean(ceiling)), 3) if ceiling else None,
         "needs_evaluated": len(per["full"]),
         "needs_skipped": skipped,
+        # эталон считает не подтверждённых по правде синтетики (годный без теста — годный), подбор ставит их ниже
+        # прошедших тест: доля среди годных против доли в топе — сколько честно годных подбор опускает
+        "unconfirmed": {key: round(unc[f"{key}_u"] / unc[key], 3) if unc[key] else None for key in ("pool", "rel", "top")},
     }, ranked_pool
 
 
 # ───────────────────────── симуляция рынка ─────────────────────────
 
 def _stars(population: list[Candidate], share: float = 0.05) -> set[int]:
-    """Топ-5 % по θ внутри специализации: глобальный топ — почти одни Lead, которых редко ищут, метрика была бы пустой."""
+    """Топ-5 % по θ внутри специализации: глобальный топ — почти одни Lead, которых редко ищут, метрика была бы пустой.
+    Не подтверждённые тестом в «звёзды» не попадают: их θ неизвестен."""
     by_spec = defaultdict(list)
-    for c in population:
+    for c in filter(matching.tested, population):
         by_spec[c.spec].append(c)
     return {c.id for grp in by_spec.values() for c in sorted(grp, key=lambda c: -(c.theta or 0))[: max(1, round(share * len(grp)))]}
 
@@ -440,8 +449,10 @@ def dataset(db: Session) -> dict:
     n = db.scalar(select(func.count(Candidate.id)).where(synth)) or 0
     ach = db.scalar(select(func.count(Candidate.id)).where(synth, Candidate.achievements.any())) or 0
     cf = db.scalar(select(func.count(Candidate.id)).where(synth, Candidate.accounts.any(ExternalAccount.provider == "codeforces"))) or 0
+    untested = db.scalar(select(func.count(Candidate.id)).where(synth, Candidate.theta.is_(None))) or 0
     return {"candidates": n, "needs": db.scalar(select(func.count(Need.id)).where(Need.is_synthetic.is_(True))) or 0,
             "with_achievements": round(ach / n, 3) if n else 0.0, "with_cf": round(cf / n, 3) if n else 0.0,
+            "untested": round(untested / n, 3) if n else 0.0,
             "gold_experts": None, "kappa": None}
 
 
@@ -458,7 +469,7 @@ def run(db: Session, *, k: int = 10, seed: int = 42, today: date | None = DEMO_T
                                 .options(selectinload(Need.company)).order_by(Need.id)))
         pools = _pools(db, needs)
         q, ranked_pool = quality(db, needs, pools, k)
-        population = list(db.scalars(select(Candidate).where(Candidate.status == "open", Candidate.theta.is_not(None))))
+        population = list(db.scalars(select(Candidate).where(Candidate.status == "open")))  # с не подтверждёнными: они в выдаче
         mk = market(needs, ranked_pool, population, seed)
     finally:
         config.LLM_BASE_URL = saved
@@ -489,12 +500,17 @@ def report(res: dict) -> str:
     f = lambda x: "—" if x is None else f"{x:.3f}"  # noqa: E731
     d, q, m, ch, st, k = res["dataset"], res["quality"], res["market"], res["cheater"], res["stability"], res["k"]
     L = [f"Валидация ФСП Карьеры · {res['generated_at']} · k = {k}, seed = {res.get('seed')}, дата засева = {res.get('today') or 'сейчас'}",
-         f"Данные: {d['candidates']} синтетических кандидатов, {d['needs']} потребностей; с достижениями {d['with_achievements']:.0%}, с CF {d['with_cf']:.0%}",
+         f"Данные: {d['candidates']} синтетических кандидатов, {d['needs']} потребностей; с достижениями {d['with_achievements']:.0%}, с CF {d['with_cf']:.0%}, "
+         f"без теста {d.get('untested', 0):.0%}",
          "",
          f"Качество выдачи (релевантен = оценка ≥ {q['relevant_threshold']}; потребностей {q['needs_evaluated']}, без годных кандидатов пропущено {q['needs_skipped']})",
          f"  потолок precision@{k} (все годные наверху): {f(q['precision_ideal'])}",
          f"  {'вариант':<26}{'precision@' + str(k):>14}{'nDCG@' + str(k):>10}"]
     L += [f"  {v['label']:<26}{f(v['precision']):>14}{f(v['ndcg']):>10}" for v in q["variants"]]
+    u = q.get("unconfirmed") or {}
+    pc = lambda x: "—" if x is None else f"{x:.1%}"  # noqa: E731
+    L.append(f"  не подтверждённые тестом (идут после прошедших): в пуле {pc(u.get('pool'))}, среди годных по эталону {pc(u.get('rel'))}, "
+             f"в топ-{k} {pc(u.get('top'))}")
     L.append("  по типам потребностей (precision / nDCG):")
     for kd, d2 in q["by_kind"].items():
         L.append(f"    {kd:<10}" + "  ".join(f"{v}: {f(d2[v]['precision'])} / {f(d2[v]['ndcg'])}" for v, _ in VARIANTS))
