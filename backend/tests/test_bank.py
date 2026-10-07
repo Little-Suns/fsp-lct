@@ -80,12 +80,13 @@ def _content(it) -> str:
 
 
 def test_bank_deterministic_and_clones_differ():
-    """Клоны каждого семейства (кроме задач на код — у них свои проверки в test_code.py) различаются: не меньше 3 разных."""
+    """Клоны каждого семейства (кроме задач на код — у них свои проверки в test_code.py) попарно различаются."""
     assert generate_bank() == BANK
-    by_fam = defaultdict(set)
+    by_fam, n = defaultdict(set), Counter()
     for it in BANK:
         by_fam[it["family"]].add(_content(it))
-    poor = sorted(f["family"] for f in FAMILIES if f["kind"] != "code" and len(by_fam[f["family"]]) < 3)
+        n[it["family"]] += 1
+    poor = sorted(f["family"] for f in FAMILIES if f["kind"] != "code" and len(by_fam[f["family"]]) < n[f["family"]])
     assert not poor, poor
 
 

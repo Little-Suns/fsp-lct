@@ -465,13 +465,18 @@ def _(rng):
 
 @family("be_api_status", "Backend", "Проектирование API", "choice", 1.9, -1.8)
 def _(rng):
-    sit, right = rng.choice([
+    cases = [
         ("запрос без токена авторизации", "401 Unauthorized"),
         ("токен валиден, но роли пользователя этот метод запрещён: обычный клиент вызывает админский эндпоинт", "403 Forbidden"),
         ("регистрация с почтой, которая уже занята", "409 Conflict"),
         ("заказ с таким id не существует", "404 Not Found"),
-    ])
-    opts, key = _choice(rng, right, [c for c in ["401 Unauthorized", "403 Forbidden", "409 Conflict", "404 Not Found"] if c != right])
+        ("клиент превысил лимит запросов в минуту", "429 Too Many Requests"),
+        ("заказ создан, в ответе — новый ресурс и его адрес", "201 Created"),
+        ("заказ удалён, тело ответа не нужно", "204 No Content"),
+        ("отчёт поставлен в очередь, будет готов через несколько минут", "202 Accepted"),
+    ]
+    sit, right = cases[_variant(rng, len(cases))]
+    opts, key = _choice(rng, right, rng.sample([c for _, c in cases if c != right], 3))
     return {"scene_title": "Вопрос из чата", "story": "Фронтенд-разработчик спрашивает, какой код ответа ждать от API.",
             "prompt": f"Какой код вернуть, если {sit}?", "panel": None, "options": opts, "key": key}
 
@@ -526,7 +531,8 @@ def _(rng):
 def _(rng):
     v = _variant(rng, 3)
     if v == 0:
-        fn, call = rng.choice([("fetch_rates", 'requests.get(f"{RATES_URL}/{cur}", timeout=5)'), ("load_limits", 'requests.post(LIMITS_URL, json={"cur": cur}, timeout=5)')])
+        fn, call = rng.choice([("fetch_rates", 'requests.get(f"{RATES_URL}/{cur}", timeout=5)'), ("load_limits", 'requests.post(LIMITS_URL, json={"cur": cur}, timeout=5)'),
+                               ("fetch_fees", 'requests.get(FEES_URL, params={"cur": cur}, timeout=5)')])
         lines = [f"async def {fn}(currencies: list[str]) -> dict:", "    result = {}", "    for cur in currencies:", f"        resp = {call}"]
         key = len(lines)
         lines += ['        result[cur] = resp.json()["rate"]', "    return result"]
@@ -1071,14 +1077,21 @@ for i, f in enumerate(FAMILIES):
 
 
 def generate_bank() -> list[dict]:
-    """Все клоны всех семейств как словари полей Item. Детерминировано: сид = семейство + номер клона."""
+    """Все клоны всех семейств как словари полей Item. Детерминировано: сид = семейство + номер клона (+ попытка, если клон повторил уже выпавший)."""
     out = []
     for f in FAMILIES:
         n = CLONES_PILOT if f["pilot"] else CLONES.get(f["spec"], CLONES_DEFAULT)
+        seen = set()
         for i in range(n):
-            rng = random.Random(f"{f['family']}:{i}")
-            rng.clone = i  # номер клона → вариант механики (_variant)
-            payload = f["render"](rng)
+            # клон, совпавший с уже выпавшим (данных у варианта мало), перегенерируется с другим сидом в том же варианте
+            for t in range(20):
+                rng = random.Random(f"{f['family']}:{i}" + (f":{t}" if t else ""))
+                rng.clone = i  # номер клона → вариант механики (_variant)
+                payload = f["render"](rng)
+                sig = repr({**payload, "key": None, "options": sorted(payload.get("options") or [])})
+                if sig not in seen:
+                    break
+            seen.add(sig)
             payload["time_limit_s"] = TIME_LIMIT[f["kind"]]
             out.append({"family": f["family"], "spec": f["spec"], "competency": f["competency"], "kind": f["kind"],
                         "a": round(f["a"] * rng.uniform(0.95, 1.05), 3), "b": round(f["b"] + rng.uniform(-0.1, 0.1), 3),

@@ -100,7 +100,7 @@ def _(rng):
                  _log(t(0, 14), "dhcp01", "WARN", f"DHCPDISCOVER from {mac_pc} ({pc}): no free leases"),
                  _log(t(1, 40), pc, "ERROR", f"Dhcp 1002: аренда адреса {ip} истекла и не продлена, сервер не выдал новый адрес"),
                  _log(t(3, 5), "print01", "WARN", f"PrintService: {prn} не получил адрес по DHCP и не отвечает, задание отложено"),
-                 _log(t(4, 21), "wlc", "INFO", f"гостевой Wi-Fi в той же области {net}.0/24: {rng.randint(180, 260)} разных устройств за неделю")]
+                 _log(t(4, 21), "wlc", "INFO", f"гостевой Wi-Fi в той же области {net}.0/24, разных устройств за неделю: {rng.randint(180, 260)}")]
     opts, key = _options(rng, [f"У {prn} вручную задан адрес из пула DHCP: исключить адрес из пула или зарезервировать его за MAC принтера",
                                "В сети чужой DHCP-сервер раздаёт свои адреса: найти его по MAC на коммутаторе и включить DHCP snooping",
                                f"Область {net}.0/24 исчерпана гостевыми устройствами: вынести гостей в отдельную сеть и сократить аренду"], v,
@@ -315,19 +315,19 @@ def _(rng):
                  _log(f"Пн 08:{m:02d}:01", srv, "INFO", f"DHCPDISCOVER from {pc} via relay; DHCPOFFER {ip}"),
                  _log(f"Пн 08:{m:02d}:05", acc, "INFO", f"%DHCP_SNOOPING-5-DHCP_SNOOPING_UNTRUSTED_PORT: drop message on untrusted port Gi1/0/48, message type: DHCPOFFER, MAC sa: {core}"),
                  _log(f"Пн 08:{m:02d}:09", srv, "INFO", f"DHCPDISCOVER from {pc} via relay; DHCPOFFER {ip}"),
-                 _log(f"Пн 08:{m + 7:02d}:00", "helpdesk", "INFO", f"{calls} обращений «нет сети»: в основном стационарные ПК, ноутбуки с прошлой недели работают")]
+                 _log(f"Пн 08:{m + 7:02d}:00", "helpdesk", "INFO", f"обращений «нет сети»: {calls}, в основном стационарные ПК, ноутбуки с прошлой недели работают")]
     elif v == 1:  # коммутатор вставляет option 82, сервер такие запросы отбрасывает
         lines = [_log("Пт 18:42:10", acc, "INFO", f"{base}; Gi1/0/48: ip dhcp snooping trust"), uplink,
                  _log(f"Пн 08:{m:02d}:01", acc, "INFO", f"DHCP_SNOOPING: option 82 inserted (circuit-id Gi1/0/{p}, remote-id {acc}) into DHCPDISCOVER from {pc}"),
                  _log(f"Пн 08:{m:02d}:02", srv, "WARN", f"DHCPDISCOVER from {pc}: option 82 present, giaddr 0.0.0.0 — packet dropped"),
                  _log(f"Пн 08:{m:02d}:09", srv, "WARN", f"DHCPDISCOVER from {pc}: option 82 present, giaddr 0.0.0.0 — packet dropped"),
-                 _log(f"Пн 08:{m + 7:02d}:00", "helpdesk", "INFO", f"{calls} обращений «нет сети»: в основном стационарные ПК, ноутбуки с прошлой недели работают")]
+                 _log(f"Пн 08:{m + 7:02d}:00", "helpdesk", "INFO", f"обращений «нет сети»: {calls}, в основном стационарные ПК, ноутбуки с прошлой недели работают")]
     else:  # слишком строгий лимит DHCP-пакетов на портах доступа
         lines = [_log("Пт 18:42:10", acc, "INFO", f"{base}; Gi1/0/48: ip dhcp snooping trust; Gi1/0/1-47: ip dhcp snooping limit rate 2"), uplink,
                  _log(f"Пн 08:{m:02d}:01", srv, "INFO", f"DHCPDISCOVER from {pc} via relay; DHCPOFFER {ip}; DHCPACK"),
                  _log(f"Пн 08:{m:02d}:04", acc, "WARN", f"%DHCP_SNOOPING-4-DHCP_SNOOPING_ERRDISABLE_WARNING: DHCP Snooping received {rng.randint(3, 6)} DHCP packets on interface Gi1/0/{p}"),
                  _log(f"Пн 08:{m:02d}:04", acc, "ERROR", f"%PM-4-ERR_DISABLE: dhcp-rate-limit error detected on Gi1/0/{p}, putting Gi1/0/{p} in err-disable state"),
-                 _log(f"Пн 08:{m + 7:02d}:00", "helpdesk", "INFO", f"{calls} обращений «нет сети»: в основном ПК, подключённые через IP-телефон")]
+                 _log(f"Пн 08:{m + 7:02d}:00", "helpdesk", "INFO", f"обращений «нет сети»: {calls}, в основном ПК, подключённые через IP-телефон")]
     opts, key = _options(rng, ["Аплинк Gi1/0/48 не помечен доверенным: snooping режет ответы сервера — нужен ip dhcp snooping trust",
                                "Коммутатор вставляет в запросы option 82, а сервер такие отбрасывает: отключить вставку option 82",
                                "Порты доступа ушли в err-disable по лимиту DHCP-пакетов: поднять лимит и включить автовосстановление"], v,
@@ -566,10 +566,11 @@ MOUNTS = [("/srv", "/srv/1c/bases/ut11"), ("/var/lib/pgsql", "/var/lib/pgsql/16/
 
 @family("adm_srv_df", SPEC, "Серверы и ОС", "mark", 2.1, -1.3)
 def _(rng):
-    host, (mnt, path) = rng.choice(["srv-1c", "db01", "srv-app", "fs-linux"]), rng.choice(MOUNTS)
+    v = _variant(rng, 3)  # 0 — кончилось место, 1 — кончились иноды, 2 — том не смонтировался, запись идёт в корень
+    # без тома каталог под /var лёг бы на раздел /var, а не в корень — для v2 берём только точки монтирования вне /var
+    host, (mnt, path) = rng.choice(["srv-1c", "db01", "srv-app", "fs-linux"]), rng.choice([m for m in MOUNTS if v != 2 or not m[0].startswith("/var")])
     lv = "/dev/mapper/vg0-" + mnt.strip("/").replace("/", "_")
     size = rng.choice([100, 200, 500])
-    v = _variant(rng, 3)  # 0 — кончилось место, 1 — кончились иноды, 2 — том не смонтировался, запись идёт в корень
     pct = rng.randint(35, 60)
     root = ("/dev/sda2", "20G", "20G" if v == 2 else f"{rng.randint(16, 18)}G", "100%" if v == 2 else f"{rng.randint(80, 91)}%", "/")
     rows = [("/dev/sda1", "976M", "941M", f"{rng.randint(96, 98)}%", "/boot"),
@@ -604,13 +605,14 @@ def _(rng):
     lsof = ["$ sudo lsof +L1 /var", "COMMAND   PID   USER  FD  SIZE/OFF  NLINK  NAME"]
     if v == 0:
         lines = head + df + lsof + [f"{app[:8]:<9} {rng.randint(800, 9000)}  {app[:5]:<5} {rng.randint(3, 9)}w  {big}G  0  /var/log/{app}/{app}.log (deleted)"]
-    elif v == 1:
-        lines = head + df + lsof + ["(пусто)", "$ sudo snapper -c var list | tail -3"] + [
+    elif v == 1:  # /var/log на том же разделе, что и /var — отдельный раздел логов исключён панелью
+        lines = head + ["$ df -hT /var /var/log", df[1], df[1]] + lsof + ["(пусто)", "$ sudo snapper -c var list | tail -3"] + [
             f"{n} | single | {d:02d}.10 03:00 | timeline" for n, d in zip(range(41, 44), range(rng.randint(1, 20), 30))]
     else:
-        logsz = rng.choice([60, 100])
+        logsz, used = rng.choice([60, 100]) if big <= 45 else 100, rng.randint(5, 15)  # удалённый лог должен был помещаться на раздел
+        avail = logsz * 95 // 100 - used  # 5 % ext4 резервирует под root
         lines = head + ["$ df -hT /var /var/log", f"{dev}  {fs}  {total}G  {total}G  0  100% /var",
-                        f"/dev/mapper/vg0-log  ext4  {logsz}G  {rng.randint(5, 15)}G  {logsz - 20}G  {rng.randint(8, 25)}% /var/log"] + lsof + ["(пусто)"]
+                        f"/dev/mapper/vg0-log  ext4  {logsz}G  {used}G  {avail}G  {-(-100 * used // (used + avail))}% /var/log"] + lsof + ["(пусто)"]
     opts, key = _options(rng, [f"Файл удалён, но {app} держит его открытым: место вернётся после перезапуска службы",
                                "Файл остался в снимках файловой системы: место вернётся, когда удалят снимки с ним",
                                "Лог лежал на отдельном разделе /var/log: место освободилось там, а /var занят другим"], v,
@@ -747,12 +749,12 @@ def _(rng):
                  for i, (f, r, s) in enumerate(zip(floors, rooms[:3], sym[:3]))]
         lines.insert(rng.randint(1, 3), pwd)
         lines += [_log(f"09:{m + 13:02d}", "helpdesk", "INFO", f"каб. {rm}: третье обращение с этого ПК за неделю, каждый раз — перезагрузка"),
-                  _log(f"09:{m + 15:02d}", "monitoring", "WARN", f"PC-{rm}: WHEA-Logger 19 — {rng.randint(120, 400)} исправленных ошибок памяти за сутки")]
+                  _log(f"09:{m + 15:02d}", "monitoring", "WARN", f"PC-{rm}: WHEA-Logger 19, исправленных ошибок памяти за сутки: {rng.randint(120, 400)}")]
     else:
         lines = [_log(f"09:{m + 4 * i:02d}", "helpdesk", "INFO", f"{inc()} каб. {f}{r:02d}: «не открывается 1С» — L1: перезагрузили ПК, решено")
                  for i, (f, r) in enumerate(zip(floors, rooms[:3]))]
         lines.insert(rng.randint(1, 3), pwd)
-        lines.append(_log(f"09:{m + 13:02d}", "monitoring", "WARN", f"srv-1c: агент сервера 1С перезапускался {rng.randint(3, 6)} раз за час — rphost: out of memory"))
+        lines.append(_log(f"09:{m + 13:02d}", "monitoring", "WARN", f"srv-1c: перезапусков агента сервера 1С за час: {rng.randint(3, 6)}, rphost: out of memory"))
     lines.sort(key=lambda ln: ln["t"])
     opts, key = _options(rng, [f"Это один сбой на {floor}-м этаже: завести массовый инцидент, привязать обращения и проверить sw-floor{floor}",
                                f"Сбой повторяется на одном ПК в каб. {rm}: завести проблему и искать причину в нём, а не перезагружать",

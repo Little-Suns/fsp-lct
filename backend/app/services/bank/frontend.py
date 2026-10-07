@@ -287,7 +287,8 @@ def _(rng):
         lines += ["    }, 1000);", "    return () => clearInterval(id);", "  }, []);", "", "  return <span>{seconds}</span>;", "}"]
         story = f"Таймер «{label}» показывает {start}, затем {start - 1} и замирает, хотя интервал продолжает срабатывать каждую секунду."
     elif v == 1:
-        lines = ["function Modal({ onClose, children }) {", "  useEffect(() => {", '    const onKey = (e) => e.key === "Escape" && onClose();',
+        modal = rng.choice(["Modal", "Drawer", "Lightbox"])
+        lines = [f"function {modal}({{ onClose, children }}) {{", "  useEffect(() => {", '    const onKey = (e) => e.key === "Escape" && onClose();',
                  '    document.addEventListener("keydown", onKey);']
         key = len(lines)
         lines += ["  }, [onClose]);", "", '  return <div role="dialog">{children}</div>;', "}"]
