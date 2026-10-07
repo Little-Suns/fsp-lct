@@ -53,7 +53,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; scrollbar-gutter: stable; }
 html.lock { overflow: hidden; }  /* открыто меню: страница под ним не прокручивается */
 body {
   background: var(--ground);
@@ -94,7 +94,7 @@ p { margin: 0; }
 .roles button[aria-current="true"] { background: var(--paper); color: var(--blue); font-weight: 600; box-shadow: 0 1px 2px rgba(27,28,33,.12); }
 .mapbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
 @media (hover: hover) { .mapbtn:hover { border-color: var(--blue); color: var(--blue); } }
-.mapbtn .sm, .m-only { display: none; }
+.on-narrow, .m-only { display: none; }
 /* телефон и планшет: шапка в одну строку — логотип и «Меню»; роли и выход — в меню */
 @media (max-width: 900px) {
   .top-in { flex-wrap: nowrap; height: 56px; padding-top: 0; padding-bottom: 0; gap: 12px; }
@@ -103,8 +103,8 @@ p { margin: 0; }
   .brand .prod { padding-left: 10px; white-space: nowrap; }
   .top .roles, .top #logout { display: none; }
   .mapbtn { margin-left: auto; min-height: 40px; padding: 8px 14px; }
-  .mapbtn .lg { display: none; }
-  .mapbtn .sm { display: inline; }
+  .on-wide { display: none; }
+  .on-narrow { display: inline; }
   .m-only { display: block; }
 }
 @media (max-width: 370px) { .brand .prod span { display: none; } }
@@ -137,7 +137,7 @@ main { padding-left: max(var(--gut), env(safe-area-inset-left)); padding-right: 
 .msg time { display: block; text-align: right; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
 .unread { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 1; vertical-align: middle; flex: none; }
 .btn.chat-back { display: none; }
-.chat-head { padding-bottom: 12px; border-bottom: 1px solid var(--line-2); gap: 10px; flex-wrap: nowrap; }
+.row.chat-head { padding-bottom: 12px; border-bottom: 1px solid var(--line-2); gap: 10px; flex-wrap: nowrap; }
 .chat-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* телефон и планшет: либо список диалогов, либо открытый диалог на всю высоту экрана (без строки разделов) */
 @media (max-width: 900px) {
@@ -212,7 +212,7 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; font-fam
 /* перегородки — фон в зазоре 1px: при переносе на узком экране строки заполняются целиком, без пустых ячеек */
 .seg { display: inline-flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; max-width: 100%; }
 .seg button { flex: 1 1 auto; border: 0; background: var(--paper); padding: 8px 14px; cursor: pointer; font-size: 13px; }
-.seg button[aria-pressed="true"] { background: var(--blue); color: #fff; }
+.seg button[aria-pressed="true"], .seg button[aria-current="true"] { background: var(--blue); color: #fff; }
 @media (max-width: 560px) { .seg { display: flex; } .seg button { padding: 8px 6px; } }
 
 .switch { display: inline-flex; align-items: center; gap: 10px; text-align: left; cursor: pointer; font-size: 13px; border: 0; background: none; padding: 0; }
@@ -239,7 +239,7 @@ button.chip { cursor: pointer; }
 @media (max-width: 900px) {
   .subnav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
     margin-left: calc(-1 * max(var(--gut), env(safe-area-inset-left))); margin-right: calc(-1 * max(var(--gut), env(safe-area-inset-right)));
-    padding: 2px max(var(--gut), env(safe-area-inset-right)) 2px max(var(--gut), env(safe-area-inset-left));
+    padding: 4px max(var(--gut), env(safe-area-inset-right)) 4px max(var(--gut), env(safe-area-inset-left));  /* 4px — не режет рамку фокуса */
     -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--gut), #000 calc(100% - var(--gut)), transparent 100%);
     mask-image: linear-gradient(90deg, transparent 0, #000 var(--gut), #000 calc(100% - var(--gut)), transparent 100%); }
   .subnav::-webkit-scrollbar { display: none; }
@@ -391,6 +391,7 @@ button.chip { cursor: pointer; }
   .code-ed { min-height: 260px; }
 }
 @media (pointer: coarse) { .code-tools { display: flex; } .code-keys { display: none; } }
+@media (max-height: 480px) and (orientation: landscape) { .quest-top, .quest-foot { position: static; box-shadow: none; } }
 
 /* ---------- карточки кандидатов / приглашений ---------- */
 .cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 20px; padding: 18px 20px; background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; transition: border-color .15s; text-align: left; width: 100%; }
@@ -439,7 +440,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .tbl th { padding: 8px 6px; letter-spacing: .03em; white-space: normal; vertical-align: bottom; }
   .tbl td { padding: 9px 6px; }
   .tbl th:first-child, .tbl td:first-child { padding-left: 0; }
-  .tbl.heat td.c { padding: 8px 3px; }
+  table.tbl.heat td.c { padding: 8px 3px; }
   .tbl.heat caption { position: sticky; left: 0; }
 }
 
@@ -534,6 +535,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .input, select.input, textarea.input, .code-ed { font-size: 16px; }
   button, a, .opt, .cand, .inv { touch-action: manipulation; }
 }
+/* отклик на нажатие: системная подсветка касания выключена, наведение — только с мышью */
+.btn:active, button.chip:active, .seg button:active, .cand:active, .inv:active, .opt:active, .chat-peer:active, .door:active { opacity: .72; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .fade { animation: fade .25s ease-out; }
 @keyframes fade { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -552,9 +555,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
       <button data-go="/e/picks" data-role="e">Работодатель</button>
       <button data-go="/v" data-role="v">Валидация</button>
     </nav>
-    <button class="mapbtn" data-act="map" aria-haspopup="dialog">
+    <button class="mapbtn" data-act="map" aria-haspopup="dialog" aria-expanded="false">
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3h12M1 7h12M1 11h12" stroke="currentColor" stroke-width="1.5"/></svg>
-      <span class="lg">Экраны</span><span class="sm">Меню</span>
+      <span class="on-wide">Экраны</span><span class="on-narrow">Меню</span>
     </button>
     <button class="mapbtn" id="logout" data-act="logout" hidden>Выйти</button>
   </div>
@@ -783,8 +786,10 @@ const coChip = co => (domainOk(co) ? '<span class="chip ok">почта на до
 const domainWarn = co => domainOk(co) ? '' : '<div class="alert warn"><span>!</span><span><b>Почта на домене не подтверждена.</b> Рекрутер вошёл не с почты на домене сайта компании. Не передавайте паспортные и платёжные данные до собеседования.</span></div>';
 const qs = o => Object.entries(o).filter(([, v]) => v !== '' && v !== false && v != null).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
 
-// заголовок сворачиваемой панели (.fold): на телефоне — счётчик активных фильтров и кнопка «Показать / Свернуть»
-const foldBtn = k => `<button class="btn ghost small fold-btn" data-act="fold" data-k="${k}" aria-expanded="${!!S.fold[k]}">${S.fold[k] ? 'Свернуть' : 'Развернуть'}</button>`;
+// заголовок сворачиваемой панели (.fold): на телефоне — счётчик активных фильтров и кнопка «Развернуть / Свернуть»
+const FOLD = { vf: 'фильтры', sf: 'фильтры', lot: 'лотерею' };
+const foldLabel = k => (S.fold[k] ? 'Свернуть' : 'Развернуть');
+const foldBtn = k => `<button class="btn ghost small fold-btn" data-act="fold" data-k="${k}" aria-expanded="${!!S.fold[k]}" aria-label="${foldLabel(k)} ${FOLD[k]}">${foldLabel(k)}</button>`;
 const foldHead = (k, title, n = 0) => `<div class="row sb"><span class="label">${title}${n ? `<span class="fold-n">&nbsp;· ${n}</span>` : ''}</span>${foldBtn(k)}</div>`;
 const nOn = o => Object.values(o).filter(v => v !== '' && v !== false && v != null).length;
 
@@ -1223,14 +1228,16 @@ function codeTask(it) {
       ${lang === 'typescript' ? `<p class="small" style="color:var(--on-dark-2)">${esc(c.ts_note)}</p>` : ''}
     </div>`;
 }
-// сенсорная клавиатура без Tab: отступ и обратный отступ (у строки курсора) кнопками над редактором
+// сенсорная клавиатура без Tab: отступ и обратный отступ кнопками над редактором — у курсора или у всех строк выделения
 function codeIndent(back) {
-  const el = document.getElementById('code-ed'), w = codeLang() === 'python' ? 4 : 2, p = el.selectionStart;
-  el.focus();
-  if (!back) el.setRangeText(' '.repeat(w), p, el.selectionEnd, 'end');
+  const el = document.getElementById('code-ed'), w = codeLang() === 'python' ? 4 : 2, v = el.value, s = el.selectionStart;
+  if (document.activeElement !== el) return el.focus();  // без фокуса курсор неизвестно где: сначала касание в нужную строку
+  let e = el.selectionEnd;
+  if (!back && s === e) el.setRangeText(' '.repeat(w), s, e, 'end');
   else {
-    const ls = el.value.lastIndexOf('\n', p - 1) + 1, n = el.value.slice(ls, ls + w).match(/^ */)[0].length;
-    if (n) el.setRangeText('', ls, ls + n, 'preserve');
+    if (e > s && v[e - 1] === '\n') e--;  // выделение до начала следующей строки её не захватывает
+    const ls = s ? v.lastIndexOf('\n', s - 1) + 1 : 0, cut = new RegExp(`^ {1,${w}}`);
+    el.setRangeText(v.slice(ls, e).split('\n').map(l => back ? l.replace(cut, '') : ' '.repeat(w) + l).join('\n'), ls, e, s === e ? 'end' : 'select');
   }
   S.qCode[codeLang()] = el.value;
 }
@@ -2643,17 +2650,31 @@ function openMap() {
   const r = route(), role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
   let n = 0;
   document.documentElement.classList.add('lock');
+  document.querySelector('.mapbtn').setAttribute('aria-expanded', 'true');
+  document.querySelector('header.top').inert = $app.inert = true;  // фон под меню недоступен ни мыши, ни клавиатуре
   // на телефоне шапка без ролей и «Выйти»: они здесь, над картой экранов
-  const roles = `<div class="m-only"><div class="stack-s"><span class="label">Роль</span><nav class="seg m-roles" aria-label="Роль">${[['/c/home', 'c', 'Кандидат'], ['/e/picks', 'e', 'Работодатель'], ['/v', 'v', 'Валидация']].map(([p, k, t]) => `<button data-go="${p}" aria-pressed="${role === k}">${t}</button>`).join('')}</nav>
+  const roles = `<div class="m-only"><div class="stack-s"><span class="label">Роль</span><nav class="seg m-roles" aria-label="Роль">${[['/c/home', 'c', 'Кандидат'], ['/e/picks', 'e', 'Работодатель'], ['/v', 'v', 'Валидация']].map(([p, k, t]) => `<button data-go="${p}" aria-current="${role === k}">${t}</button>`).join('')}</nav>
     ${(role === 'c' || role === 'e') && TOK[role] ? `<button class="btn ghost block" data-act="logout">Выйти из кабинета ${role === 'c' ? 'кандидата' : 'работодателя'}</button>` : ''}</div></div>`;
-  document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-label="Карта экранов">
-    <div class="row sb"><h3>Карта экранов</h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
+  document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-modal="true" aria-label="Карта экранов">
+    <div class="row sb"><h3><span class="on-wide">Карта экранов</span><span class="on-narrow">Меню</span></h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
     ${roles}
     ${MAP.map(([g, items]) => [g, g === 'Кандидат' ? [...items, ...((D.invites && D.invites.items) || []).slice(0, 2).map(i => ['/c/invite/' + i.id, 'Приглашение: ' + esc(i.company)])] : items]).map(([g, items]) => `<div class="grp"><span class="label" style="margin:0 10px 4px">${g}</span>${items.map(([p, t]) => `<button data-go="${p}" aria-current="${r === p}"><span class="num">${String(++n).padStart(2, '0')}</span><span>${t}</span></button>`).join('')}</div>`).join('')}
     <p class="small muted">Демо-сценарий: регистрация → профиль и PDF → тест → категория → работодатель пишет потребность → подборка → приглашение → кандидат принимает → контакты. Вход за демо-персонажей — кнопками «Демо: войти как …» на экранах входа.</p>
   </div></div>`;
+  document.querySelector('#overlay [data-act="close-map"].btn').focus();
 }
-const closeMap = () => { document.getElementById('overlay').innerHTML = ''; document.documentElement.classList.remove('lock'); };
+function closeMap() {
+  const ov = document.getElementById('overlay');
+  if (!ov.innerHTML) return;
+  const back = ov.contains(document.activeElement);  // фокус был в меню — возвращаем на кнопку меню
+  ov.innerHTML = '';
+  document.documentElement.classList.remove('lock');
+  document.querySelector('header.top').inert = false;
+  $app.inert = $app.hasAttribute('aria-busy');  // экран мог ещё грузиться (busy)
+  const btn = document.querySelector('.mapbtn');
+  btn.setAttribute('aria-expanded', 'false');
+  if (back) btn.focus();
+}
 
 /* ===================== загрузка данных экрана ===================== */
 const or404 = p => p.catch(e => { if (e.status === 404) return null; throw e; });
@@ -2861,7 +2882,11 @@ const CONFIRM = {
 
 const ACT = {
   map: () => openMap(),
-  fold: (a, d) => { S.fold[d.k] = !S.fold[d.k]; rerender(); },
+  fold: (a, d) => {
+    S.fold[d.k] = !S.fold[d.k];
+    a.closest('.fold').classList.toggle('open', S.fold[d.k]);
+    a.setAttribute('aria-expanded', S.fold[d.k]); a.setAttribute('aria-label', foldLabel(d.k) + ' ' + FOLD[d.k]); a.textContent = foldLabel(d.k);
+  },
   noop: (a, d) => toast(d.msg || 'Пока не реализовано'),
   reload: () => refresh(),
   ask: (a, d) => { S.confirm = d.k; rerender(); },
@@ -3192,7 +3217,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chat
 const ENTER = { 'su-mail': 'otp-send', 'su-otp': 'otp-verify', 'es-mail': 'eotp-send', 'es-otp': 'eotp-verify', 'vf-q': 'vf-apply', 'vf-city': 'vf-apply', 'sf-q': 'sf-apply', 'sf-skills': 'sf-apply', 'sf-city': 'sf-apply', 'need-skill': 'need-add-ok' };
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.isComposing && ENTER[e.target.id]) { const b = document.querySelector(`[data-act="${ENTER[e.target.id]}"]`); if (b) { e.preventDefault(); b.click(); } }
-  if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey && !e.isComposing && !COARSE.matches) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
+  if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey && !e.isComposing && (!COARSE.matches || e.ctrlKey || e.metaKey)) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
   if (e.target.id === 'code-ed') {
     // редактор кода: Tab — отступ; Esc, затем Tab — обычный переход фокуса (клавиатура не запирается в поле)
     if (e.key === 'Escape') { S.edEsc = true; return; }
@@ -3292,6 +3317,7 @@ document.addEventListener('submit', async e => {
 });
 
 addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
+matchMedia('(max-width: 640px)').addEventListener('change', () => { if (document.querySelector('.quest .chart')) { capture(); rerender(); } });  // график теста — узкий или широкий холст после поворота
 for (const ev of ['pointerdown', 'mousedown']) document.addEventListener(ev, e => { if (e.target.closest('[data-keepfocus]')) e.preventDefault(); });
 fspReturn().catch(fail).finally(() => show());
 </script>

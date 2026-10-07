@@ -36,7 +36,7 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).toBe('hidden');  // страница под меню не прокручивается
       // роль переключается из меню, меню закрывается
       const roles = page.locator('#overlay').getByRole('navigation', { name: 'Роль' });
-      await expect(roles.getByRole('button', { name: 'Валидация' })).toHaveAttribute('aria-pressed', 'true');
+      await expect(roles.getByRole('button', { name: 'Валидация' })).toHaveAttribute('aria-current', 'true');
       await roles.getByRole('button', { name: 'Работодатель' }).click();
       await settled(page);
       await expect(page.getByRole('heading', { name: 'Вход для компаний' })).toBeVisible();
@@ -73,22 +73,26 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await expect(page.locator('#overlay').getByRole('button', { name: 'Выйти из кабинета кандидата' })).toBeVisible();
       await page.locator('#overlay').getByRole('button', { name: 'Закрыть' }).click();
 
-      // вакансии: на телефоне фильтры свёрнуты, список — сразу под ними
+      // вакансии: на телефоне и планшете (одна колонка) фильтры свёрнуты, список — сразу под ними
       await open(page, '/c/vacancies');
       const q = page.locator('#vf-q');
-      {  // телефон и планшет — одна колонка: фильтры свёрнуты
-        await expect(q).toBeHidden();
-        await page.getByRole('button', { name: 'Развернуть' }).click();
-        await expect(q).toBeVisible();
-        expect(await q.evaluate(e => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(16);  // iOS не увеличивает страницу при фокусе
-        await q.fill('платежи');
-        const found = page.waitForResponse(r => new URL(r.url()).pathname === '/api/vacancies' && new URL(r.url()).searchParams.get('q') === 'платежи');
-        await q.press('Enter');  // клавиша «Найти» на телефоне — применить фильтр
-        expect((await found).ok()).toBe(true);
-        await expect(page.getByText('Фильтры · 1')).toBeVisible();
-      }
+      const vacancies = qv => page.waitForResponse(r => new URL(r.url()).pathname === '/api/vacancies' && (new URL(r.url()).searchParams.get('q') || '') === qv);
+      await expect(q).toBeHidden();
+      const fold = page.getByRole('button', { name: 'Развернуть фильтры' });
+      await fold.click();
+      await expect(q).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Свернуть фильтры' })).toBeFocused();  // разворачивается на месте, фокус не теряется
+      await expect(page.getByRole('button', { name: 'Свернуть фильтры' })).toHaveAttribute('aria-expanded', 'true');
+      expect(await q.evaluate(e => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(16);  // iOS не увеличивает страницу при фокусе
+      await q.fill('платежи');
+      const found = vacancies('платежи');
+      await q.press('Enter');  // клавиша «Найти» на телефоне — применить фильтр
+      expect((await found).ok()).toBe(true);
+      await expect(page.getByText('Фильтры · 1')).toBeVisible();
+      const reset = vacancies('');
       await page.getByRole('button', { name: 'Сбросить' }).click();
-      await settled(page);
+      expect((await reset).ok()).toBe(true);
+      await expect(page.getByText('Фильтры · 1')).toHaveCount(0);
 
       await open(page, '/c/home');
       await page.locator('.inv').first().click();
@@ -115,8 +119,26 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       // лотерея свёрнута, разворачивается по кнопке
       const lot = page.getByRole('button', { name: 'Зафиксировать пул' });
       await expect(lot).toBeHidden();
-      await page.locator('.fold', { hasText: 'Лотерея среди прошедших порог' }).getByRole('button', { name: 'Развернуть' }).click();
+      await page.getByRole('button', { name: 'Развернуть лотерею' }).click();
       await expect(lot).toBeVisible();
+
+      // поиск по банку: фильтры свёрнуты, Enter в поле — «Найти»
+      await open(page, '/e/search');
+      await expect(page.locator('#sf-q')).toBeHidden();
+      await page.getByRole('button', { name: 'Развернуть фильтры' }).click();
+      await page.locator('#sf-skills').fill('Kafka');
+      const searched = page.waitForResponse(r => new URL(r.url()).pathname === '/api/employer/search' && new URL(r.url()).searchParams.get('skills') === 'Kafka');
+      await page.locator('#sf-skills').press('Enter');
+      expect((await searched).ok()).toBe(true);
+      await expect(page.getByText('Фильтры · 1')).toBeVisible();
+      // потребность: навык добавляется клавишей Enter
+      await open(page, '/e/need');
+      await page.getByRole('button', { name: 'Разобрать' }).click();
+      await page.locator('button.chip.dim', { hasText: '+ навык' }).first().click();
+      await page.locator('#need-skill').fill('Redis');
+      await page.locator('#need-skill').press('Enter');
+      await expect(page.locator('button.chip.on', { hasText: 'Redis' })).toBeVisible();
+      await open(page, '/e/picks');
 
       await page.locator('.cand').first().click();
       await settled(page);
@@ -180,7 +202,10 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
           const h = who => ({ Authorization: 'Bearer ' + localStorage.getItem('fsp.tok.' + who), 'Content-Type': 'application/json' });
           const { items } = await (await fetch('/api/candidate/invites', { headers: h('c') })).json();
           const inv = items.find(i => i.company === 'Ладога Пэй' && i.status !== 'accepted');
-          if (inv) await fetch(`/api/candidate/invites/${inv.id}/accept`, { method: 'POST', headers: h('c') });
+          if (inv) {
+            const a = await fetch(`/api/candidate/invites/${inv.id}/accept`, { method: 'POST', headers: h('c') });
+            if (!a.ok) throw new Error(`приглашение «Ладога Пэй» (${inv.status}) не принимается: ${a.status}`);
+          }
           const r = await fetch('/api/chat/A-1042', { method: 'POST', headers: h('e'), body: JSON.stringify({ text: 'Дмитрий, добрый день! Удобно созвониться завтра?' }) });
           if (!r.ok) throw new Error('POST ' + r.status);
         });
@@ -190,6 +215,15 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
         await expect(badge).toHaveText(/^\d+$/);
         expect(await badge.evaluate(fits)).toBe(true);
         expect(await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
+
+        // новое сообщение приходит само (SSE) — бейдж в строке разделов обновляется, прокрутка строки не сбрасывается
+        await open(page, '/c/settings');
+        const nav = page.locator('nav.subnav'), before = Number(await badge.textContent());
+        const x = await nav.evaluate(n => n.scrollLeft);
+        expect(x).toBeGreaterThan(0);  // «Настройки и приватность» в конце строки — прокручено к ним
+        await page.evaluate(() => fetch('/api/chat/A-1042', { method: 'POST', headers: { Authorization: 'Bearer ' + localStorage.getItem('fsp.tok.e'), 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'И ещё: пришлю задачу заранее.' }) }));
+        await expect(badge).toHaveText(String(before + 1));
+        expect(Math.abs((await nav.evaluate(n => n.scrollLeft)) - x)).toBeLessThanOrEqual(1);
       }
     });
   });
@@ -247,3 +281,37 @@ test.describe('телефон: вход и тест', () => {
     await expect.poll(() => page.evaluate(() => S.quest.item && S.quest.item.id)).not.toBe(prev);
   });
 });
+
+// самый узкий телефон (320 px) и телефон боком: без горизонтальной прокрутки, шапка задания не прилипает на низком экране
+for (const [name, viewport] of [['узкий телефон', { width: 320, height: 568 }], ['телефон боком', { width: 812, height: 375 }]]) {
+  test.describe(name, () => {
+    test.use({ viewport, hasTouch: true, isMobile: true });
+
+    test(`${name}: экраны без горизонтальной прокрутки`, async ({ page }) => {
+      for (const r of ['/', '/c/signup', '/e/signup', '/v']) {
+        await open(page, r);
+        await noHScroll(page, r);
+      }
+      // Enter в почте компании — «Получить код»
+      await page.goto('/#/e/signup');
+      await settled(page);
+      const email = `hr-${uniq()}@example.ru`;
+      await page.getByLabel('Рабочая почта').fill(email);
+      await page.getByLabel('Рабочая почта').press('Enter');
+      await expect(toast(page)).toHaveText('Код отправлен на ' + email);
+      await demo(page, 'c');
+      for (const r of ['/c/home', '/c/vacancies', '/c/profile', '/c/quest', '/c/settings']) {
+        await open(page, r);
+        await noHScroll(page, r);
+      }
+      await demo(page, 'e');
+      for (const r of ['/e/picks', '/e/search', '/e/pipeline', '/e/vacancies', '/e/chat']) {
+        await open(page, r);
+        await noHScroll(page, r);
+      }
+      if (viewport.height < 480) {  // телефон боком: шапка сайта не прилипает
+        expect(await page.locator('header.top').evaluate(e => getComputedStyle(e).position)).toBe('static');
+      }
+    });
+  });
+}
