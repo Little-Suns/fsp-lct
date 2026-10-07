@@ -304,7 +304,7 @@ button.chip:hover { border-color: var(--blue); }
 .kv { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px 16px; font-size: 13px; }
 .kv dt { color: var(--ink-3); }
 .kv dd { margin: 0; }
-@media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: 2px; } .kv dd { margin-bottom: 8px; } }
+@media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: 2px 12px; } .kv dd { margin-bottom: 8px; } }
 
 .tbl-wrap { overflow-x: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -355,6 +355,30 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .parsed { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px 16px; align-items: center; }
 @media (max-width: 600px) { .parsed { grid-template-columns: 1fr; gap: 4px; } .parsed > .label { margin-top: 8px; } }
 
+/* ---------- телефон и планшет ---------- */
+@media (max-width: 640px) {
+  /* широкие таблицы (воронка, история тестов): строка — карточка «подпись — значение» */
+  .tbl.stack thead { display: none; }
+  .tbl.stack tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+  .tbl.stack tr:last-child { border-bottom: 0; }
+  .tbl.stack td { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; padding: 4px 0; border: 0; text-align: right; }
+  .tbl.stack td:not([data-l]) { justify-content: flex-start; flex-wrap: wrap; text-align: left; }
+  .tbl.stack td[data-l]::before { content: attr(data-l); flex: none; max-width: 45%; text-align: left; color: var(--ink-3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .tbl.stack td .chips { justify-content: flex-end; }
+  .tbl.stack td[data-l]:empty { display: none; }
+  /* категория «спец · трек · грейд» в узкой колонке карточки не обрезается, а переносится */
+  .cat { flex-wrap: wrap; max-width: 100%; }
+  .cat span { padding: 5px 8px; }
+  .scale-legend .lg span { font-size: 0; }
+  .scale-legend .lg span::before { content: attr(data-s); font-size: 10px; }
+}
+@media (max-width: 900px) { .chat-box.chat-empty { height: auto; min-height: 0; } }
+@media (pointer: coarse) {
+  /* сенсорный экран: зона нажатия не меньше 36 px */
+  .crumbs button { padding: 10px 0; margin: -10px 0; }
+  button.chip, .btn.small, .seg button, .switch { min-height: 36px; }
+  .check input { width: 20px; height: 20px; margin-top: 0; flex: none; }
+}
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .fade { animation: fade .25s ease-out; }
 @keyframes fade { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -541,7 +565,7 @@ function crumbs(items) {
 
 function compRows(list, showTh = true) {
   const pos = v => ((v + 3) / 6 * 100).toFixed(1);
-  const legend = `<div class="scale-legend"><span></span><div class="lg">${GRADE_TH.map(g => `<span style="left:${pos(g.t)}%">${g.g}</span>`).join('')}</div><span></span></div>`;
+  const legend = `<div class="scale-legend"><span></span><div class="lg">${GRADE_TH.map(g => `<span style="left:${pos(g.t)}%" data-s="${g.g.length > 4 ? g.g.slice(0, 3) : g.g}">${g.g}</span>`).join('')}</div><span></span></div>`;
   return (showTh ? legend : '') + list.map(c => `
     <div class="comp">
       <span>${esc(c.n)}</span>
@@ -853,12 +877,12 @@ function historyPanel() {
   if (!H.length) return '';
   return `<div class="panel" style="margin-top:16px">
     <div class="row sb"><h3>История тестов</h3><span class="muted small">θ незаконченной попытки не показываем</span></div>
-    <div class="tbl-wrap" style="margin-top:12px"><table class="tbl">
+    <div class="tbl-wrap" style="margin-top:12px"><table class="tbl stack">
       <thead><tr><th>Начат</th><th>Цель</th><th>Результат</th><th class="num">θ ± SE</th><th class="num">Заданий</th><th>Статус</th></tr></thead>
       <tbody>${H.map(h => `<tr>
-        <td>${DATE(h.started_at)}</td><td>${esc(h.target_grade || '—')}</td><td>${esc(h.grade || '—')}</td>
-        <td class="num">${h.theta != null ? `${DEC(h.theta)} ± ${DEC(h.se)}` : '—'}</td><td class="num">${h.items}</td>
-        <td class="small">${!h.finished_at ? '<span class="status s-sent">не завершён</span>' : h.applied ? '<span class="status s-ok">категория обновлена</span>' : '<span class="status s-exp">не применён</span>'}${h.focus ? '<div class="muted">по приглашению</div>' : ''}</td>
+        <td data-l="Начат">${DATE(h.started_at)}</td><td data-l="Цель">${esc(h.target_grade || '—')}</td><td data-l="Результат">${esc(h.grade || '—')}</td>
+        <td class="num" data-l="θ ± SE">${h.theta != null ? `${DEC(h.theta)} ± ${DEC(h.se)}` : '—'}</td><td class="num" data-l="Заданий">${h.items}</td>
+        <td class="small" data-l="Статус">${!h.finished_at ? '<span class="status s-sent">не завершён</span>' : h.applied ? '<span class="status s-ok">категория обновлена</span>' : '<span class="status s-exp">не применён</span>'}${h.focus ? '<div class="muted">по приглашению</div>' : ''}</td>
       </tr>`).join('')}</tbody>
     </table></div>
   </div>`;
@@ -1083,7 +1107,7 @@ function inviteView() {
         <div class="row"><span class="logo-sq" style="background:${esc(inv.color)}">${esc(inv.company[0])}</span><div><b>${esc(inv.company)}</b><br><span class="small muted">${esc(inv.about)}</span></div><span style="margin-left:auto">${coChip(inv)}</span></div>
         <h2>${esc(inv.role)}</h2>
         <div class="row" style="gap:20px">
-          <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px">${RUB(inv.from)} — ${RUB(inv.to)}</b></div>
+          <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px"><span class="money">${RUB(inv.from)}</span> — <span class="money">${RUB(inv.to)}</span></b></div>
         </div>
         <div class="alert ${inv.fork_check.ok ? 'ok' : 'warn'}">${esc(inv.fork_check.text)}.</div>
         <dl class="kv">
@@ -1237,7 +1261,7 @@ function cVacancyView() {
         <div class="row"><span class="logo-sq" style="background:${esc(v.company.color)}">${esc(v.company.name[0])}</span><b>${esc(v.company.name)}</b><span style="margin-left:auto">${coChip(v.company)}</span></div>
         <h2>${esc(v.title)}</h2>
         <div class="row">${catTag(v.spec, v.track, v.grade)}${v.status !== 'open' ? '<span class="status s-exp">закрыта</span>' : ''}</div>
-        <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px">${RUB(v.from)} — ${RUB(v.to)}</b></div>
+        <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px"><span class="money">${RUB(v.from)}</span> — <span class="money">${RUB(v.to)}</span></b></div>
         ${v.fork_vs_min === false ? `<div class="alert warn">Верхняя граница ниже вашего минимума (${RUB(ME.min)}).</div>` : v.fork_vs_min ? `<div class="alert ok">Вилка покрывает ваш минимум ${RUB(ME.min)}.</div>` : ''}
         <dl class="kv">
           <dt>Формат</dt><dd>${esc([v.format, v.city].filter(Boolean).join(', '))}</dd>
@@ -1624,7 +1648,7 @@ function chatView(side) {
         <button class="btn primary" data-act="chat-send">Отправить</button>
       </div>
       <span class="hint" style="margin-top:6px">Enter — отправить, Shift+Enter — перенос строки</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
-    </div>` : `<div class="panel chat-box" style="align-items:center;justify-content:center"><span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог слева'}</span></div>`;
+    </div>` : `<div class="panel chat-box chat-empty" style="align-items:center;justify-content:center"><span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог в списке'}</span></div>`;
   return `
   ${crumbs(head)}
   ${subnav(side)}
@@ -1898,16 +1922,16 @@ V['/e/pipeline'] = () => {
   ${subnav('e')}
   <div class="row sb fade" style="margin-bottom:16px"><h2>Приглашения</h2><span class="small muted num">квота ${q.used} / ${q.max}${q.accepted_share != null ? ' · принято ' + PCT(q.accepted_share) : ''}</span></div>
   <div class="panel" style="padding:8px 12px">
-    <div class="tbl-wrap"><table class="tbl">
+    <div class="tbl-wrap"><table class="tbl stack">
       <thead><tr><th>Кандидат</th><th>Роль</th><th class="num">Вилка</th><th>Отправлено</th><th>Статус</th><th>Контакты</th><th>После собеседования</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}">${esc(r.cid)}</button> ${chatBtn('e', r.chat_peer)}${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
-        <td>${esc(r.role)}</td>
-        <td class="num">${K(r.from)} — ${K(r.to)}</td>
-        <td class="muted">${esc(r.when)}</td>
-        <td><span class="status ${stl[r.status][0]}">${stl[r.status][1]}</span>${r.status === 'no' && r.reason ? `<div class="small muted">причина: ${esc(r.reason.toLowerCase())}</div>` : ''}</td>
-        <td class="small">${r.contact ? esc(r.contact.text) : r.status === 'ok' && r.reason ? `<span class="muted">${esc(r.reason)}</span>` : '<span class="muted">скрыты</span>'}</td>
-        <td>${fb(r)}</td>
+        <td data-l="Роль">${esc(r.role)}</td>
+        <td class="num" data-l="Вилка">${K(r.from)} — ${K(r.to)}</td>
+        <td class="muted" data-l="Отправлено">${esc(r.when)}</td>
+        <td data-l="Статус"><span class="status ${stl[r.status][0]}">${stl[r.status][1]}</span>${r.status === 'no' && r.reason ? `<div class="small muted">причина: ${esc(r.reason.toLowerCase())}</div>` : ''}</td>
+        <td class="small" data-l="Контакты">${r.contact ? esc(r.contact.text) : r.status === 'ok' && r.reason ? `<span class="muted">${esc(r.reason)}</span>` : '<span class="muted">скрыты</span>'}</td>
+        <td data-l="После собеседования">${fb(r)}</td>
       </tr>`).join('') || '<tr><td colspan="7" class="muted">Приглашений пока нет</td></tr>'}</tbody>
     </table></div>
   </div>
