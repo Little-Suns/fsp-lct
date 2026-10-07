@@ -90,6 +90,18 @@ test('отзыв о компании через неделю после прин
   await expect(page.getByRole('heading', { name: 'Как прошло общение с компанией?' })).toHaveCount(0);
 });
 
+test('вход по почте в существующий аккаунт ведёт в кабинет, а не на регистрацию', async ({ page }) => {
+  await open(page, '/c/signup');
+  await page.getByLabel('Почта').fill('d.orlov@example.ru');
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  await expect(toast(page)).toHaveText('Вход выполнен');
+  await expect(page.getByText('Дмитрий Орлов · виден как A-1042')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Профиль' })).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/c\/home$/);
+});
+
 test('профиль и результат теста демо-кандидата', async ({ page }) => {
   await demo(page, 'c');
   await open(page, '/c/profile');
