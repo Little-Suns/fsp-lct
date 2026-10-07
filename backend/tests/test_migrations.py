@@ -46,6 +46,8 @@ def test_revision_ids():
     for rev in SCRIPT.walk_revisions():
         assert re.fullmatch(r"\d{4}_[a-z0-9_]+", rev.revision) and len(rev.revision) <= 32, rev.revision
     assert list(SCRIPT.get_bases()) == [BASELINE]
+    # после мёржа параллельных веток головы сводятся ревизией NNNN_merge_… — на main голова одна
+    assert len(SCRIPT.get_heads()) == 1, SCRIPT.get_heads()
 
 
 def _cfg(conn) -> Config:

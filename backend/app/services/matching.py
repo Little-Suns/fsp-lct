@@ -15,6 +15,7 @@
 
 import json
 import math
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -66,8 +67,13 @@ class Ranked:
     explanation: dict
 
 
+# фиксированное «сейчас» для валидации: нагрузка считается на дату засева, а не на сегодня. ContextVar — свой у каждого
+# запроса/потока, поэтому прогон валидации не сдвигает часы параллельным запросам API
+CLOCK: ContextVar[datetime | None] = ContextVar("matching_clock", default=None)
+
+
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return CLOCK.get() or datetime.now(UTC)
 
 
 def candidate_loads(db: Session, candidate_ids: list[int]) -> dict[int, int]:
