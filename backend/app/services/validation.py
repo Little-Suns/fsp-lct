@@ -1,9 +1,13 @@
-"""Валидация подбора и теста (сессия, §8): качество выдачи, симуляция рынка, «читер», стабильность.
+"""Валидация подбора и теста (сессия, §8): качество выдачи, симуляция рынка, «читер», стабильность,
+разделяющая сила теста (отличает ли он один грейд от другого).
 
 Правильные ответы — seed.gold.relevance по скрытой правде синтетики (Candidate.truth), без LLM.
-Всё детерминировано по seed; в БД ничего не пишется (кроме засева банка заданий, если он пуст).
+Всё детерминировано по seed и дате засева (--today, как у seed.generate): «сейчас» подбора (открытые приглашения,
+нагрузка) — полдень МСК этой даты, а не реальное время, поэтому цифры не плывут от дня ко дню.
+В БД ничего не пишется (кроме засева банка заданий, если он пуст).
 
-Запуск: uv run python -m app.services.validation [--k 10] [--seed 42] → отчёт в консоль + backend/var/validation.json
+Запуск: uv run python -m app.services.validation [--k 10] [--seed 42] [--today 2026-10-05|now]
+→ отчёт в консоль + backend/var/validation.json
 """
 
 import argparse
@@ -11,7 +15,7 @@ import json
 import random
 import time
 from collections import Counter, defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +27,7 @@ from app import catalog, config
 from app.models import Candidate, ExternalAccount, Item, Need
 from app.services import irt, matching
 from app.services.items import seed_items
+from seed.generate import DEMO_TODAY, THETA_BAND, anchor, parse_today
 from seed.gold import relevance
 
 OUT = Path(__file__).resolve().parents[2] / "var" / "validation.json"
@@ -31,6 +36,8 @@ VARIANTS = [("embed", "Эмбеддинги / навыки"), ("rerank", "+ ст
 KINDS = ("normal", "adjacent", "fork_low")
 ROUNDS, PER_NEED = 4, 10  # недели симуляции; приглашений от потребности за неделю
 N_CHEAT, N_HONEST, N_RETEST = 200, 200, 200
+N_GRADE, N_CALIB = 200, 500  # разделяющая сила: симулированных кандидатов на грейд; калибровочная выборка для r_pb
+RPB_POOR, A_LOW, A_HIGH = 0.2, 0.65, 1.35  # r_pb < 0,2 — задание слабо различает (Ebel); границы a — по Baker (2001)
 
 
 # ───────────────────────── метрики ─────────────────────────
@@ -91,6 +98,7 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
     per = {v: [] for v, _ in VARIANTS}
     kinds = {kd: {v: [] for v, _ in VARIANTS} for kd in KINDS}
     ranked_pool, skipped, ceiling = {}, 0, []
+    unc = Counter()  # не подтверждённые тестом: в пуле, среди годных по эталону, в топ-k «full»
     for n in needs:
         pool = pools[n.id]
         rel = {c.id: relevance(c, n) for c in pool}
@@ -100,11 +108,15 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
             skipped += 1
             continue
         n_rel = sum(r >= REL_TH for r in rel.values())
+        unc.update(pool=len(pool), pool_u=sum(not matching.tested(c) for c in pool), rel=n_rel,
+                   rel_u=sum(rel[c.id] >= REL_TH and not matching.tested(c) for c in pool),
+                   top=len(full[:k]), top_u=sum(not matching.tested(r.candidate) for r in full[:k]))
         ceiling.append(min(k, n_rel) / k)  # лучшая достижимая precision@k для этой потребности
         tops = {
             "embed": [r.candidate for r in matching.score_candidates(db, n, pool, variant="embed", limit=k)],
-            # «rerank» = тот же пул RETRIEVE_K, отсортированный по соответствию — ровно как score_candidates(variant="rerank")
-            "rerank": [r.candidate for r in sorted(full, key=lambda r: (-r.match, r.candidate.public_id))[:k]],
+            # «rerank» = тот же пул RETRIEVE_K, отсортированный по соответствию — ровно как score_candidates(variant="rerank"):
+            # не подтверждённые тестом — после прошедших (matching.order_key)
+            "rerank": [r.candidate for r in sorted(full, key=lambda r: (not matching.tested(r.candidate), -r.match, r.candidate.public_id))[:k]],
             "full": [r.candidate for r in full[:k]],
         }
         for v, top in tops.items():
@@ -124,15 +136,19 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
         "precision_ideal": round(float(np.mean(ceiling)), 3) if ceiling else None,
         "needs_evaluated": len(per["full"]),
         "needs_skipped": skipped,
+        # эталон считает не подтверждённых по правде синтетики (годный без теста — годный), подбор ставит их ниже
+        # прошедших тест: доля среди годных против доли в топе — сколько честно годных подбор опускает
+        "unconfirmed": {key: round(unc[f"{key}_u"] / unc[key], 3) if unc[key] else None for key in ("pool", "rel", "top")},
     }, ranked_pool
 
 
 # ───────────────────────── симуляция рынка ─────────────────────────
 
 def _stars(population: list[Candidate], share: float = 0.05) -> set[int]:
-    """Топ-5 % по θ внутри специализации: глобальный топ — почти одни Lead, которых редко ищут, метрика была бы пустой."""
+    """Топ-5 % по θ внутри специализации: глобальный топ — почти одни Lead, которых редко ищут, метрика была бы пустой.
+    Не подтверждённые тестом в «звёзды» не попадают: их θ неизвестен."""
     by_spec = defaultdict(list)
-    for c in population:
+    for c in filter(matching.tested, population):
         by_spec[c.spec].append(c)
     return {c.id for grp in by_spec.values() for c in sorted(grp, key=lambda c: -(c.theta or 0))[: max(1, round(share * len(grp)))]}
 
@@ -238,10 +254,11 @@ def _bank(db: Session, spec: str = "Backend") -> list[SimpleNamespace]:
             for it in db.scalars(select(Item).where(Item.spec == spec, Item.pilot.is_(False)).order_by(Item.id))]
 
 
-def _session(bank, p_correct, rng: random.Random):
-    """Адаптивная сессия как irt.simulate_session, но с произвольной моделью ответа p_correct(item)."""
+def _session(bank, p_correct, rng: random.Random, prior_mean: float = 0.0):
+    """Адаптивная сессия как irt.simulate_session, но с произвольной моделью ответа p_correct(item).
+    prior_mean — старт выбора заданий (в продукте — порог заявленного грейда); θ в ответе — с этим априором."""
     seen_ids, seen_fam, resp = set(), set(), []
-    theta, se = 0.0, 1.0
+    theta, se = prior_mean, 1.0
     while not irt.should_stop(len(resp), se):
         it = irt.next_item(theta, bank, seen_ids, seen_fam, rng)
         if it is None:
@@ -249,7 +266,7 @@ def _session(bank, p_correct, rng: random.Random):
         seen_ids.add(it.id)
         seen_fam.add(it.family)
         resp.append((it.a, it.b, int(rng.random() < p_correct(it))))
-        theta, se = irt.eap(resp)
+        theta, se = irt.eap(resp, prior_mean)
     return theta, se, resp
 
 
@@ -322,6 +339,109 @@ def stability(db: Session, bank, seed: int) -> dict:
     }
 
 
+# ───────────────────────── разделяющая сила теста ─────────────────────────
+
+def _auc(lo, hi) -> float:
+    """P(θ̂ кандидата старшего грейда > θ̂ младшего), ничьи — пополам (Манн — Уитни)."""
+    r = _ranks(np.concatenate([lo, hi]))
+    n0, n1 = len(lo), len(hi)
+    return float((r[n0:].sum() - n1 * (n1 + 1) / 2) / (n0 * n1))
+
+
+def _overlap(x, y, step: float = 0.25) -> float:
+    """Площадь пересечения гистограмм θ̂ двух грейдов (0 — не пересекаются, 1 — совпадают)."""
+    bins = np.arange(irt.GRID[0], irt.GRID[-1] + step, step)
+    p, q = (np.histogram(np.clip(v, bins[0], bins[-1]), bins)[0] / len(v) for v in (x, y))
+    return float(np.minimum(p, q).sum())
+
+
+def _qwk(conf: np.ndarray) -> float:
+    """Каппа Коэна с квадратичными весами: согласие истинного и тестового грейда с поправкой на случайное."""
+    conf = np.asarray(conf)
+    k, n = len(conf), conf.sum()
+    i, j = np.indices((k, k))
+    w = (i - j) ** 2 / (k - 1) ** 2
+    e = np.outer(conf.sum(1), conf.sum(0)) / n
+    return float(1 - (w * conf).sum() / (w * e).sum())
+
+
+def _quart(x) -> dict:
+    x = np.asarray(x, dtype=float)
+    return {"min": round(float(x.min()), 3), "q1": round(float(np.percentile(x, 25)), 3), "median": round(float(np.median(x)), 3),
+            "q3": round(float(np.percentile(x, 75)), 3), "max": round(float(x.max()), 3)}
+
+
+def _items(banks: dict, seed: int) -> dict:
+    """Дискриминативность заданий: параметр a (2PL) и точечно-бисериальная корреляция ответа с суммой остальных
+    (item-rest) на калибровочной выборке: N_CALIB симулированных θ ~ N(0, 1) отвечают на все задания банка.
+    В адаптивной сессии у разных людей разные задания — классическая item-total там не определена."""
+    a = np.array([it.a for b in banks.values() for it in b])
+    rng = np.random.default_rng(seed)
+    rpb = []
+    for bank in banks.values():
+        th = rng.normal(0, 1, N_CALIB)
+        A, B = np.array([it.a for it in bank]), np.array([it.b for it in bank])
+        U = (rng.random((N_CALIB, len(bank))) < irt.prob(th[:, None], A, B)).astype(float)
+        rest = U.sum(1)[:, None] - U
+        rpb += [float(np.corrcoef(U[:, j], rest[:, j])[0, 1]) for j in range(len(bank)) if 0 < U[:, j].mean() < 1]
+    return {"n": int(len(a)), "a": _quart(a),
+            "a_bins": {"low": int((a < A_LOW).sum()), "moderate": int(((a >= A_LOW) & (a < A_HIGH)).sum()), "high": int((a >= A_HIGH).sum())},
+            "rpb": _quart(rpb), "rpb_poor": round(float(np.mean(np.array(rpb) < RPB_POOR)), 3), "calib_n": N_CALIB}
+
+
+def separation(db: Session, seed: int) -> dict:
+    """Отличает ли тест один грейд от другого: N_GRADE симулированных кандидатов на грейд, истинный θ — равномерно в полосе
+    грейда (как у синтетики, seed.generate.THETA_BAND), банки всех специализаций по кругу. Сессия — как в продукте:
+    выбор заданий стартует у порога заявленного грейда (заявлен истинный), итог — EAP с нейтральным априором N(0, 1),
+    грейд — θ − SE ≥ порога (catalog.grade_from_theta), поэтому ошибки смещены вниз; accuracy_point — тот же прогон
+    с грейдом по самой оценке θ̂ (без запаса SE), чтобы отделить точность теста от осторожности правила.
+    confusion[i][j] — сколько кандидатов истинного грейда i тест отнёс к грейду j."""
+    G = catalog.GRADES
+    banks = {s: b for s in catalog.SPECS if (b := _bank(db, s))}
+    specs, rng = list(banks), random.Random(f"{seed}:separation")
+    conf = np.zeros((len(G), len(G)), dtype=int)
+    est, ses, point = defaultdict(list), defaultdict(list), []
+    per_spec = defaultdict(lambda: defaultdict(list))  # спец. → hit / near / items / se
+    for gi, g in enumerate(G):
+        lo, hi = THETA_BAND[g]
+        for i in range(N_GRADE):
+            spec, tt = specs[i % len(specs)], rng.uniform(lo, hi)
+            *_, resp = _session(banks[spec], lambda it, tt=tt: float(irt.prob(tt, it.a, it.b)), rng, irt.start_prior(g, None))
+            t, se = irt.eap(resp)
+            gj = G.index(catalog.grade_from_theta(t, se))
+            conf[gi, gj] += 1
+            est[g].append(t)
+            ses[g].append(se)
+            point.append(catalog.grade_from_theta(t, 0.0) == g)
+            for key, v in (("hit", gj == gi), ("near", abs(gj - gi) <= 1), ("items", len(resp)), ("se", se)):
+                per_spec[spec][key].append(v)
+    n, hit = int(conf.sum()), int(np.trace(conf))
+    dist = np.abs(np.subtract.outer(np.arange(len(G)), np.arange(len(G))))
+    r3 = lambda x: round(float(x), 3)  # noqa: E731
+    return {
+        "simulated": True,
+        "n_per_grade": N_GRADE,
+        "specs": len(specs),
+        "grades": G,
+        "confusion": conf.tolist(),
+        "per_grade": [{"grade": g, "n": int(conf[i].sum()), "accuracy": r3(conf[i, i] / conf[i].sum()),
+                       "under": r3(conf[i, :i].sum() / conf[i].sum()), "over": r3(conf[i, i + 1:].sum() / conf[i].sum()),
+                       "theta_mean": round(float(np.mean(est[g])), 2), "theta_sd": round(float(np.std(est[g])), 2),
+                       "se_mean": round(float(np.mean(ses[g])), 2)} for i, g in enumerate(G)],
+        "accuracy": r3(hit / n),
+        "accuracy_point": r3(np.mean(point)),
+        "within_one": r3(conf[dist <= 1].sum() / n),
+        "adjacent_error_share": r3(conf[dist == 1].sum() / (n - hit)) if n > hit else None,
+        "qwk": r3(_qwk(conf)),
+        "adjacent": [{"lo": a, "hi": b, "auc": r3(_auc(np.array(est[a]), np.array(est[b]))), "overlap": r3(_overlap(est[a], est[b]))}
+                     for a, b in zip(G, G[1:])],
+        "by_spec": [{"spec": s, "families": len({it.family for it in banks[s]}), "accuracy": r3(np.mean(d["hit"])),
+                     "within_one": r3(np.mean(d["near"])), "items": round(float(np.mean(d["items"])), 1),
+                     "se_mean": round(float(np.mean(d["se"])), 2)} for s, d in per_spec.items()],
+        "items": _items(banks, seed),
+    }
+
+
 # ───────────────────────── сборка ─────────────────────────
 
 def dataset(db: Session) -> dict:
@@ -329,35 +449,43 @@ def dataset(db: Session) -> dict:
     n = db.scalar(select(func.count(Candidate.id)).where(synth)) or 0
     ach = db.scalar(select(func.count(Candidate.id)).where(synth, Candidate.achievements.any())) or 0
     cf = db.scalar(select(func.count(Candidate.id)).where(synth, Candidate.accounts.any(ExternalAccount.provider == "codeforces"))) or 0
+    untested = db.scalar(select(func.count(Candidate.id)).where(synth, Candidate.theta.is_(None))) or 0
     return {"candidates": n, "needs": db.scalar(select(func.count(Need.id)).where(Need.is_synthetic.is_(True))) or 0,
             "with_achievements": round(ach / n, 3) if n else 0.0, "with_cf": round(cf / n, 3) if n else 0.0,
+            "untested": round(untested / n, 3) if n else 0.0,
             "gold_experts": None, "kappa": None}
 
 
-def run(db: Session, *, k: int = 10, seed: int = 42) -> dict:
+def run(db: Session, *, k: int = 10, seed: int = 42, today: date | None = DEMO_TODAY) -> dict:
+    """today — дата засева (seed.generate --today): на её полдень МСК считаются открытые приглашения и нагрузка;
+    None — реальное время (засев с --today now, прогон сразу после него)."""
     # LLM-реранк выключен на время прогона: метрики детерминированы и меряют структурный реранк (как в подписи).
     # ponytail: глобальный флаг процесса — параллельные запросы API на ~5 с прогона тоже идут без LLM;
     # чисто — параметр use_llm=False в matching.score_candidates (сейчас matching.py правят параллельно, не трогаю)
     saved, config.LLM_BASE_URL = config.LLM_BASE_URL, ""
+    clock = matching.CLOCK.set(anchor(today))
     try:
         needs = list(db.scalars(select(Need).where(Need.is_synthetic.is_(True), Need.kind.is_not(None))
                                 .options(selectinload(Need.company)).order_by(Need.id)))
         pools = _pools(db, needs)
         q, ranked_pool = quality(db, needs, pools, k)
-        population = list(db.scalars(select(Candidate).where(Candidate.status == "open", Candidate.theta.is_not(None))))
+        population = list(db.scalars(select(Candidate).where(Candidate.status == "open")))  # с не подтверждёнными: они в выдаче
         mk = market(needs, ranked_pool, population, seed)
     finally:
         config.LLM_BASE_URL = saved
+        matching.CLOCK.reset(clock)
     bank = _bank(db)
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "k": k,
         "seed": seed,
+        "today": today.isoformat() if today else None,
         "dataset": dataset(db),
         "quality": q,
         "market": mk,
         "cheater": cheater(bank, seed),
         "stability": stability(db, bank, seed),
+        "separation": separation(db, seed),
     }
 
 
@@ -371,13 +499,18 @@ def save(res: dict, path: Path | None = None) -> Path:
 def report(res: dict) -> str:
     f = lambda x: "—" if x is None else f"{x:.3f}"  # noqa: E731
     d, q, m, ch, st, k = res["dataset"], res["quality"], res["market"], res["cheater"], res["stability"], res["k"]
-    L = [f"Валидация ФСП Карьеры · {res['generated_at']} · k = {k}, seed = {res.get('seed')}",
-         f"Данные: {d['candidates']} синтетических кандидатов, {d['needs']} потребностей; с достижениями {d['with_achievements']:.0%}, с CF {d['with_cf']:.0%}",
+    L = [f"Валидация ФСП Карьеры · {res['generated_at']} · k = {k}, seed = {res.get('seed')}, дата засева = {res.get('today') or 'сейчас'}",
+         f"Данные: {d['candidates']} синтетических кандидатов, {d['needs']} потребностей; с достижениями {d['with_achievements']:.0%}, с CF {d['with_cf']:.0%}, "
+         f"без теста {d.get('untested', 0):.0%}",
          "",
          f"Качество выдачи (релевантен = оценка ≥ {q['relevant_threshold']}; потребностей {q['needs_evaluated']}, без годных кандидатов пропущено {q['needs_skipped']})",
          f"  потолок precision@{k} (все годные наверху): {f(q['precision_ideal'])}",
          f"  {'вариант':<26}{'precision@' + str(k):>14}{'nDCG@' + str(k):>10}"]
     L += [f"  {v['label']:<26}{f(v['precision']):>14}{f(v['ndcg']):>10}" for v in q["variants"]]
+    u = q.get("unconfirmed") or {}
+    pc = lambda x: "—" if x is None else f"{x:.1%}"  # noqa: E731
+    L.append(f"  не подтверждённые тестом (идут после прошедших): в пуле {pc(u.get('pool'))}, среди годных по эталону {pc(u.get('rel'))}, "
+             f"в топ-{k} {pc(u.get('top'))}")
     L.append("  по типам потребностей (precision / nDCG):")
     for kd, d2 in q["by_kind"].items():
         L.append(f"    {kd:<10}" + "  ".join(f"{v}: {f(d2[v]['precision'])} / {f(d2[v]['ndcg'])}" for v, _ in VARIANTS))
@@ -394,6 +527,18 @@ def report(res: dict) -> str:
           f"  корреляция истинного и оценённого θ: {f(st['theta_corr'])}",
           f"  Спирмен θ «Алгоритмы» × рейтинг CF: {f(st['cf_spearman'])} (n = {st['cf_n']})",
           f"  разброс b внутри семейства (среднее SD): {f(st['clone_b_spread'])}"]
+    sp = res["separation"]
+    G, it = sp["grades"], sp["items"]
+    L += ["", f"Разделяющая сила теста (симуляция: {sp['n_per_grade']} на грейд, банков {sp['specs']}; строки — истинный грейд, столбцы — грейд теста)",
+          "  " + " " * 8 + "".join(f"{g:>8}" for g in G) + f"{'точность':>10}"]
+    L += [f"  {g:<8}" + "".join(f"{x:>8}" for x in row) + f"{pg['accuracy']:>10.0%}" for g, row, pg in zip(G, sp["confusion"], sp["per_grade"])]
+    L += [f"  точно: {sp['accuracy']:.0%} (по θ̂ без запаса SE — {sp['accuracy_point']:.0%}), ±1 грейд: {sp['within_one']:.0%}, "
+          f"доля ошибок в соседний грейд: {f(sp['adjacent_error_share'])}, κ с квадратичными весами: {f(sp['qwk'])}",
+          "  по специализациям (семейств · точно · ±1 · заданий · SE): " + "; ".join(
+              f"{r['spec']} {r['families']} · {r['accuracy']:.0%} · {r['within_one']:.0%} · {r['items']} · {r['se_mean']}" for r in sp["by_spec"]),
+          "  соседние грейды (AUC θ̂ / перекрытие): " + "; ".join(f"{p['lo']}|{p['hi']} {p['auc']:.3f} / {p['overlap']:.2f}" for p in sp["adjacent"]),
+          f"  задания ({it['n']}): a — медиана {it['a']['median']:.2f} (Q1–Q3 {it['a']['q1']:.2f}–{it['a']['q3']:.2f}); "
+          f"r_pb item-rest — медиана {it['rpb']['median']:.2f}, слабых (< {RPB_POOR}) {it['rpb_poor']:.0%}"]
     return "\n".join(L)
 
 
@@ -401,12 +546,14 @@ def main():
     ap = argparse.ArgumentParser(description="Валидация подбора и теста")
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--today", type=parse_today, default=DEMO_TODAY,
+                    help=f"дата засева, как у seed.generate --today (по умолчанию {DEMO_TODAY}); now — реальное время")
     a = ap.parse_args()
     from app.db import SessionLocal
 
     t0 = time.time()
     with SessionLocal() as db:
-        res = run(db, k=a.k, seed=a.seed)
+        res = run(db, k=a.k, seed=a.seed, today=a.today)
     print(report(res))
     print(f"\n{time.time() - t0:.1f} с → {save(res)}")
 

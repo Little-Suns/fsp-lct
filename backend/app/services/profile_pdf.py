@@ -17,6 +17,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
+from app.integrations.scoring import RESULT_LABEL
 from app.models import Candidate
 from app.services import matching
 from app.services.parsing import cv_experience
@@ -222,7 +223,7 @@ def render(c: Candidate, *, now: datetime | None = None) -> bytes:
     if achs or cf:
         pdf.section("Достижения", "  влияют на место в выдаче, но не на грейд")
         for a in achs:
-            parts = [a.title, f"{a.place} место" if a.place else None, a.team, a.role]
+            parts = [a.title, f"{a.place} место" if a.place else None, RESULT_LABEL.get(a.result), a.sport_rank, a.team, a.role]
             mark = "✓ подтверждено" if a.verified else "не подтверждено"
             pdf.para(f"{SOURCES.get(a.source, a.source)}: " + " · ".join(p for p in parts if p) + f"  ({mark})", size=8.5, color=INK)
         if cf:

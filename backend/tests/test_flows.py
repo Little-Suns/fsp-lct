@@ -2,6 +2,7 @@
 Плюс ёмкость, квота, лотерея, истечение, неподтверждённая компания, поиск по банку, согласия и права по 152-ФЗ. Своя БД (fsp_flows), LLM выключена — работают правила."""
 
 import io
+import json
 import os
 import re
 from datetime import UTC, datetime, timedelta
@@ -18,9 +19,9 @@ from fastapi.testclient import TestClient
 from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
-from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, ExternalAccount, Invitation, RetiredPublicId, User, Vacancy
+from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, RetiredPublicId, User, Vacancy
 from app.routers import candidate, employer, lottery
-from app.services import profile_pdf
+from app.services import matching, profile_pdf
 
 config.LLM_BASE_URL = ""
 NOW = datetime.now(UTC)
@@ -46,13 +47,17 @@ def client():
     with SessionLocal() as db:
         cu, eu, nu = User(email="d.orlov@example.ru", role="candidate"), User(email="m.kovaleva@ladoga-pay.example", role="employer"), User(email="new@example.ru", role="candidate")
         fake = User(email="hr.ladoga@gmail.com", role="employer")  # почта входа не на домене компании
-        db.add_all([cu, eu, nu, fake])
+        late = User(email="late@example.ru", role="candidate")  # резюме загружает до создания профиля
+        db.add_all([cu, eu, nu, fake, late])
         db.flush()
         a = _cand(
             "A-1042", user_id=cu.id, consent_external=True, consent_external_version=catalog.CONSENT_VERSION, name="Дмитрий Орлов", email="d.orlov@example.ru", tg="@dorlov_dev", theta=1.12, se=0.18, percentile=78,
             formats=["Гибрид", "Удалённо"], skills_confirmed=["Python", "PostgreSQL", "Kafka", "asyncio"], skills_claimed=["Python", "PostgreSQL", "Kafka", "Kubernetes"],
         )
-        a.achievements = [Achievement(source="fsp", title="Финал Кубка России ФСП 2025", weight=0.8, verified=True)]
+        cup = Event(source="fsp", external_id="cup-2025", title="Финал Кубка России ФСП 2025", discipline="продуктовое программирование")
+        a.achievements = [Achievement(source="fsp", event=cup, title=cup.title, weight=0.8, result="winner", sport_rank="КМС", verified=True),
+                          # неподтверждённый разряд выше — не показывается
+                          Achievement(source="fsp", title="Этап ФСП", weight=0.05, result="participant", sport_rank="МС", verified=False)]
         a.accounts = [ExternalAccount(provider="codeforces", handle="dorlov", verify_code="FSP-7Q2K", verified_at=NOW, rating=1912, rank="Candidate Master")]
         busy = _cand("B-2318", theta=1.31, se=0.16, percentile=85, min_salary=280000, formats=["Удалённо"], skills_confirmed=["Python", "PostgreSQL", "Kafka", "Kubernetes"])
         db.add_all([
@@ -60,7 +65,8 @@ def client():
             _cand("J-0003", grade="Junior", theta=0.1, percentile=60),
             _cand("Z-0001", status="off"),
             _cand("H-0002", hidden_from=[INN]),
-            _cand("U-0004", grade=None, theta=None, se=None),
+            # тест не пройден: в выдаче по заявленному Middle, после прошедших; устаревшие перцентиль и компетенции не отдаются
+            _cand("U-0004", grade=None, theta=None, se=None, tested_at=None, skills_confirmed=[], skills_claimed=["Python", "PostgreSQL", "Kafka", "Kubernetes"]),
             _cand("G-0005", track="Go", spec="Backend"),
             _cand("S-0006", grade="Senior", theta=1.8, min_salary=290000),  # грейд +1, минимум в вилке до 300 → в подборке
             _cand("S-0007", grade="Senior", theta=1.8, min_salary=350000),  # грейд +1, дороже вилки → нет
@@ -75,7 +81,7 @@ def client():
             db.flush()
             db.add(Invitation(company_id=co.id, candidate_id=busy.id, role="Backend", salary_from=280000, salary_to=330000, format="Удалённо", expires_at=NOW + timedelta(days=5)))
         db.commit()
-        for hdr, u in ((C, cu), (E, eu), (N, nu), (F, fake)):
+        for hdr, u in ((C, cu), (E, eu), (N, nu), (F, fake), (LATE, late)):
             hdr["Authorization"] = "Bearer " + issue_token(db, u)
     app = FastAPI()
     for r in (deps, candidate, employer, lottery):
@@ -83,7 +89,19 @@ def client():
     yield TestClient(app)
 
 
-E, C, N, F = {}, {}, {}, {}  # заголовки: работодатель, кандидат A-1042, новый кандидат, неподтверждённая компания
+E, C, N, F, LATE = {}, {}, {}, {}, {}  # заголовки: работодатель, кандидат A-1042, новый кандидат, неподтверждённая компания, ещё один новый
+
+
+def _pdf(*lines: str) -> bytes:
+    """Минимальный PDF с текстовым слоем: строка — отдельная строка текста (ASCII, шрифт Helvetica)."""
+    body = " 0 -16 Td ".join(f"({x}) Tj" for x in lines)
+    stream = f"BT /F1 12 Tf 72 720 Td {body} ET".encode()
+    return (
+        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n"
+        + f"4 0 obj<</Length {len(stream)}>>stream\n".encode() + stream
+        + b"\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF"
+    )
 
 
 def test_demo_flow(client):
@@ -91,7 +109,7 @@ def test_demo_flow(client):
     p = client.post("/api/employer/needs/parse", json={"text": NEED_TEXT}, headers=E).json()
     assert (p["spec"], p["track"], p["grade"], p["must"], p["nice"]) == ("Backend", "Python", "Middle", ["Python", "PostgreSQL", "Kafka"], ["Kubernetes"])
     assert (p["from"], p["to"], p["format"], p["city"]) == (240000, 300000, "Гибрид", "Москва")
-    assert p["category"]["count"] == 3 and p["market"]["p25"] == 210000  # A, B, H: счётчик категории не учитывает скрытие
+    assert p["category"]["count"] == 4 and p["market"]["p25"] == 210000  # A, B, H, U (без теста): счётчик категории не учитывает скрытие
     need = client.post("/api/employer/needs", json={**p, "text": NEED_TEXT}, headers=E).json()
 
     # 2. подборка: анонимно, по взаимному интересу
@@ -100,8 +118,11 @@ def test_demo_flow(client):
     assert "Дмитрий" not in r.text and "d.orlov" not in r.text and "dorlov_dev" not in r.text
     picks = r.json()
     ids = [c["id"] for c in picks["items"]]
-    assert ids[0] == "A-1042" and set(ids) == {"A-1042", "B-2318", "J-0003", "G-0005", "S-0006"}, ids
+    assert ids[0] == "A-1042" and set(ids) == {"A-1042", "B-2318", "J-0003", "G-0005", "S-0006", "U-0004"}, ids
+    assert ids[-1] == "U-0004"  # без теста — строго после прошедших, хотя заявленный стек покрывает потребность
     a = picks["items"][0]
+    assert a["sport_rank"] == "КМС" and a["badges"] == [{"source": "fsp", "title": "Финал Кубка России ФСП 2025", "place": None,
+                                                          "result": "winner", "discipline": "продуктовое программирование", "rank": "КМС"}]
     assert a["fsp"] and a["cf"] == 1912 and a["gaps"] == ["Kubernetes не подтверждён тестом"] and a["fmtOk"] and a["theta"] == "1.12 ± 0.18"
     assert abs(a["score"] - a["match"] * (0.5 + 0.5 * a["accept"]) * 1.0) < 0.01
     b = next(c for c in picks["items"] if c["id"] == "B-2318")
@@ -119,7 +140,7 @@ def test_demo_flow(client):
     card = client.get(f"/api/employer/candidates/A-1042?need_id={need['id']}", headers=E)
     assert card.status_code == 200 and "Дмитрий" not in card.text
     assert card.json()["breakdown"]["load_penalty"] == 1.0 and card.json()["competencies"]
-    for hidden in ("Z-0001", "H-0002", "U-0004", "P-0008"):
+    for hidden in ("Z-0001", "H-0002", "P-0008"):
         assert client.get(f"/api/employer/candidates/{hidden}", headers=E).status_code == 404
 
     # 4. вилка: ошибки блокируют, предупреждения нет
@@ -155,7 +176,7 @@ def test_demo_flow(client):
     assert client.post(f"/api/employer/invites/{iid}/feedback", json={"value": "hired"}, headers=E).json()["fb"] == "наняли"
     assert client.post(f"/api/employer/invites/{iid}/feedback", json={"value": "confirmed"}, headers=E).status_code == 409
     me = client.get("/api/candidate/me", headers=C).json()
-    assert me["employer_confirmed"] == 1 and me["name"] == "Дмитрий Орлов" and me["cf"]["rating"] == 1912 and me["invites_open"] == 0
+    assert me["employer_confirmed"] == 1 and me["name"] == "Дмитрий Орлов" and me["cf"]["rating"] == 1912 and me["invites_open"] == 0 and me["visible"]
 
 
 def test_capacity_quota_expiry(client):
@@ -165,7 +186,8 @@ def test_capacity_quota_expiry(client):
     r = client.post("/api/employer/invites", json={**inv, "candidate_id": "B-2318"}, headers=E)
     assert r.status_code == 409 and r.json()["detail"] == "У кандидата максимум открытых приглашений"
     # приглашение по жребию — через настоящий API лотереи (в ней псевдонимы): вторая потребность, порог до 280 тыс.
-    # → пул ровно A-1042 и J-0003 (S-0006 дороже, B перегружен, H скрыт, P без согласия, G — другой трек)
+    # → пул ровно A-1042 и J-0003 (S-0006 дороже, B перегружен, H скрыт, P без согласия, G — другой трек,
+    # U-0004 без теста: порог лотереи — квалификация, заявленный грейд её не даёт)
     jn = client.post("/api/employer/needs", json={"spec": "Backend", "track": "Python", "grade": "Junior", "must": ["Python"], "salary_to": 300000}, headers=E).json()["id"]
     lot = client.post("/api/lottery/", json={"need_id": jn, "threshold": {"fork_to": 280000}, "draw_count": 1}, headers=E).json()
     assert lot["pool_size"] == 2, lot
@@ -231,11 +253,65 @@ def test_search(client):
     assert "Дмитрий" not in r.text and "d.orlov" not in r.text
     s = client.get("/api/employer/search?grade=Middle&q=нужна кафка&limit=2", headers=E).json()
     ids = [c["id"] for c in s["items"]]
-    assert s["skills"] == ["Kafka"] and s["total"] == 3 and ids == ["A-1042", "B-2318"], s  # + G-0005; J — Junior, H скрыт, P без согласия
+    # + G-0005 и U-0004 (без теста, заявлен Middle); J — Junior, H скрыт, P без согласия
+    assert s["skills"] == ["Kafka"] and s["total"] == 4 and ids == ["A-1042", "B-2318"], s
     assert {"H-0002", "P-0008", "Z-0001"}.isdisjoint(ids)
-    assert s["facets"]["grade"]["Senior"] == 2 and s["facets"]["spec"] == {"Backend": 3}  # фасет грейда — без своего фильтра
+    assert s["facets"]["grade"]["Senior"] == 2 and s["facets"]["spec"] == {"Backend": 4}  # фасет грейда — без своего фильтра
+    assert s["facets"]["grade"]["Middle"] == 4 and s["facets"]["grade"]["Junior"] == 1  # U-0004 — по заявленному, J-0003 — по тесту
     page2 = client.get("/api/employer/search?grade=Middle&q=кафка&limit=2&page=2", headers=E).json()
-    assert [(c["id"], c["rank"]) for c in page2["items"]] == [("G-0005", 3)]
+    assert [(c["id"], c["rank"]) for c in page2["items"]] == [("G-0005", 3), ("U-0004", 4)]  # без теста — в конце
+    u = page2["items"][1]
+    assert (u["grade"], u["grade_tested"], u["pct"], u["theta"], u["skills"]) == ("Middle", False, None, None, [])
+
+
+def test_unconfirmed_grade(client):
+    need_id = client.get("/api/employer/needs", headers=E).json()[-1]["id"]  # первая потребность: Backend · Python · Middle
+    u = client.get(f"/api/employer/candidates/U-0004?need_id={need_id}", headers=E).json()
+    assert (u["grade"], u["grade_tested"], u["grade_claimed"], u["trust"]["test"], u["confirmed"]) == ("Middle", False, "Middle", False, None)
+    # ни перцентиля, ни θ, ни компетенций — даже если в строке остались старые значения
+    assert u["pct"] is None and u["theta"] is None and u["competencies"] == [] and u["explanation"]["pct"] is None
+    assert u["explanation"]["why"].startswith("Грейд Middle заявлен кандидатом, тестом не подтверждён")
+    assert u["explanation"]["parts"]["theta"] == 0.0 and u["claimed"] == ["Python", "PostgreSQL", "Kafka", "Kubernetes"]
+    assert u["market"]["p25"] == 210000  # рынок — по заявленному грейду
+    # вилка приглашения проверяется по рынку заявленного грейда (ошибка вилки — раньше квоты)
+    r = client.post("/api/employer/invites", json={"candidate_id": "U-0004", "role": "Backend", "salary_from": 150000, "salary_to": 200000, "format": "Гибрид"}, headers=E)
+    assert r.status_code == 422 and "для Middle (210 000 ₽ на руки)" in r.json()["detail"]["errors"][0]
+    # тест показал грейд ниже заявленного: категория по тесту, заявленный виден
+    j = client.get("/api/employer/candidates/J-0003", headers=E).json()
+    assert (j["grade"], j["grade_claimed"], j["grade_tested"], j["pct"]) == ("Junior", "Middle", True, 60) and j["competencies"]
+    with SessionLocal() as db:  # счётчик категории — по тесту (J-0003 в Junior), без теста — по заявленному
+        assert employer._category_count(db, "Backend", "Python", "Junior") == 1
+    # ярусы во всех вариантах подбора: без теста — после прошедших
+    for variant in ("embed", "rerank", "full"):
+        ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks?variant={variant}", headers=E).json()["items"]]
+        assert ids[-1] == "U-0004" and len(ids) > 1, (variant, ids)
+
+
+def test_unconfirmed_grade_retrieval_cap(client, monkeypatch):
+    """Отбор топ-RETRIEVE_K — тоже по ярусам: не подтверждённые со стеком «как надо» не вытесняют прошедших тест."""
+    need_id = client.get("/api/employer/needs", headers=E).json()[-1]["id"]
+    monkeypatch.setattr(matching, "RETRIEVE_K", 3)
+    ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks?variant=rerank", headers=E).json()["items"]]
+    assert len(ids) == 3 and "U-0004" not in ids, ids
+
+
+def test_unconfirmed_grade_llm(client, monkeypatch):
+    """LLM-реранк: в модель уходит пометка «без теста» и θ = None; высокая оценка модели не поднимает выше прошедших."""
+    need_id = client.get("/api/employer/needs", headers=E).json()[-1]["id"]
+    sent = []
+
+    def fake_chat(system, user):
+        body = json.loads(user)
+        sent.append(body)
+        return {"scores": [{"id": c["id"], "score": 1.0 if c["id"] == "U-0004" else 0.0} for c in body["candidates"]]}
+
+    monkeypatch.setattr(matching.llm, "chat_json", fake_chat)
+    matching._llm_cache.clear()
+    ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks", headers=E).json()["items"]]
+    assert ids[-1] == "U-0004"
+    u = next(c for c in sent[0]["candidates"] if c["id"] == "U-0004")
+    assert (u["grade"], u["grade_tested"], u["theta"]) == ("Middle", False, None)
+    matching._llm_cache.clear()
 
 
 def test_roles_soft_and_pdf_profile(client):
@@ -347,15 +423,12 @@ def test_profile_cv_privacy(client):
     assert re.fullmatch(r"[A-Z]-\d{4}", me["id"]) and me["skills_claimed"] == ["Go", "PostgreSQL"] and me["grade"] is None
     assert me["consent_152_at"] and me["consent_version"] and me["consent_publish"] is False
     assert me["consents"]["processing"]["granted"] is True and me["consents"]["publish"]["granted"] is False and me["consents"]["external"] is None
-    stream = b"BT /F1 12 Tf 72 720 Td (Go, PostgreSQL, Redis. 3 years of experience) Tj ET"
-    pdf = (
-        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n"
-        + f"4 0 obj<</Length {len(stream)}>>stream\n".encode() + stream
-        + b"\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF"
-    )
+    pdf = _pdf("Go, PostgreSQL, Redis. 3 years of experience")
     cv = client.post("/api/candidate/cv", files={"file": ("cv.pdf", pdf, "application/pdf")}, headers=N).json()
     assert cv["parsed"]["skills"] == ["Go", "PostgreSQL", "Redis"] and cv["parsed"]["years_exp"] == 3 and cv["parsed"]["track"] == "Go"
+    assert "text" not in cv  # профиль есть — резюме сохранено на сервере, текст назад не нужен
+    long = client.post("/api/candidate/cv", files={"file": ("y" * 300 + ".pdf", pdf, "application/pdf")}, headers=N).json()
+    assert long["filename"] == "y" * 255  # имя обрезано под колонку String(255), а не 500
     assert client.post("/api/candidate/cv", files={"file": ("cv.txt", b"hello", "text/plain")}, headers=N).status_code == 422
     # отзыв согласия на внешние профили удаляет внешние аккаунты и достижения
     with SessionLocal() as db:
@@ -375,6 +448,41 @@ def test_profile_cv_privacy(client):
     assert client.patch("/api/candidate/hidden-from", json={"inns": [INN]}, headers=C).json()["companies"][0]["name"] == "Ладога Пэй"
     assert client.get("/api/employer/candidates/A-1042", headers=E).status_code == 404
     assert client.patch("/api/candidate/notif", json={"tg": False}, headers=C).json()["notif"] == {"mail": True, "tg": False}
+
+
+def test_cv_before_profile(client):
+    """Резюме до создания профиля: до согласия сервер ничего не хранит, текст возвращается и приходит в POST /profile."""
+    with SessionLocal() as db:  # NUL в тексте (Postgres его не примет) вырезается, а не роняет запрос
+        nul = User(email="nul@example.ru", role="candidate")
+        db.add(nul)
+        db.commit()
+        hdr = {"Authorization": "Bearer " + issue_token(db, nul)}
+        nul_id = nul.id
+    r = client.post("/api/candidate/profile", headers=hdr, json={"name": "Нуль", "spec": "Backend", "grade_claimed": "Junior", "min_salary": 100000,
+                                                                "formats": ["Удалённо"], "city": "Казань", "consent_152": True,
+                                                                "cv_text": "2020 - 2022 A\x00B", "cv_filename": "a\x00.pdf"})
+    assert r.status_code == 200 and r.json()["cv_filename"] == "a.pdf" and r.json()["visible"] is False  # без публикации не видна
+    with SessionLocal() as db:
+        assert db.query(Candidate.cv_text).filter(Candidate.user_id == nul_id).scalar() == "2020 - 2022 AB"
+    pdf = _pdf("Go, PostgreSQL. 4 years", "2021 - 2023 Acme Pay, Go developer", "2023 - now Volna, backend")
+    r = client.post("/api/candidate/cv", files={"file": ("late.pdf", pdf, "application/pdf")}, headers=LATE)
+    cv = r.json()
+    assert r.headers["cache-control"] == "no-store" and "2021 - 2023 Acme Pay" in cv["text"] and cv["parsed"]["experience"]
+    with SessionLocal() as db:
+        uid = db.query(User.id).filter(User.email == "late@example.ru").scalar()
+        assert db.query(Candidate).filter(Candidate.user_id == uid).count() == 0
+    body = {"name": "Поздний", "spec": "Backend", "track": "Go", "grade_claimed": "Middle", "min_salary": 200000, "formats": ["Удалённо"],
+            "city": "Казань", "consent_152": True}
+    too_long = client.post("/api/candidate/profile", json={**body, "cv_text": "x" * (candidate.CV_MAX_CHARS + 1)}, headers=LATE)
+    assert too_long.status_code == 422
+    me = client.post("/api/candidate/profile", json={**body, "cv_text": cv["text"], "cv_filename": cv["filename"]}, headers=LATE).json()
+    assert me["cv_filename"] == "late.pdf" and me["pdf_experience"] is True
+    assert [j["from"] for j in me["experience"]] == [2021, 2023] and me["experience"][0]["title"] == "Acme Pay, Go developer"
+    # у существующего профиля поле игнорируется: резюме меняется только загрузкой
+    again = client.post("/api/candidate/profile", json={**body, "cv_text": "2010 - 2012 Other"}, headers=LATE).json()
+    assert [j["from"] for j in again["experience"]] == [2021, 2023]
+    text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(client.get("/api/candidate/profile.pdf", headers=LATE).content)).pages)
+    assert "Acme Pay" in text
 
 
 def test_consents_export_delete(client, monkeypatch):

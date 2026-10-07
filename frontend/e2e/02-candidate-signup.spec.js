@@ -119,6 +119,10 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.getByText('eva_cv.pdf')).toBeVisible();
   await expect(page.getByText(/Распознано: .*Python/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Заменить' })).toBeVisible();
+  // подсказка грейда по резюме: предвыбор с объяснением, выбирает кандидат, тест подтверждает
+  expect(parsed.grade_hint).toEqual({ grade: 'Lead', why: 'в резюме — руководство командой; опыт 4 г. (по стажу — скорее Middle)' });
+  await expect(page.locator('#grade-hint')).toHaveText('По резюме похоже на Lead: в резюме — руководство командой; опыт 4 г. (по стажу — скорее Middle). Это подсказка — выберите сами, тест подтвердит или нет.');
+  await expect(page.getByRole('button', { name: 'Lead', exact: true })).toHaveAttribute('aria-pressed', 'true');
   // расширенный разбор: контакты и места работы видны, имя уже введено — не перетираем, пустой Telegram — заполняем
   await expect(page.getByText('Контакты: Eva Testova · eva@example.ru · @eva_dev')).toBeVisible();
   await expect(page.getByText('Места работы: 2021 — н. в. · Acme Corp')).toBeVisible();
@@ -152,7 +156,11 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.locator('.chips').getByRole('button', { name: 'Удалённо' })).toHaveClass(/on/);
   const saved = api(page, 'POST', '/api/candidate/profile');
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  // резюме загружено до профиля: сервер его не хранил, приходит в POST /profile и сохраняется с согласием
+  expect((await saved).request().postDataJSON()).toMatchObject({ cv_filename: 'eva_cv.pdf', cv_text: expect.stringContaining('Acme Corp') });
   const prof = await (await saved).json();
+  expect(prof.cv_filename).toBe('eva_cv.pdf');
+  expect(prof.experience).toEqual([expect.objectContaining({ from: 2021, to: null, title: expect.stringContaining('Acme Corp') })]);
   expect(prof).toMatchObject({ name: 'Ева Тестова', spec: 'Backend', track: 'Python', min: 150000, consent_152: true, consent_publish: false,
     roles: ['Тимлид', 'Ментор'], soft_skills: ['Самостоятельность', 'Обучаемость'] });
   await expect(toast(page)).toHaveText('Профиль сохранён');
@@ -237,6 +245,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   // достижения: согласие на внешние профили, Codeforces и CTFtime (живые API подменены)
   await open(page, '/c/profile');
   await expect(page.getByRole('heading', { name: 'Достижения' })).toBeVisible();
+  await expect(page.getByText('Опыт в PDF-профиле')).toBeVisible();  // места работы из резюме, загруженного до профиля
   await expect(page.getByPlaceholder('хэндл')).toBeDisabled();
   await page.getByRole('switch', { name: /внешних профилей/ }).click();
   await expect(page.getByPlaceholder('хэндл')).toBeEnabled();
