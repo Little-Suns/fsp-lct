@@ -277,6 +277,8 @@ test('Ладога ↔ кандидат: принятое приглашение
   await page.getByRole('button', { name: 'Принять и открыть мои контакты' }).click();
   await expect(toast(page)).toHaveText('Приглашение принято. Компания получила ваши контакты');
   await expect(page.getByText('Вы приняли приглашение.', { exact: true })).toBeVisible();
+  // демо-режим (DEMO=1): отзыв о компании открыт сразу после принятия, без недели ожидания
+  await expect(page.getByRole('heading', { name: 'Как прошло общение с компанией?' })).toBeVisible();
   await expect(page.locator('dl.kv', { hasText: 'Компания видит' })).toContainText('Дмитрий Орлов, d.orlov@example.ru, @dorlov_dev');
   await expect(page.locator('aside')).toContainText('m.kovaleva@ladoga-pay.example');
   await expect(page.getByText('Ваши ФИО и контакты: вы приняли приглашение.')).toBeVisible();

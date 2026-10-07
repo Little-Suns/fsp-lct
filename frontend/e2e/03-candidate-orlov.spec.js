@@ -73,7 +73,7 @@ test('приглашения: открыть → просмотрено, отк�
   await expect(page.getByText('Приглашение не найдено.')).toBeVisible();
 });
 
-test('отзыв о компании через неделю после принятия: по желанию, один раз', async ({ page }) => {
+test('отзыв о компании по давно принятому приглашению: по желанию, один раз', async ({ page }) => {
   await demo(page, 'c');
   const old = page.locator('button.inv', { hasText: 'Python-разработчик, внутренние сервисы' });
   await expect(old).toContainText('принято');
