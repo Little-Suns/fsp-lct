@@ -287,14 +287,16 @@ async def upload_cv(response: Response, file: UploadFile = File(...), user: User
     if not data.startswith(b"%PDF"):
         raise HTTPException(422, "Нужен PDF-файл")
     try:  # разбор PDF и текста — CPU, в пуле потоков, чтобы не держать цикл событий для всех запросов
-        text = (await run_in_threadpool(lambda: "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)))[:CV_MAX_CHARS].strip()
+        text = (await run_in_threadpool(lambda: "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)))[:CV_MAX_CHARS]
+        text = text.replace("\x00", "").strip()  # NUL (бывает у странных шрифтов) Postgres не примет
     except (PdfReadError, ValueError) as e:
         raise HTTPException(422, "Не удалось прочитать PDF") from e
     if not text:
         raise HTTPException(422, "В PDF нет текстового слоя (скан?). Заполните поля вручную")
-    out = {"filename": file.filename, "chars": len(text), "parsed": await run_in_threadpool(parse_cv, text)}
+    name = (file.filename or "").replace("\x00", "")[:255] or "resume.pdf"
+    out = {"filename": name, "chars": len(text), "parsed": await run_in_threadpool(parse_cv, text)}
     if c:
-        c.cv_filename, c.cv_text = file.filename, text
+        c.cv_filename, c.cv_text = name, text
         db.commit()
     else:
         out["text"] = text  # своё же резюме — назад кандидату, до согласия ничего не храним

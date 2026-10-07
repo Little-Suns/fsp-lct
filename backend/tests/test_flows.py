@@ -422,6 +422,8 @@ def test_profile_cv_privacy(client):
     cv = client.post("/api/candidate/cv", files={"file": ("cv.pdf", pdf, "application/pdf")}, headers=N).json()
     assert cv["parsed"]["skills"] == ["Go", "PostgreSQL", "Redis"] and cv["parsed"]["years_exp"] == 3 and cv["parsed"]["track"] == "Go"
     assert "text" not in cv  # профиль есть — резюме сохранено на сервере, текст назад не нужен
+    long = client.post("/api/candidate/cv", files={"file": ("y" * 300 + ".pdf", pdf, "application/pdf")}, headers=N).json()
+    assert long["filename"] == "y" * 255  # имя обрезано под колонку String(255), а не 500
     assert client.post("/api/candidate/cv", files={"file": ("cv.txt", b"hello", "text/plain")}, headers=N).status_code == 422
     # отзыв согласия на внешние профили удаляет внешние аккаунты и достижения
     with SessionLocal() as db:
