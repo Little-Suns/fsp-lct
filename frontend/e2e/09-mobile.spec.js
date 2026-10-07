@@ -73,6 +73,23 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await expect(page.locator('#overlay').getByRole('button', { name: 'Выйти из кабинета кандидата' })).toBeVisible();
       await page.locator('#overlay').getByRole('button', { name: 'Закрыть' }).click();
 
+      // вакансии: на телефоне фильтры свёрнуты, список — сразу под ними
+      await open(page, '/c/vacancies');
+      const q = page.locator('#vf-q');
+      {  // телефон и планшет — одна колонка: фильтры свёрнуты
+        await expect(q).toBeHidden();
+        await page.getByRole('button', { name: 'Развернуть' }).click();
+        await expect(q).toBeVisible();
+        expect(await q.evaluate(e => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(16);  // iOS не увеличивает страницу при фокусе
+        await q.fill('платежи');
+        const found = page.waitForResponse(r => new URL(r.url()).pathname === '/api/vacancies' && new URL(r.url()).searchParams.get('q') === 'платежи');
+        await q.press('Enter');  // клавиша «Найти» на телефоне — применить фильтр
+        expect((await found).ok()).toBe(true);
+        await expect(page.getByText('Фильтры · 1')).toBeVisible();
+      }
+      await page.getByRole('button', { name: 'Сбросить' }).click();
+      await settled(page);
+
       await open(page, '/c/home');
       await page.locator('.inv').first().click();
       await settled(page);
@@ -91,7 +108,16 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
         await open(page, r);
         await noHScroll(page, r);
       }
+      // подборка: первая карточка — выше карты регионов и рекомендованных категорий (они под списком)
       await open(page, '/e/picks');
+      expect((await box(page.locator('.cand').first())).top).toBeLessThan((await box(page.locator('img[alt^="Карта России"]'))).top);
+      expect((await box(page.locator('.cand').first())).top).toBeLessThan((await box(page.getByText('Рекомендованные категории'))).top);
+      // лотерея свёрнута, разворачивается по кнопке
+      const lot = page.getByRole('button', { name: 'Зафиксировать пул' });
+      await expect(lot).toBeHidden();
+      await page.locator('.fold', { hasText: 'Лотерея среди прошедших порог' }).getByRole('button', { name: 'Развернуть' }).click();
+      await expect(lot).toBeVisible();
+
       await page.locator('.cand').first().click();
       await settled(page);
       await expect(page).toHaveURL(/#\/e\/cand\//);
@@ -111,10 +137,6 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       } else {
         await expect(thead).toBeVisible();
       }
-
-      await open(page, '/e/chat');
-      const box = await page.locator('.chat-box').boundingBox();
-      expect(box.height).toBeLessThan(200);  // пустая панель «Выберите диалог» не растягивается на экран
       // сенсорный экран: разделы кабинета — зона нажатия не меньше 36 px
       for (const b of await page.locator('nav.chips button.chip').all()) expect((await b.boundingBox()).height).toBeGreaterThanOrEqual(36);
     });

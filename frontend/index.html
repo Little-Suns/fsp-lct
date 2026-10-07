@@ -138,6 +138,22 @@ main { padding-left: max(var(--gut), env(safe-area-inset-left)); padding-right: 
 .unread { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 1; vertical-align: middle; flex: none; }
 @media (max-width: 900px) { .chat { grid-template-columns: minmax(0, 1fr); } .chat-list { max-height: 30vh; } }
 @media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } .g2.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* телефон и планшет: боковая колонка списка (фильтры, квота, карта) раскладывается вокруг списка —
+   нужное для выбора (.m-before) — над ним, справочное — под ним, чтобы список не уезжал на пару экранов вниз */
+@media (max-width: 900px) {
+  .side-l > aside { display: contents; }
+  .side-l > aside > * { order: 2; }
+  .side-l > aside > .m-before { order: 0; }
+  .side-l > :not(aside) { order: 1; }
+}
+/* сворачиваемая панель: на широком экране всегда открыта, на телефоне — по кнопке */
+.btn.fold-btn, .fold-n { display: none; }
+@media (max-width: 900px) {
+  .btn.fold-btn { display: inline-flex; }
+  .chip.lot-tag { display: none; }
+  .fold-n { display: inline; }
+  .fold:not(.open) .fold-b { display: none; }
+}
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .row.sb { justify-content: space-between; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
@@ -530,6 +546,7 @@ const S = {
   filters: new Set(),
   lot: null,
   inviteForm: null,
+  fold: {},                          // открытые на телефоне сворачиваемые панели: фильтры, лотерея
 };
 
 /* ===================== API ===================== */
@@ -706,6 +723,11 @@ const coChip = co => (domainOk(co) ? '<span class="chip ok">почта на до
   (co.inn_checksum_valid === false ? ' <span class="chip warn">ИНН: контрольные цифры не сходятся</span>' : '');
 const domainWarn = co => domainOk(co) ? '' : '<div class="alert warn"><span>!</span><span><b>Почта на домене не подтверждена.</b> Рекрутер вошёл не с почты на домене сайта компании. Не передавайте паспортные и платёжные данные до собеседования.</span></div>';
 const qs = o => Object.entries(o).filter(([, v]) => v !== '' && v !== false && v != null).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
+
+// заголовок сворачиваемой панели (.fold): на телефоне — счётчик активных фильтров и кнопка «Показать / Свернуть»
+const foldBtn = k => `<button class="btn ghost small fold-btn" data-act="fold" data-k="${k}" aria-expanded="${!!S.fold[k]}">${S.fold[k] ? 'Свернуть' : 'Развернуть'}</button>`;
+const foldHead = (k, title, n = 0) => `<div class="row sb"><span class="label">${title}${n ? `<span class="fold-n">&nbsp;· ${n}</span>` : ''}</span>${foldBtn(k)}</div>`;
+const nOn = o => Object.values(o).filter(v => v !== '' && v !== false && v != null).length;
 
 function crumbs(items) {
   return `<div class="crumbs">${items.map((it, i) => i === items.length - 1 ? `<b>${it[0]}</b>` : `<button data-go="${it[1]}">${it[0]}</button><span>/</span>`).join('')}</div>`;
@@ -1440,14 +1462,16 @@ V['/c/vacancies'] = () => {
   ${subnav('c')}
   <div class="grid side-l">
     <aside class="stack">
-      <div class="panel tight stack-s">
-        <span class="label">Фильтры</span>
-        <label class="field"><span>Поиск</span><input class="input" id="vf-q" value="${esc(f.q)}" placeholder="платежи, Kafka…"></label>
+      <div class="panel tight stack-s fold m-before ${S.fold.vf ? 'open' : ''}">
+        ${foldHead('vf', 'Фильтры', nOn(f))}
+        <div class="fold-b stack-s">
+        <label class="field"><span>Поиск</span><input class="input" id="vf-q" type="search" enterkeyhint="search" value="${esc(f.q)}" placeholder="платежи, Kafka…"></label>
         ${sel('vf-spec', 'Специализация', (META && META.specs) || [], f.spec)}
         ${sel('vf-grade', 'Грейд', (META && META.grades) || [], f.grade)}
         ${sel('vf-format', 'Формат', (META && META.formats) || [], f.format)}
         <label class="field"><span>Город</span><input class="input" id="vf-city" enterkeyhint="search" value="${esc(f.city)}"></label>
         <div class="row"><button class="btn primary small" data-act="vf-apply">Показать</button><button class="btn ghost small" data-act="vf-reset">Сбросить</button></div>
+        </div>
       </div>
       ${lim ? `<div class="panel tight stack-s">
         <span class="label">Отклики за 7 дней</span>
@@ -1797,10 +1821,12 @@ function lotteryPanel(n) {
       <div class="row"><button class="btn ghost small" data-act="lot-verify">Проверить жеребьёвку</button><button class="btn ghost small" data-act="lot-reset">Новый розыгрыш</button></div>
       ${L.verify ? `<div class="alert ${L.verify.ok ? 'ok' : 'bad'}"><span>${L.verify.ok ? '✓' : '!'}</span><span>${L.verify.ok ? 'Проверка пройдена: sha256(зерно) совпал с опубликованным хешем, пул и порог совпали с обязательством, порядок жребия воспроизведён.' : `Проверка не пройдена: хеш ${L.verify.hash_ok ? 'совпал' : 'не совпал'}, обязательство ${L.verify.commitment_ok ? 'совпало' : 'не совпало'}, порядок ${L.verify.draw_ok ? 'совпал' : 'не совпал'}.`}</span></div>` : ''}`}`;
   }
-  return `<div class="panel stack">
-    <div class="row sb"><h3>Лотерея среди прошедших порог</h3><span class="chip">квалифицированная лотерея</span></div>
+  return `<div class="panel stack fold ${S.fold.lot ? 'open' : ''}">
+    <div class="row sb"><h3>Лотерея среди прошедших порог</h3><span class="chip lot-tag">квалифицированная лотерея</span>${foldBtn('lot')}</div>
+    <div class="fold-b stack">
     <p class="small muted">Когда кандидаты статистически неразличимы (интервалы θ ± SE перекрываются), ранжировать их между собой — ложная точность.<br>Жребий среди прошедших порог случаен и проверяем: хеш зерна публикуется до розыгрыша.</p>
     ${body}
+    </div>
   </div>`;
 }
 
@@ -1822,7 +1848,7 @@ V['/e/picks'] = () => {
   </div>
   <div class="grid side-l">
     <aside class="stack">
-      <div class="panel tight stack-s">
+      <div class="panel tight stack-s m-before">
         <span class="label">Квота на неделю</span>
         <div class="row sb"><b class="num" style="font-size:22px">${q.used} / ${q.max}</b><span class="small muted">до ${DAYMON(q.resets_at)}</span></div>
         <div class="meter"><i style="width:${Math.min(100, q.used / q.max * 100)}%"></i></div>
@@ -1833,7 +1859,7 @@ V['/e/picks'] = () => {
         ${cats.map(c => `<button class="chip ${c.current ? 'on' : ''}" style="justify-content:space-between;width:100%" ${c.current ? '' : `data-act="noop" data-msg="${esc(c.note || 'Соседняя категория')}"`}>${esc([c.spec, c.track, c.grade].filter(Boolean).join(' · '))} <b class="num">${c.count}</b></button>`).join('')}
         ${warnCat ? `<span class="hint">${esc(warnCat.note)}</span>` : ''}
       </div>
-      <div class="panel tight stack-s">
+      <div class="panel tight stack-s m-before">
         <span class="label">Фильтры</span>
         <div class="chips">${fl.map(([k, l]) => `<button class="chip ${S.filters.has(k) ? 'on' : ''}" data-act="filter" data-k="${k}">${l}</button>`).join('')}</div>
         <span class="hint">Фильтр сужает список, порядок сохраняется</span>
@@ -2207,9 +2233,10 @@ V['/e/search'] = () => {
   ${unverifiedBanner()}
   <div class="grid side-l">
     <aside class="stack">
-      <div class="panel tight stack-s">
-        <span class="label">Фильтры</span>
-        <label class="field"><span>Текст</span><input class="input" id="sf-q" value="${esc(f.q)}" placeholder="python kafka платежи"></label>
+      <div class="panel tight stack-s fold m-before ${S.fold.sf ? 'open' : ''}">
+        ${foldHead('sf', 'Фильтры', nOn({ ...f, page: '' }))}
+        <div class="fold-b stack-s">
+        <label class="field"><span>Текст</span><input class="input" id="sf-q" type="search" enterkeyhint="search" value="${esc(f.q)}" placeholder="python kafka платежи"></label>
         <label class="field"><span>Специализация</span><select class="input" id="sf-spec">${opt((META && META.specs) || [], f.spec)}</select></label>
         <label class="field"><span>Трек</span><select class="input" id="sf-track">${opt(f.spec && META ? META.tracks[f.spec] : [], f.track)}</select></label>
         <label class="field"><span>Грейд</span><select class="input" id="sf-grade">${opt((META && META.grades) || [], f.grade)}</select></label>
@@ -2218,6 +2245,7 @@ V['/e/search'] = () => {
         <label class="field"><span>Город</span><input class="input" id="sf-city" enterkeyhint="search" value="${esc(f.city)}"></label>
         <div class="chips">${[['fsp', 'ФСП'], ['cf', 'Codeforces'], ['hackathon', 'Хакатоны']].map(([k, l]) => `<button class="chip ${f[k] ? 'on' : ''}" data-act="sf-flag" data-k="${k}">${l}</button>`).join('')}</div>
         <div class="row"><button class="btn primary small" data-act="sf-apply">Найти</button><button class="btn ghost small" data-act="sf-reset">Сбросить</button></div>
+        </div>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Специализации</span><div class="chips">${facet('spec', R.facets.spec) || '<span class="small muted">—</span>'}</div>
@@ -2756,6 +2784,7 @@ const CONFIRM = {
 
 const ACT = {
   map: () => openMap(),
+  fold: (a, d) => { S.fold[d.k] = !S.fold[d.k]; rerender(); },
   noop: (a, d) => toast(d.msg || 'Пока не реализовано'),
   reload: () => refresh(),
   ask: (a, d) => { S.confirm = d.k; rerender(); },
