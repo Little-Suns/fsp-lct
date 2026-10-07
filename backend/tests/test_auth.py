@@ -62,6 +62,15 @@ def test_app_wiring(client):
         assert client.get("/").status_code == 200
 
 
+def test_index_without_frontend_is_503(client, tmp_path, monkeypatch):
+    # каталог фронта пропал уже после старта (пересоздан на хосте): 503 с понятным текстом, а не 500 из FileResponse
+    monkeypatch.setattr("app.main._front", tmp_path)
+    r = client.get("/")
+    assert r.status_code == 503 and r.json()["detail"].startswith("Фронт недоступен")
+    (tmp_path / "index.html").write_text("<html>ok</html>", encoding="utf8")  # файл вернулся — страница отдаётся без рестарта
+    assert client.get("/").status_code == 200
+
+
 def test_otp_hashed_and_login(client):
     email = "Otp.User@Example.ru "
     otp = _code(client, email)

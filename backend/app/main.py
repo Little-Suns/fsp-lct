@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -69,6 +69,11 @@ _front = Path(config.FRONTEND_DIR)
 if (_front / "index.html").is_file():
     app.mount("/assets", StaticFiles(directory=_front / "assets"), name="assets")
 
-    @app.get("/", include_in_schema=False)
-    def index():
-        return FileResponse(_front / "index.html")
+
+# маршрут есть всегда, файл проверяется на каждый запрос: исчезнувший каталог даёт 503, а не 500 из FileResponse
+@app.get("/", include_in_schema=False)
+def index():
+    page = _front / "index.html"
+    if not page.is_file():
+        raise HTTPException(503, f"Фронт недоступен: нет файла {page}. Пересоберите образ api (docker compose up -d --build) или задайте FRONTEND_DIR.")
+    return FileResponse(page)
