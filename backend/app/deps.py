@@ -21,6 +21,7 @@ OTP_TTL = timedelta(minutes=10)
 OTP_MAX_ATTEMPTS = 5
 OTP_RESEND = timedelta(seconds=60)
 TOKEN_TTL = timedelta(days=30)
+DEMO_PERSONAS = {"candidate": "d.orlov@example.ru", "employer": "m.kovaleva@ladoga-pay.example"}
 
 
 def hash_secret(value: str) -> str:
@@ -50,6 +51,8 @@ def current_user(authorization: str = Header(default=""), db: Session = Depends(
     user = db.scalar(select(User).where(User.token == hash_secret(token))) if token else None
     if not user or not user.token_expires_at or user.token_expires_at < datetime.now(UTC):
         raise HTTPException(401, "Нужен вход")
+    if not config.DEMO and user.token == hash_secret(demo_token(user)):
+        raise HTTPException(401, "Нужен вход")  # общий демо-токен вне демо-режима не действует: его мог получить кто угодно
     return user
 
 
@@ -90,6 +93,23 @@ class FspIn(BaseModel):
 
 def _issue(user: User, db: Session) -> dict:
     return {"token": issue_token(db, user), "role": user.role}
+
+
+def demo_token(user: User) -> str:
+    """Общий токен демо-входа: HMAC от адреса на серверном перце — у всех, кто вошёл за персонажа, один и тот же.
+    Обычный вход отзывает прежний токен, и десятки зрителей стенда выбивали бы друг друга (нагрузочный прогон: 80 % 401)."""
+    return hmac.new(config.SECRET_KEY.encode(), f"demo:{user.email}".encode(), hashlib.sha256).hexdigest()
+
+
+def _issue_demo(user: User, db: Session) -> dict:
+    token, now = demo_token(user), datetime.now(UTC)
+    # персонаж уже открыт и срок продлевали меньше суток назад — без записи: иначе одновременные входы зрителей
+    # выстраиваются в очередь на блокировке одной строки users (нагрузочный прогон в Docker: вход до 11 с)
+    fresh = user.token == hash_secret(token) and user.token_expires_at and user.token_expires_at > now + TOKEN_TTL - timedelta(days=1)
+    if not fresh:
+        user.token, user.token_expires_at = hash_secret(token), now + TOKEN_TTL
+    db.commit()  # без изменений — пустая транзакция; у verify здесь же фиксируется удаление кода
+    return {"token": token, "role": user.role}
 
 
 @router.post("/email")
@@ -153,7 +173,9 @@ def verify(body: VerifyIn, db: Session = Depends(get_db)):
         db.flush()
     elif user.role != role and not _has_profile(db, user):
         user.role = role  # роль меняется, пока нет ни профиля кандидата, ни компании
-    return _issue(user, db)  # один commit: код удалён, пользователь создан, токен выдан — или ничего
+    # один commit: код удалён, пользователь создан, токен выдан — или ничего. В демо вход по почте персонажа даёт общий
+    # токен: код там приходит в ответе, и любой зритель иначе выбил бы остальных
+    return _issue_demo(user, db) if config.DEMO and user.email in DEMO_PERSONAS.values() else _issue(user, db)
 
 
 def _has_profile(db: Session, user: User) -> bool:
@@ -171,7 +193,7 @@ def fsp_login(body: FspIn, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.fsp_id == body.fsp_id))
     if not user:
         raise HTTPException(404, "ФСП ID не найден")
-    return _issue(user, db)
+    return _issue_demo(user, db)
 
 
 @router.post("/demo/{role}")
@@ -179,15 +201,17 @@ def demo_login(role: str, db: Session = Depends(get_db)):
     """Вход за демо-персонажа из макета: candidate → Дмитрий Орлов (A-1042), employer → «Ладога Пэй»."""
     if not config.DEMO:
         raise HTTPException(404)
-    email = {"candidate": "d.orlov@example.ru", "employer": "m.kovaleva@ladoga-pay.example"}.get(role)
+    email = DEMO_PERSONAS.get(role)
     user = db.scalar(select(User).where(User.email == email)) if email else None
     if not user:
         raise HTTPException(404, "Демо-данные не засеяны: запустите seed")
-    return _issue(user, db)
+    return _issue_demo(user, db)
 
 
 @router.post("/logout")
 def logout(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if config.DEMO and user.token == hash_secret(demo_token(user)):
+        return {"ok": True}  # общий демо-токен не отзывается: его и так выдают любому, а остальных зрителей выбило бы
     user.token = None
     user.token_expires_at = None
     db.commit()

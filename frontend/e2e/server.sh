@@ -14,5 +14,6 @@ if not c.execute("SELECT 1 FROM pg_database WHERE datname = %s", (sys.argv[1],))
     c.execute(f'CREATE DATABASE "{sys.argv[1]}"')
 PY
 export DATABASE_URL="$PG/$DB" DEMO=1 LLM_PROVIDER=none LLM_BASE_URL=
-uv run python -m seed.generate --reset --candidates 200 --needs 20 > /dev/null
+# --today now: API считает сроки приглашений и неделю квоты по реальным часам, сид — тоже от них
+uv run python -m seed.generate --reset --candidates 200 --needs 20 --today now > /dev/null
 exec uv run uvicorn app.main:app --host 127.0.0.1 --port "$PORT"
