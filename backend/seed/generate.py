@@ -1027,6 +1027,7 @@ def summary(db, res: dict, secs: float) -> None:
 def main():
     ap = argparse.ArgumentParser(description="Синтетические данные ФСП Карьеры")
     ap.add_argument("--reset", action="store_true", help="пустая схема (DROP SCHEMA public CASCADE) + все миграции перед генерацией")
+    ap.add_argument("--if-empty", action="store_true", help="засеянную базу не трогать и выйти без ошибки (автозасев стенда при DEMO=1)")
     ap.add_argument("--candidates", type=int, default=1500)
     ap.add_argument("--needs", type=int, default=250)
     ap.add_argument("--seed", type=int, default=42)
@@ -1040,6 +1041,12 @@ def main():
     t0 = time.time()
     with SessionLocal() as db:
         if db.scalar(select(User).where(User.email == "d.orlov@example.ru")):
+            if a.if_empty:
+                # банк коммитится после build отдельно: оборванный засев и изменённые шаблоны догоняются на каждом старте
+                from app.services.items import seed_items
+
+                print(f"База уже засеяна — пропускаю; банк заданий: seed_items → {seed_items(db)}")
+                return
             raise SystemExit("База уже засеяна — запустите с --reset")
         res = build(db, a.candidates, a.needs, a.seed, a.today)
         secs = time.time() - t0

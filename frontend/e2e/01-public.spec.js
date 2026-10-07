@@ -52,8 +52,24 @@ test('валидация /v: без прогона — подсказка, с п
   await open(page, '/v');
   await expect(page.getByRole('heading', { name: 'Валидация подбора и теста' })).toBeVisible();
   await expect(page.getByText('прогон не запускался')).toBeVisible();
-  await expect(page.getByText('Нет данных. Запустите прогон')).toHaveCount(5);
+  await expect(page.getByText('Нет данных. Нажмите «Запустить прогон»')).toHaveCount(5);
   await expect(page.locator('.roles button[data-role=v]')).toHaveAttribute('aria-current', 'true');
+
+  // демо-стенд (DEMO=1): прогон кнопкой; ответ подменён — настоящий пересчёт писал бы в общий validation.json
+  const RUN = '**/api/validation/run*';
+  await page.route(RUN, r => r.fulfill({ status: 409, json: { detail: 'В базе нет синтетики: сначала засейте её' } }));
+  await page.getByRole('button', { name: 'Запустить прогон' }).click();
+  await expect(page.getByText('В базе нет синтетики: сначала засейте её')).toBeVisible();
+  await page.unroute(RUN);
+  let release;
+  const held = new Promise(res => { release = res; });
+  await page.route(RUN, async r => { await held; await r.fulfill({ json: VAL }); });
+  await page.getByRole('button', { name: 'Запустить прогон' }).click();
+  await expect(page.getByRole('button', { name: 'Считаем… до минуты' })).toBeDisabled();
+  release();
+  await expect(page.getByText('1500 синтетических кандидатов · 250 потребностей')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Пересчитать' })).toBeEnabled();
+  await page.unroute(RUN);
 
   await page.unroute('**/api/validation');
   await page.route('**/api/validation', r => r.fulfill({ json: VAL }));

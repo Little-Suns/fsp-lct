@@ -466,7 +466,7 @@ def run(db: Session, *, k: int = 10, seed: int = 42, today: date | None = DEMO_T
     """today — дата засева (seed.generate --today): на её полдень МСК считаются открытые приглашения и нагрузка;
     None — реальное время (засев с --today now, прогон сразу после него)."""
     # LLM-реранк выключен на время прогона: метрики детерминированы и меряют структурный реранк (как в подписи).
-    # ponytail: глобальный флаг процесса — параллельные запросы API на ~5 с прогона тоже идут без LLM;
+    # ponytail: глобальный флаг процесса — параллельные запросы API на время прогона (~40 с на 1500 кандидатах, на стенде — кнопкой на /v) тоже идут без LLM;
     # чисто — параметр use_llm=False в matching.score_candidates (сейчас matching.py правят параллельно, не трогаю)
     saved, config.LLM_BASE_URL = config.LLM_BASE_URL, ""
     clock = matching.CLOCK.set(anchor(today))
@@ -498,7 +498,9 @@ def run(db: Session, *, k: int = 10, seed: int = 42, today: date | None = DEMO_T
 def save(res: dict, path: Path | None = None) -> Path:
     path = path or OUT
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(res, ensure_ascii=False, indent=1))
+    tmp = path.with_suffix(".tmp")  # атомарная замена: GET /api/validation не прочтёт файл недописанным
+    tmp.write_text(json.dumps(res, ensure_ascii=False, indent=1))
+    tmp.replace(path)
     return path
 
 
