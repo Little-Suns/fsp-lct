@@ -13,7 +13,7 @@ services:
       retries: 30
 
   api:
-    build: ./backend
+    build: { context: ., dockerfile: backend/Dockerfile }  # контекст — корень: во фронт образа нужен frontend/
     depends_on:
       db: { condition: service_healthy }
     environment:
@@ -55,7 +55,7 @@ services:
       SANDBOX_URL: http://sandbox:8080
       SANDBOX_TOKEN: ${SANDBOX_TOKEN:-}
     extra_hosts: ["host.docker.internal:host-gateway"]
-    volumes: [./frontend:/srv/frontend:ro]
+    # правка фронта без пересборки — docker-compose.override.yml.example (скопируйте в docker-compose.override.yml)
     ports: ["8000:8000"]
     networks: [default, sandbox]
 
