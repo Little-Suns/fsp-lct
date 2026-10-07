@@ -310,7 +310,9 @@ test('Ладога: поиск по банку — фасеты, флаги, т�
   await page.getByLabel('Текст').fill('платежи');
   await page.getByLabel('Формат').selectOption('Гибрид');
   await page.getByLabel('Город').fill('Москва');
-  q = api(page, 'GET', '/api/employer/search');
+  // ждём ответ именно на этот поиск (с треком): каждый клик по фасету выше уже дождался своего ответа,
+  // поэтому поздний ответ не перерисует форму, а ожидание не поймает чужой ответ
+  q = page.waitForResponse(r => { const u = new URL(r.url()); return u.pathname === '/api/employer/search' && u.searchParams.get('track') === 'Python'; });
   await page.getByRole('button', { name: 'Найти' }).click();
   const url = new URL((await q).url());
   expect(Object.fromEntries(url.searchParams)).toMatchObject({ spec: 'Backend', track: 'Python', skills: 'PostgreSQL, Kafka', format: 'Гибрид', city: 'Москва' });
