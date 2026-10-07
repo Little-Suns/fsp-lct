@@ -346,6 +346,10 @@ def test_plan_for_need(env):
     assert fixed["plan"] == plan_for_need("DevOps / SRE", ["Kubernetes"], [], "Senior")
     assert env["emp"].post("/api/quest/plan", json={"spec": "Backend", "grade": "Гуру"}).status_code == 422
     assert env["emp"].post("/api/quest/plan", json={"spec": "Project Manager", "grade": "Middle"}).status_code == 422
+    assert env["emp"].post("/api/quest/plan", json={"spec": "Backend", "track": "React", "grade": "Middle"}).status_code == 422
+    assert env["emp"].post("/api/quest/plan", json={"spec": "Backend" * 20, "grade": "Middle"}).status_code == 422
+    # сохранённая потребность важнее структуры с экрана
+    assert env["emp"].post("/api/quest/plan", json={"need_id": env["need_id"], "spec": "QA", "grade": "Lead"}).json()["need"]["spec"] == "Backend"
     assert env["emp2"].post("/api/quest/plan", json={"need_id": env["need_id"]}).status_code == 404
     assert _client().post("/api/quest/plan", json={"text": NEED_TEXT}).status_code == 401
     assert env["client"].post("/api/quest/plan", json={"text": NEED_TEXT}).status_code == 403  # кандидат — не работодатель

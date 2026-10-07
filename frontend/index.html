@@ -3008,7 +3008,7 @@ document.addEventListener('change', async e => {
   if (t.id === 'vx-spec') { capture(); S.vform.track = ''; rerender(); }
   if (t.id === 'tx-spec') { capture(); S.tform.competency = ''; rerender(); }
   if (t.id === 'sf-spec') { capture(); S.sf.track = ''; rerender(); }
-  if (t.id.startsWith('nc-')) {
+  if (t.id.startsWith('nc-') && S.needCat) {
     const c = S.needCat;
     if (t.id === 'nc-spec') { c.spec = t.value; c.track = ''; rerender(); } else c[t.id.slice(3)] = t.value;
   }

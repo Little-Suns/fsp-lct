@@ -244,7 +244,7 @@ def _market_hint(salary_to: int | None, mkt: dict) -> str | None:
     return f"Верхняя граница ниже 25-го перцентиля рынка ({rub(mkt['p25'])} на руки): приглашения не пройдут проверку вилки."
 
 
-def _check_category(spec: str, track: str | None, grade: str) -> None:
+def check_category(spec: str, track: str | None, grade: str) -> None:
     if spec not in catalog.SPECS:
         raise HTTPException(422, f"Специализация: одна из {', '.join(catalog.SPECS)}")
     if track and track not in catalog.TRACKS[spec]:
@@ -270,9 +270,9 @@ def parse(body: ParseIn, co: Company = Depends(current_company), db: Session = D
 
 
 class CategoryIn(BaseModel):
-    spec: str
-    track: str | None = None
-    grade: str
+    spec: str = Field(max_length=64)
+    track: str | None = Field(default=None, max_length=64)
+    grade: str = Field(max_length=16)
     city: str | None = Field(default=None, max_length=64)
     salary_to: int | None = Field(default=None, gt=0)
 
@@ -280,13 +280,13 @@ class CategoryIn(BaseModel):
 @router.post("/needs/category")
 def need_category(body: CategoryIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
     """Категория, поправленная вручную после разбора → рынок и число кандидатов. Ничего не сохраняет."""
-    _check_category(body.spec, body.track, body.grade)
+    check_category(body.spec, body.track, body.grade)
     return _category_info(db, body.spec, body.track, body.grade, body.city, body.salary_to)
 
 
 @router.post("/needs")
 def create_need(body: NeedIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
-    _check_category(body.spec, body.track, body.grade)
+    check_category(body.spec, body.track, body.grade)
     if body.format and body.format not in catalog.FORMATS:
         raise HTTPException(422, f"Формат: один из {', '.join(catalog.FORMATS)}")
     if body.salary_from and body.salary_to and body.salary_from > body.salary_to:
