@@ -27,6 +27,42 @@ async function signup(page, email, { c152 = true, publish = false } = {}) {
   await expect(page.getByRole('heading', { name: 'Профиль' })).toBeVisible();
 }
 
+// все задания до конца: выбор ответа или строка в коде (+ комментарий к ревью); checks — таймер и сюжет посреди теста
+async function answerAll(page, checks = false) {
+  const finish = page.getByRole('button', { name: 'Посмотреть категорию' });
+  let answered = 0;
+  for (; answered < 60 && !(await finish.isVisible()); answered++) {
+    const next = page.getByRole('button', { name: 'Дальше' });
+    await expect(next).toBeDisabled();
+    const opts = page.locator('.opt');
+    if (await opts.count()) await opts.nth(answered % (await opts.count())).click();
+    else {
+      await page.locator('.code button[data-act=mark]').nth(1).click();
+      await expect(page.getByText('Отмечена строка 2.')).toBeVisible();
+      if (await page.locator('#rv-comment').count()) await page.locator('#rv-comment').fill('Гонка: нет блокировки строки при повторе.');
+    }
+    if (checks && answered === 0) {  // таймер сцены идёт
+      const t = await page.locator('#timer span').textContent();
+      await expect(page.locator('#timer span')).not.toHaveText(t, { timeout: 3000 });
+    }
+    if (checks && answered === 1) {  // сюжет можно выключить посреди теста — задание то же, без истории
+      await page.getByRole('switch', { name: 'сюжет' }).click();
+      await expect(page.locator('.crumbs b')).toHaveText(/^Задание \d+$/);
+      if (await opts.count()) await opts.first().click(); else await page.locator('.code button[data-act=mark]').nth(1).click();
+    }
+    await expect(next).toBeEnabled();
+    // ждём ответ сервера и новое задание («Дальше» снова неактивна) или финал;
+    // заголовок сцены не годится: у соседних заданий он может совпасть — выбор адаптивный и случайный
+    const answer = page.waitForResponse(r => r.url().endsWith('/api/quest/answer') && r.request().method() === 'POST');
+    await next.click();
+    expect((await answer).ok()).toBe(true);
+    await expect(async () => {
+      expect(await finish.isVisible() || await next.isDisabled()).toBe(true);
+    }).toPass();
+  }
+  return answered;
+}
+
 async function fillProfile(page) {
   await page.getByLabel('Имя и фамилия').fill('Ева Тестова');
   await page.getByLabel('Telegram').fill('@eva_e2e');
@@ -136,46 +172,34 @@ test('кандидат: регистрация → профиль и PDF → т�
   await page.getByRole('switch', { name: /Сюжет включён/ }).click();
   await expect(page.getByRole('switch', { name: /Сюжет выключен/ })).toHaveAttribute('aria-checked', 'false');
   await page.getByRole('switch', { name: /Сюжет выключен/ }).click();
+  // экспресс-тест для знакомства: 5 заданий по минуте, предварительная категория с пометкой
+  await expect(page.getByRole('group', { name: 'Режим теста' })).toContainText('Кулдаун 90 дней не запускает');
+  const exStart = api(page, 'POST', '/api/quest/start');
+  await page.getByRole('button', { name: 'Экспресс-тест для знакомства (3–5 мин)' }).click();
+  expect((await exStart).request().postDataJSON()).toMatchObject({ story: true, target_grade: 'Middle', mode: 'express' });
+  expect(await (await exStart).json()).toMatchObject({ mode: 'express', time_limit_s: 60, progress: { total: 5 } });
+  await expect(page.locator('.quest-top')).toContainText('экспресс · ');
+  await expect(page.locator('#timer span')).toHaveText(/^(1:00|0:5\d)$/);
+  expect(await answerAll(page)).toBe(5);
+  await expect(page.getByText('Экспресс-тест · Все задания пройдены · 5 из 5')).toBeVisible();
+  const exFin = api(page, 'POST', '/api/quest/finish');
+  await page.getByRole('button', { name: 'Посмотреть категорию' }).click();
+  expect(await (await exFin).json()).toMatchObject({ applied: true, express: true, mode: 'express', assessment_label: 'экспресс-оценка' });
+  await expect(page.getByText('Экспресс-оценка.')).toBeVisible();
+  await expect(page.locator('.trust')).toContainText('Экспресс-оценка');
+  await expect(page.locator('table.tbl tbody tr').first()).toContainText('экспресс');
+  // полный тест сразу после экспресса: кулдаун не запущен, повторный экспресс предварительную категорию не изменит
+  await page.getByRole('button', { name: 'Пройти тест ещё раз' }).click();
+  await expect(page.getByRole('group', { name: 'Режим теста' })).toContainText('Предварительная категория уже есть');
   const start = api(page, 'POST', '/api/quest/start');
-  await page.getByRole('button', { name: 'Начать смену' }).click();
-  expect((await start).request().postDataJSON()).toMatchObject({ story: true, target_grade: 'Middle' });
+  await page.getByRole('button', { name: 'Полный тест (~40 мин)' }).click();
+  expect((await start).request().postDataJSON()).toMatchObject({ story: true, target_grade: 'Middle', mode: 'full' });
 
-  // все задания до конца: выбор ответа или строка в коде (+ комментарий к ревью)
-  const finish = page.getByRole('button', { name: 'Посмотреть категорию' });
-  let answered = 0;
-  for (; answered < 60 && !(await finish.isVisible()); answered++) {
-    const next = page.getByRole('button', { name: 'Дальше' });
-    await expect(next).toBeDisabled();
-    const opts = page.locator('.opt');
-    if (await opts.count()) await opts.nth(answered % (await opts.count())).click();
-    else {
-      await page.locator('.code button[data-act=mark]').nth(1).click();
-      await expect(page.getByText('Отмечена строка 2.')).toBeVisible();
-      if (await page.locator('#rv-comment').count()) await page.locator('#rv-comment').fill('Гонка: нет блокировки строки при повторе.');
-    }
-    if (answered === 0) {  // таймер сцены идёт
-      const t = await page.locator('#timer span').textContent();
-      await expect(page.locator('#timer span')).not.toHaveText(t, { timeout: 3000 });
-    }
-    if (answered === 1) {  // сюжет можно выключить посреди теста — задание то же, без истории
-      await page.getByRole('switch', { name: 'сюжет' }).click();
-      await expect(page.locator('.crumbs b')).toHaveText(/^Задание \d+$/);
-      if (await opts.count()) await opts.first().click(); else await page.locator('.code button[data-act=mark]').nth(1).click();
-    }
-    await expect(next).toBeEnabled();
-    // ждём ответ сервера и новое задание («Дальше» снова неактивна) или финал;
-    // заголовок сцены не годится: у соседних заданий он может совпасть — выбор адаптивный и случайный
-    const answer = page.waitForResponse(r => r.url().endsWith('/api/quest/answer') && r.request().method() === 'POST');
-    await next.click();
-    expect((await answer).ok()).toBe(true);
-    await expect(async () => {
-      expect(await finish.isVisible() || await next.isDisabled()).toBe(true);
-    }).toPass();
-  }
+  const answered = await answerAll(page, true);
   expect(answered).toBeGreaterThan(3);
   await expect(page.getByRole('heading', { name: 'Тест закончен' })).toBeVisible();
   const fin = api(page, 'POST', '/api/quest/finish');
-  await finish.click();
+  await page.getByRole('button', { name: 'Посмотреть категорию' }).click();
   const res = await (await fin).json();
   expect(res.target.grade).toBe('Middle');
   await expect(page.getByText('Ваша категория')).toBeVisible();
@@ -191,7 +215,8 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.getByText(`Тест на Middle, результат попытки — ${res.target.result_grade}.`)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Компетенции' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'История тестов' })).toBeVisible();
-  await expect(page.locator('table.tbl tbody tr')).toHaveCount(1);
+  await expect(page.getByText('Экспресс-оценка.')).toHaveCount(0);  // полный тест снял пометку
+  await expect(page.locator('table.tbl tbody tr')).toHaveCount(2);
   await expect(page.locator('table.tbl tbody tr').first()).toContainText('Middle');
   // PDF-профиль: файл с авторизацией, имя по анонимному коду
   const pdf = page.waitForEvent('download');
@@ -202,6 +227,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(toast(page)).toHaveText('PDF-профиль сформирован');
   await page.getByRole('button', { name: 'Пройти тест ещё раз' }).click();
   await expect(page.getByRole('heading', { name: 'История тестов' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Режим теста' })).toContainText('уже подтверждён полным тестом');
   await expect(page.locator('table.tbl tbody tr').first()).toContainText(/категория обновлена|не применён/);
 
   // кабинет: карточка не опубликована → предупреждение; статус и уведомления

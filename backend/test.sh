@@ -5,10 +5,11 @@ set -e
 cd "$(dirname "$0")"
 export PG=${PG:-postgresql+psycopg://fsp:fsp@localhost:5432}
 COV_MIN=${COV_MIN:-80}
-# набор → своя база (fsp_<префикс>); test_llm_parsing и test_selfchecks базу не трогают
+# набор → своя база (fsp_<префикс>); test_llm_parsing, test_selfchecks и test_bank базу не трогают
 # tests/test_llm_live.py — живой смоук модели, только вручную с LIVE_LLM=1 (без модели pytest вернул бы 5 — «нечего гонять»)
 SUITES="flows:test_flows quest:test_quest integ:test_integrations seed:test_lottery valid:test_validation vac:test_vacancies_tasks
-auth:test_auth priv:test_privacy gen:test_seed migr:test_migrations flows:test_llm_parsing flows:test_selfchecks chat:test_chat fspid:test_fsp_id"
+auth:test_auth priv:test_privacy gen:test_seed migr:test_migrations flows:test_llm_parsing flows:test_selfchecks chat:test_chat fspid:test_fsp_id
+flows:test_bank"
 uv run python - <<'PY'
 import os
 import psycopg
