@@ -57,13 +57,14 @@ def env():
         # изменённый шаблон: засеянные клоны обновляются на месте по номеру клона, id не меняются (на них ссылаются ответы)
         old = db.scalars(select(Item).where(Item.family == "be_inc_pool").order_by(Item.id)).all()
         ids = [it.id for it in old]
-        want = [(r["payload"], r["b"]) for r in generate_bank() if r["family"] == "be_inc_pool"]
+        want = [(r["payload"], r["b"], r["kind"], r["competency"]) for r in generate_bank() if r["family"] == "be_inc_pool"]
         old[0].payload, old[1].b = {"story": "текст прошлой версии шаблона"}, 0.0
+        old[2].kind, old[3].competency = "review", "Компетенция прошлой версии"
         db.commit()
-        assert seed_items(db) == 2 and seed_items(db) == 0
+        assert seed_items(db) == 4 and seed_items(db) == 0
         db.expire_all()
         fresh = db.scalars(select(Item).where(Item.family == "be_inc_pool").order_by(Item.id)).all()
-        assert [it.id for it in fresh] == ids and [(it.payload, it.b) for it in fresh] == want
+        assert [it.id for it in fresh] == ids and [(it.payload, it.b, it.kind, it.competency) for it in fresh] == want
         # то же через CLI (python -m app.services.items): семейства bank/ видны и из __main__
         n_fam = len(db.execute(delete(Item).where(Item.family == fam).returning(Item.id)).all())
         db.commit()
