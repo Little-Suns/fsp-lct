@@ -15,7 +15,7 @@ os.environ.setdefault("DEMO", "1")
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
@@ -251,3 +251,23 @@ def test_candidate_lifecycle_contacts_consents_delete(world):
             s = json.dumps(a.detail, ensure_ascii=False) if a.detail else ""
             assert email not in s and name not in s, a.action
     assert client.get("/api/candidate/me", headers=hx).status_code == 401
+
+
+def test_search_does_not_load_pii_columns(world):
+    """Поиск грузит весь банк: ФИО, почта, резюме и «правда» синтетики даже не читаются из БД (employer.SEARCH_SKIP) —
+    и быстрее (нагрузочный прогон), и ПДн не попадают в память обработчика, который выдаёт анонимные карточки."""
+    client, heads = world
+    h = next(iter(heads.values()))
+    sqls: list[str] = []
+    listen = lambda conn, cur, stmt, *a: sqls.append(stmt)  # noqa: E731
+    event.listen(engine, "before_cursor_execute", listen)
+    try:
+        for q in ("", "?spec=Backend&q=python kafka&fsp=1", "?cf=1&hackathon=1&format=Удалённо"):
+            assert client.get(f"/api/employer/search{q}", headers=h).status_code == 200
+    finally:
+        event.remove(engine, "before_cursor_execute", listen)
+    bank = [s for s in sqls if "FROM candidates" in s and "candidates.theta IS NOT NULL" in s]
+    assert len(bank) == 3, "запрос банка не найден"
+    for col in ("name", "email", "tg", "cv_text", "embedding", "truth"):
+        assert not any(re.search(rf"candidates\.{col}\b", s) for s in bank), col
+    assert all("candidates.public_id" in s for s in bank)  # сама выборка на месте

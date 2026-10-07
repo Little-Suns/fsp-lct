@@ -92,6 +92,23 @@ def _issue(user: User, db: Session) -> dict:
     return {"token": issue_token(db, user), "role": user.role}
 
 
+def demo_token(user: User) -> str:
+    """Общий токен демо-входа: HMAC от адреса на серверном перце — у всех, кто вошёл за персонажа, один и тот же.
+    Обычный вход отзывает прежний токен, и десятки зрителей стенда выбивали бы друг друга (нагрузочный прогон: 80 % 401)."""
+    return hmac.new(config.SECRET_KEY.encode(), f"demo:{user.email}".encode(), hashlib.sha256).hexdigest()
+
+
+def _issue_demo(user: User, db: Session) -> dict:
+    token, now = demo_token(user), datetime.now(UTC)
+    # персонаж уже открыт и срок продлевали меньше суток назад — без записи: иначе одновременные входы зрителей
+    # выстраиваются в очередь на блокировке одной строки users (нагрузочный прогон в Docker: вход до 11 с)
+    fresh = user.token == hash_secret(token) and user.token_expires_at and user.token_expires_at > now + TOKEN_TTL - timedelta(days=1)
+    if not fresh:
+        user.token, user.token_expires_at = hash_secret(token), now + TOKEN_TTL
+        db.commit()
+    return {"token": token, "role": user.role}
+
+
 @router.post("/email")
 def send_code(body: EmailIn, db: Session = Depends(get_db)):
     if body.role not in ("candidate", "employer"):
@@ -171,7 +188,7 @@ def fsp_login(body: FspIn, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.fsp_id == body.fsp_id))
     if not user:
         raise HTTPException(404, "ФСП ID не найден")
-    return _issue(user, db)
+    return _issue_demo(user, db)
 
 
 @router.post("/demo/{role}")
@@ -183,11 +200,13 @@ def demo_login(role: str, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == email)) if email else None
     if not user:
         raise HTTPException(404, "Демо-данные не засеяны: запустите seed")
-    return _issue(user, db)
+    return _issue_demo(user, db)
 
 
 @router.post("/logout")
 def logout(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if config.DEMO and user.token == hash_secret(demo_token(user)):
+        return {"ok": True}  # общий демо-токен не отзывается: его и так выдают любому, а остальных зрителей выбило бы
     user.token = None
     user.token_expires_at = None
     db.commit()

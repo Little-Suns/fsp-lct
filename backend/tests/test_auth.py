@@ -223,6 +223,21 @@ def test_demo_and_fsp_logins(client, monkeypatch):
     assert client.post("/api/auth/demo/employer").json()["role"] == "employer"
     assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).json()["role"] == "candidate"
     assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-0000"}).status_code == 404
+    # за персонажа входят десятки зрителей сразу: токен общий, вход и выход одного не выбивают остальных
+    t1 = client.post("/api/auth/demo/candidate").json()["token"]
+    exp = _user("d.orlov@example.ru").token_expires_at
+    t2 = client.post("/api/auth/demo/candidate").json()["token"]
+    assert t1 == t2 == client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).json()["token"]
+    assert _user("d.orlov@example.ru").token == hash_secret(t1)  # в БД — только хеш
+    assert _user("d.orlov@example.ru").token_expires_at == exp  # повторный вход в течение суток строку не пишет (нет очереди на блокировке)
+    h = {"Authorization": f"Bearer {t1}"}
+    assert client.post("/api/auth/logout", headers=h).json() == {"ok": True}
+    assert client.get("/api/auth/me", headers=h).json()["email"] == "d.orlov@example.ru"
+    # обычный вход по почте выдаёт свой токен — его выход отзывает как раньше
+    otp = client.post("/api/auth/email", json={"email": "d.orlov@example.ru"}).json()["otp"]
+    own = {"Authorization": f"Bearer {client.post('/api/auth/verify', json={'email': 'd.orlov@example.ru', 'otp': otp}).json()['token']}"}
+    assert client.post("/api/auth/logout", headers=own).status_code == 200
+    assert client.get("/api/auth/me", headers=own).status_code == 401
     # DEMO=0: демо-вход и ФСП ID закрыты, код в ответе не возвращается
     monkeypatch.setattr(config, "DEMO", False)
     assert client.post("/api/auth/demo/candidate").status_code == 404
