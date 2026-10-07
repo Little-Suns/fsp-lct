@@ -17,10 +17,20 @@ TOP_K = 3  # randomesque: случайное из трёх лучших семе
 COMP_PRIOR_SD = 0.7  # априор компетенции — N(общий θ, 0.7): мало заданий → оценка стягивается к общему θ
 TOO_FAST_SHARE, TOO_FAST_MIN = 0.15, 2  # флаг, если ≥2 ответов быстрее 15 % лимита времени
 LZ_CUT = -1.96
+# задача на код — ровно одна за сессию, после четырёх рабочих заданий (θ уже грубо оценён):
+# LLM решает такие задачи почти всегда, поэтому вес в тесте умеренный — одно задание из 6–12 и a ≈ 1,5–1,7
+CODE_AT = 4
+
+
+def is_code(it) -> bool:
+    return getattr(it, "kind", None) == "code"
 # экспресс-режим (знакомство за 3–5 минут): 5 заданий — контент-баланс next_item даёт по одному на 5 разных компетенций,
 # остановки по SE нет, поэтому SE честно больше (≈ 0,45 против ≈ 0,33); грейд — тем же правилом θ − SE ≥ порог
 EXPRESS_ITEMS = 5
-EXPRESS_KINDS = ("choice", "mark")  # ревью с комментарием в минуту не укладывается
+# ревью с комментарием в минуту не укладывается; задача на код (kind = code) — тоже: написать и отладить функцию за 60 с
+# нельзя (её лимит — 15 минут), а растягивать экспресс ради неё — терять смысл «знакомства за 3–5 минут». Слот choose
+# в экспрессе не срабатывает: банк для выбора заранее отфильтрован по EXPRESS_KINDS (quest._serve, simulate_session)
+EXPRESS_KINDS = ("choice", "mark")
 SPEC_SE_MAX = 0.37  # самопроверка: средняя SE полного теста на банке любой специализации (цель — ≤ 0,35, у Backend ≈ 0,33)
 
 
@@ -55,10 +65,12 @@ def competency_estimates(responses_by_comp: dict[str, list], names: list[str], t
     return out
 
 
-def next_item(theta: float, bank, seen_ids: set, seen_families: set, rng: random.Random, top: int = TOP_K, focus: dict | None = None):
+def next_item(theta: float, bank, seen_ids: set, seen_families: set, rng: random.Random, top: int = TOP_K, focus: dict | None = None,
+              code: bool = False):
     """Следующее задание: контент-баланс по компетенциям → максимум информации Фишера → случайное из top лучших семейств.
-    focus — веса компетенций из вакансии (1.0–1.5): мягкий множитель информации, влияет только на выбор, не на оценку."""
-    pool = [it for it in bank if not it.pilot and it.id not in seen_ids and it.family not in seen_families]
+    focus — веса компетенций из вакансии (1.0–1.5): мягкий множитель информации, влияет только на выбор, не на оценку.
+    code — выбирать только среди задач на код (их слот — choose), иначе только среди остальных."""
+    pool = [it for it in bank if not it.pilot and is_code(it) == code and it.id not in seen_ids and it.family not in seen_families]
     if not pool:
         return None
     seen_comp = Counter(it.competency for it in bank if it.id in seen_ids and not it.pilot)
@@ -75,8 +87,18 @@ def next_item(theta: float, bank, seen_ids: set, seen_families: set, rng: random
 
 
 def pick_pilot(bank, seen_ids: set, seen_families: set, rng: random.Random):
+    """Пилотное задание (на грейд не влияет). Пилотная задача на код занимает и слот задачи на код этой сессии."""
     pool = [it for it in bank if it.pilot and it.id not in seen_ids and it.family not in seen_families]
     return rng.choice(pool) if pool else None
+
+
+def choose(theta: float, bank, seen_ids: set, seen_families: set, rng: random.Random, n_op: int, focus: dict | None = None):
+    """Следующее рабочее задание: после CODE_AT рабочих — задача на код (если её ещё не было), иначе next_item."""
+    if n_op >= CODE_AT and not any(is_code(it) for it in bank if it.id in seen_ids):
+        it = next_item(theta, bank, seen_ids, seen_families, rng, code=True)
+        if it:
+            return it
+    return next_item(theta, bank, seen_ids, seen_families, rng, focus=focus)
 
 
 def should_stop(n: int, se: float, express: bool = False) -> bool:
@@ -146,11 +168,13 @@ def decide_grade(prev: str | None, theta: float, se: float, upgrade_allowed: boo
 
 
 def simulate_session(bank, true_theta: float, rng: random.Random, prior_mean: float = 0.0, express: bool = False) -> tuple[float, float, int]:
-    """Прогон адаптивной сессии симулированным кандидатом (без пилотных заданий)."""
+    """Прогон адаптивной сессии симулированным кандидатом (без пилотных заданий; задача на код — своим слотом, если она есть в банке)."""
     seen_ids, seen_fam, resp = set(), set(), []
     theta, se = prior_mean, 1.0
+    if express:  # как quest._serve: в экспрессе только EXPRESS_KINDS
+        bank = [it for it in bank if getattr(it, "kind", "choice") in EXPRESS_KINDS]
     while not should_stop(len(resp), se, express):
-        it = next_item(theta, bank, seen_ids, seen_fam, rng)
+        it = choose(theta, bank, seen_ids, seen_fam, rng, len(resp))
         if it is None:
             break
         seen_ids.add(it.id)
@@ -169,7 +193,7 @@ if __name__ == "__main__":
     rows = generate_bank()
 
     def spec_bank(spec: str, kinds=None) -> list:
-        return [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "a", "b", "pilot")})
+        return [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "kind", "a", "b", "pilot")})
                 for i, r in enumerate(rows) if r["spec"] == spec and (kinds is None or r["kind"] in kinds)]
 
     bank = spec_bank("Backend")

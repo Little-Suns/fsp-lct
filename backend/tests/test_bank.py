@@ -18,14 +18,19 @@ BANK_PREFIXES = ("be_", "fe_", "mob_", "mlds_", "dea_", "ops_", "qae_", "sec_") 
 
 
 def test_family_names_unique():
-    names = [f["family"] for f in FAMILIES]
+    """Имена семейств уникальны; исключение — задачи на код: одно семейство на каждую специализацию из code_items.SPECS
+    (seed_items различает их по паре семейство + специализация)."""
+    names = [f["family"] for f in FAMILIES if f["kind"] != "code"]
     assert len(names) == len(set(names)), [n for n, k in Counter(names).items() if k > 1]
+    code = [(f["family"], f["spec"]) for f in FAMILIES if f["kind"] == "code"]
+    assert code and len(code) == len(set(code)) and not {n for n, _ in code} & set(names)
 
 
 @pytest.mark.parametrize("spec", catalog.SPECS)
 def test_bank_size_per_competency(spec):
-    """Не меньше 3 рабочих семейств на компетенцию; компетенции — из справочника специализации."""
-    per = Counter(f["competency"] for f in FAMILIES if f["spec"] == spec and not f["pilot"])
+    """Не меньше 3 рабочих семейств на компетенцию без задач на код (их в полном тесте одна, в экспрессе нет);
+    компетенции — из справочника специализации."""
+    per = Counter(f["competency"] for f in FAMILIES if f["spec"] == spec and not f["pilot"] and f["kind"] != "code")
     assert set(per) == set(catalog.COMPETENCIES[spec]), set(per) ^ set(catalog.COMPETENCIES[spec])
     assert min(per.values()) >= 3, per
 
@@ -55,7 +60,9 @@ def test_every_clone_well_formed():
             assert isinstance(p[k], str) and p[k].strip() and "⟨" not in p[k], ctx
         if p["panel"] is not None:
             _check_panel(p["panel"])
-        if it["kind"] == "choice":
+        if it["kind"] == "code":  # условие и примеры задачи на код — tests/test_code.py
+            assert p["panel"] is None and p["code"]["examples"] and set(p["code"]["entry"]) == {"python", "typescript"}, ctx
+        elif it["kind"] == "choice":
             opts = p["options"]
             assert len(opts) == 4 and len(set(opts)) == 4 and all(o.strip() and "⟨" not in o for o in opts), ctx
             assert isinstance(p["key"], int) and 0 <= p["key"] < 4, ctx
@@ -117,8 +124,8 @@ def test_non_backend_banks_have_context():
 @pytest.mark.parametrize("spec", catalog.SPECS)
 def test_full_test_precision_per_spec(spec):
     """Полный адаптивный тест на банке специализации: θ коррелирует с истинным, средняя SE в пределах цели."""
-    bank = [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "a", "b", "pilot")})
-            for i, r in enumerate(BANK) if r["spec"] == spec and not r["pilot"]]
+    bank = [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "kind", "a", "b", "pilot")})
+            for i, r in enumerate(BANK) if r["spec"] == spec and not r["pilot"]]  # с kind — задача на код идёт своим слотом
     rng = random.Random(f"bank:{spec}")
     true = [rng.gauss(0, 1) for _ in range(150)]
     runs = [irt.simulate_session(bank, t, rng) for t in true]

@@ -51,6 +51,34 @@ jobs:
           # нагрузочный сценарий locust хотя бы импортируется (сам прогон — вручную, см. докстринг)
           uv run python -c "import importlib.util as u; s = u.spec_from_file_location('locustfile', 'loadtest/locustfile.py'); s.loader.exec_module(u.module_from_spec(s))"
 
+  sandbox:
+    # песочница задач на код против настоящего nsjail: вердикты, попытки выхода, эталоны банка на Python и TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Образ песочницы (target test)
+        run: docker build --target test -t fsp-sandbox-test sandbox
+      - name: Тесты песочницы (privileged, cgroup v2)
+        run: docker run --rm --privileged -v "$GITHUB_WORKSPACE/backend/app/services/code_items.py:/srv/code_items.py:ro" fsp-sandbox-test
+      - name: Песочница из docker-compose (read_only, cgroup private, внутренняя сеть) — здорова и без выхода наружу
+        run: |
+          export SANDBOX_TOKEN=$(openssl rand -hex 16)
+          export SANDBOX_CPUS=$(nproc)  # раннер — 2 CPU, а cpus в compose не может превышать число CPU хоста
+          docker compose up -d --build --wait sandbox
+          docker compose exec -T sandbox python3 -c "import socket
+          for h in [('1.1.1.1', 80), ('github.com', 443)]:
+              try:
+                  socket.create_connection(h, timeout=3)
+                  raise SystemExit(f'выход наружу открыт: {h}')
+              except OSError:
+                  pass
+          print('выхода наружу нет')"
+          test -z "$(docker compose port sandbox 8080 2>/dev/null)"
+          docker compose down
+      - name: Логи песочницы из compose
+        if: failure()
+        run: docker compose logs sandbox || true
+
   frontend-e2e:
     runs-on: ubuntu-latest
     services:
@@ -85,8 +113,21 @@ jobs:
         run: uv sync --frozen
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - name: Песочница для e2e (настоящий nsjail, порт только на 127.0.0.1)
+        run: |
+          docker build --target runtime -t fsp-sandbox ../sandbox
+          echo "SANDBOX_TOKEN=$(openssl rand -hex 16)" >> "$GITHUB_ENV"
+          echo "SANDBOX_URL=http://127.0.0.1:8091" >> "$GITHUB_ENV"
+      - name: Запуск песочницы
+        run: |
+          docker run -d --name sandbox --privileged -p 127.0.0.1:8091:8080 -e SANDBOX_TOKEN fsp-sandbox
+          for i in $(seq 60); do curl -fs "$SANDBOX_URL/health" && break; sleep 1; done
+          curl -fs "$SANDBOX_URL/health" || { docker logs sandbox; exit 1; }
       - name: E2E (Playwright, база fsp_e2e) и покрытие JS ≥ 80 %
         run: npm test
+      - name: Логи песочницы
+        if: failure()
+        run: docker logs sandbox || true
       - name: Сводка покрытия
         if: always()
         run: cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY" || true

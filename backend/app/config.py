@@ -64,3 +64,9 @@ FSP_ID_CLIENT_ID = os.environ.get("FSP_ID_CLIENT_ID") or "fsp-career"
 FSP_ID_CLIENT_SECRET = os.environ.get("FSP_ID_CLIENT_SECRET") or (__import__("secrets").token_urlsafe(32) if FSP_ID_MOCK else "")
 FSP_ID_REDIRECT_URI = os.environ.get("FSP_ID_REDIRECT_URI") or PUBLIC_URL + "/api/auth/fsp/callback"
 FSP_ID_SCOPE = os.environ.get("FSP_ID_SCOPE") or "openid email profile"
+
+# Песочница задач на код (сервис sandbox в compose, только внутренняя сеть). Пусто — задачи на код не выдаются.
+SANDBOX_URL = os.environ.get("SANDBOX_URL", "").rstrip("/")
+SANDBOX_TOKEN = os.environ.get("SANDBOX_TOKEN", "")  # общий секрет API ↔ песочница (заголовок X-Sandbox-Token)
+SANDBOX_TIMEOUT = float(os.environ.get("SANDBOX_TIMEOUT", "90"))  # очередь песочницы ≤ 20 с + прогон ≤ 60 с
+SANDBOX_API_SLOTS = int(os.environ.get("SANDBOX_API_SLOTS", "8"))  # одновременных обращений API к песочнице (пул FastAPI — 40 потоков)
