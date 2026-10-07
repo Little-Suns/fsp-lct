@@ -1042,7 +1042,10 @@ def main():
     with SessionLocal() as db:
         if db.scalar(select(User).where(User.email == "d.orlov@example.ru")):
             if a.if_empty:
-                print("База уже засеяна — пропускаю")
+                # банк коммитится после build отдельно: оборванный засев и изменённые шаблоны догоняются на каждом старте
+                from app.services.items import seed_items
+
+                print(f"База уже засеяна — пропускаю; банк заданий: seed_items → {seed_items(db)}")
                 return
             raise SystemExit("База уже засеяна — запустите с --reset")
         res = build(db, a.candidates, a.needs, a.seed, a.today)

@@ -9,7 +9,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:54
 os.environ["LLM_BASE_URL"] = ""
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app import catalog, config
 from app.db import SessionLocal, engine
@@ -82,10 +82,13 @@ def test_generate_cli(seeded, capsys):
     try:
         with pytest.raises(SystemExit, match="уже засеяна"):
             generate.main()
-        n = db.scalar(select(func.count()).select_from(Candidate))
+        n, items = db.scalar(select(func.count()).select_from(Candidate)), db.scalar(select(func.count()).select_from(Item))
+        db.execute(delete(Item).where(Item.family == "be_inc_pool"))  # засев оборвался до банка — автозасев его докладывает
+        db.commit()
         sys.argv = ["seed.generate", "--if-empty", "--candidates", "5", "--needs", "1"]  # автозасев стенда при каждом старте
         generate.main()
         assert db.scalar(select(func.count()).select_from(Candidate)) == n
+        assert db.scalar(select(func.count()).select_from(Item)) == items
     finally:
         sys.argv = argv
 
