@@ -495,14 +495,16 @@ class CompanyFeedbackIn(BaseModel):
 
 @router.post("/invites/{invite_id}/company-feedback")
 def company_feedback(invite_id: int, body: CompanyFeedbackIn, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
-    """Отзыв о компании через неделю после принятия, по желанию и один раз. Влияет только на квоту работодателя."""
+    """Отзыв о компании через неделю после принятия (в демо — сразу), по желанию и один раз. Влияет только на квоту работодателя."""
     if body.value not in catalog.COMPANY_FEEDBACK:
         raise HTTPException(422, f"Отзыв: один из {', '.join(catalog.COMPANY_FEEDBACK)}")
     inv = _own_invite(db, c, invite_id)
     if inv.company_feedback:
         raise HTTPException(409, "Отзыв уже оставлен")
+    if inv.status != "accepted":
+        raise HTTPException(409, "Отзыв можно оставить только по принятому приглашению")
     if not reputation.feedback_open(inv):
-        raise HTTPException(409, f"Отзыв можно оставить через {catalog.COMPANY_FEEDBACK_AFTER_DAYS} дней после принятия приглашения")
+        raise HTTPException(409, f"Отзыв можно оставить через {reputation.feedback_after_days()} дней после принятия приглашения")
     if not reputation.save_feedback(db, inv, body.value):
         raise HTTPException(409, "Отзыв уже оставлен")
     return _detail(db, inv, c)

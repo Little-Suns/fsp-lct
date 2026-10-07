@@ -1,6 +1,7 @@
 """Репутация работодателя по отзывам кандидатов — защита от фиктивных приглашений.
 
-Через COMPANY_FEEDBACK_AFTER_DAYS после принятия приглашения кандидат может (не обязан) оставить отзыв о компании.
+Через COMPANY_FEEDBACK_AFTER_DAYS после принятия приглашения кандидат может (не обязан) оставить отзыв о компании;
+в демо-режиме (DEMO=1) — сразу после принятия, чтобы сценарий был виден на стенде жюри.
 Кандидату репутация компании не показывается ни в каком виде: отзывы только меняют квоту работодателя.
 
 - Штраф: за FEEDBACK_WINDOW_DAYS плохих отзывов ≥ FEEDBACK_BAD_MIN от разных кандидатов и ≥ FEEDBACK_BAD_SHARE
@@ -19,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app import catalog
+from app import catalog, config
 from app.models import AuditLog, Company, Invitation
 
 
@@ -27,11 +28,16 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def feedback_after_days() -> int:
+    """Через сколько дней после принятия открывается отзыв: в демо — сразу (жюри не ждёт неделю)."""
+    return 0 if config.DEMO else catalog.COMPANY_FEEDBACK_AFTER_DAYS
+
+
 def feedback_open(inv: Invitation, now: datetime | None = None) -> bool:
-    """Кандидат может оставить отзыв: приглашение принято, прошла неделя, отзыва ещё нет."""
+    """Кандидат может оставить отзыв: приглашение принято, прошло feedback_after_days() дней, отзыва ещё нет."""
     if inv.status != "accepted" or inv.company_feedback or not inv.responded_at:
         return False
-    return (now or _now()) >= inv.responded_at + timedelta(days=catalog.COMPANY_FEEDBACK_AFTER_DAYS)
+    return (now or _now()) >= inv.responded_at + timedelta(days=feedback_after_days())
 
 
 def summary(db: Session, co: Company, now: datetime | None = None) -> dict:

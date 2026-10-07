@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app import catalog, deps
+from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
 from app.models import Application, AuditLog, Candidate, Company, Invitation, Task, User, Vacancy
@@ -86,15 +86,22 @@ def _quota(client, who="e") -> dict:
     return client.get("/api/employer/quota", headers=H[who]).json()
 
 
-def test_feedback_rules(client):
+def test_feedback_rules(client, monkeypatch):
     items = {i["id"]: i for i in client.get("/api/candidate/invites", headers=H["c0"]).json()["items"]}
     assert items[INV["c0"]]["feedback_open"] is True and items[INV["c0"]]["company_feedback"] is None
     # кандидату о репутации компании не отдаётся ничего
     assert not {"reputation", "penalty", "blocked"} & set(items[INV["c0"]])
     assert _fb(client, "c0", "great").status_code == 422
+    monkeypatch.setattr(config, "DEMO", False)
     r = _fb(client, "c6", "ok")  # принял вчера — рано
     assert r.status_code == 409 and "7 дней" in r.json()["detail"]
-    assert _fb(client, "c7", "no_contact").status_code == 409  # отказал — отзыва нет
+    monkeypatch.setattr(config, "DEMO", True)  # демо: отзыв сразу после принятия
+    assert reputation.feedback_after_days() == 0
+    c6 = next(i for i in client.get("/api/candidate/invites", headers=H["c6"]).json()["items"] if i["id"] == INV["c6"])
+    assert c6["feedback_open"] is True  # принял вчера — в демо отзыв уже открыт
+    monkeypatch.setattr(config, "DEMO", False)
+    r = _fb(client, "c7", "no_contact")  # отказал — отзыва нет, в любом режиме
+    assert r.status_code == 409 and r.json()["detail"] == "Отзыв можно оставить только по принятому приглашению"
     assert _fb(client, "c1", "ok", invite=INV["c0"]).status_code == 404  # чужое приглашение
     r = _fb(client, "c0", "ok")
     assert r.status_code == 200 and r.json()["company_feedback"] == "ok" and r.json()["feedback_open"] is False
@@ -244,3 +251,18 @@ def test_accept_races_with_block(client, monkeypatch):
     with SessionLocal() as db:
         assert db.get(Invitation, iid).status == "expired"
         assert not [a for a in db.query(AuditLog).filter(AuditLog.action == "contacts_revealed") if (a.detail or {}).get("invitation_id") == iid]
+
+
+def test_demo_feedback_right_after_accept(client, monkeypatch):
+    """DEMO=1: отзыв по только что принятому приглашению принимается сразу (POST, а не только флаг в списке)."""
+    monkeypatch.setattr(config, "DEMO", True)
+    with SessionLocal() as db:
+        co = db.query(Company).filter(Company.inn == INN).one()
+        cid = db.query(Candidate).filter(Candidate.public_id == "R-0006").one().id
+        inv = _inv(co, db.get(Candidate, cid), "accepted", 0)  # принято только что
+        inv.role = "Демо"
+        db.add(inv)
+        db.commit()
+        iid = inv.id
+    r = _fb(client, "c6", "ok", invite=iid)
+    assert r.status_code == 200 and r.json()["company_feedback"] == "ok"
