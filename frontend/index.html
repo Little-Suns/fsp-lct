@@ -53,7 +53,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; scrollbar-gutter: stable; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
 html.lock { overflow: hidden; }  /* открыто меню: страница под ним не прокручивается */
 body {
   background: var(--ground);
@@ -1233,11 +1233,17 @@ function codeIndent(back) {
   const el = document.getElementById('code-ed'), w = codeLang() === 'python' ? 4 : 2, v = el.value, s = el.selectionStart;
   if (document.activeElement !== el) return el.focus();  // без фокуса курсор неизвестно где: сначала касание в нужную строку
   let e = el.selectionEnd;
-  if (!back && s === e) el.setRangeText(' '.repeat(w), s, e, 'end');
-  else {
-    if (e > s && v[e - 1] === '\n') e--;  // выделение до начала следующей строки её не захватывает
-    const ls = s ? v.lastIndexOf('\n', s - 1) + 1 : 0, cut = new RegExp(`^ {1,${w}}`);
-    el.setRangeText(v.slice(ls, e).split('\n').map(l => back ? l.replace(cut, '') : ' '.repeat(w) + l).join('\n'), ls, e, s === e ? 'end' : 'select');
+  const ls = s ? v.lastIndexOf('\n', s - 1) + 1 : 0;
+  if (s === e) {
+    if (!back) el.setRangeText(' '.repeat(w), s, e, 'end');
+    else {  // ведущие пробелы строки, где бы ни стоял курсор
+      const n = v.slice(ls, ls + w).match(/^ */)[0].length;
+      if (n) el.setRangeText('', ls, ls + n, 'preserve');
+    }
+  } else {
+    if (v[e - 1] === '\n') e--;  // выделение до начала следующей строки её не захватывает
+    const cut = new RegExp(`^ {1,${w}}`);
+    el.setRangeText(v.slice(ls, e).split('\n').map(l => back ? l.replace(cut, '') : ' '.repeat(w) + l).join('\n'), ls, e, 'select');
   }
   S.qCode[codeLang()] = el.value;
 }
@@ -2051,7 +2057,7 @@ async function loadChat(peer) {
 let chatBusy = false;
 let chatAgain = false;  // сигнал пришёл, пока шёл прошлый опрос: после него повторяем
 async function pollChat() {
-  if (!onChat() || document.hidden || $app.inert) return;
+  if (!onChat() || document.hidden || $app.hasAttribute('aria-busy')) return;
   if (chatBusy) { chatAgain = true; return; }
   chatBusy = true;
   const my = seq, peer = chatPeerOf(), d = D.chatDetail, me = chatMe();
@@ -2649,14 +2655,16 @@ const MAP = [
 function openMap() {
   const r = route(), role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
   let n = 0;
+  const sbw = innerWidth - document.documentElement.clientWidth;  // полоса прокрутки исчезнет — страница не должна сдвинуться
+  document.documentElement.style.paddingRight = sbw ? sbw + 'px' : '';
   document.documentElement.classList.add('lock');
   document.querySelector('.mapbtn').setAttribute('aria-expanded', 'true');
   document.querySelector('header.top').inert = $app.inert = true;  // фон под меню недоступен ни мыши, ни клавиатуре
   // на телефоне шапка без ролей и «Выйти»: они здесь, над картой экранов
   const roles = `<div class="m-only"><div class="stack-s"><span class="label">Роль</span><nav class="seg m-roles" aria-label="Роль">${[['/c/home', 'c', 'Кандидат'], ['/e/picks', 'e', 'Работодатель'], ['/v', 'v', 'Валидация']].map(([p, k, t]) => `<button data-go="${p}" aria-current="${role === k}">${t}</button>`).join('')}</nav>
     ${(role === 'c' || role === 'e') && TOK[role] ? `<button class="btn ghost block" data-act="logout">Выйти из кабинета ${role === 'c' ? 'кандидата' : 'работодателя'}</button>` : ''}</div></div>`;
-  document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-modal="true" aria-label="Карта экранов">
-    <div class="row sb"><h3><span class="on-wide">Карта экранов</span><span class="on-narrow">Меню</span></h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
+  document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-modal="true" aria-labelledby="map-title">
+    <div class="row sb"><h3 id="map-title"><span class="on-wide">Карта экранов</span><span class="on-narrow">Меню</span></h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
     ${roles}
     ${MAP.map(([g, items]) => [g, g === 'Кандидат' ? [...items, ...((D.invites && D.invites.items) || []).slice(0, 2).map(i => ['/c/invite/' + i.id, 'Приглашение: ' + esc(i.company)])] : items]).map(([g, items]) => `<div class="grp"><span class="label" style="margin:0 10px 4px">${g}</span>${items.map(([p, t]) => `<button data-go="${p}" aria-current="${r === p}"><span class="num">${String(++n).padStart(2, '0')}</span><span>${t}</span></button>`).join('')}</div>`).join('')}
     <p class="small muted">Демо-сценарий: регистрация → профиль и PDF → тест → категория → работодатель пишет потребность → подборка → приглашение → кандидат принимает → контакты. Вход за демо-персонажей — кнопками «Демо: войти как …» на экранах входа.</p>
@@ -2669,6 +2677,7 @@ function closeMap() {
   const back = ov.contains(document.activeElement);  // фокус был в меню — возвращаем на кнопку меню
   ov.innerHTML = '';
   document.documentElement.classList.remove('lock');
+  document.documentElement.style.paddingRight = '';
   document.querySelector('header.top').inert = false;
   $app.inert = $app.hasAttribute('aria-busy');  // экран мог ещё грузиться (busy)
   const btn = document.querySelector('.mapbtn');
@@ -2795,7 +2804,7 @@ function rerender() { const y = scrollY; render(); scrollTo(0, y); }
 
 // смена экрана: без входа — на экран входа своей роли; загрузка данных, рендер
 // пока грузится следующий экран, прежний неактивен (inert): клик по устаревшей кнопке не уйдёт с параметрами старого экрана
-function busy(on) { $app.inert = on; on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
+function busy(on) { $app.inert = on || !!document.querySelector('#overlay .overlay'); on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
 async function show(keep) {
   const r = route(), my = ++seq, y = scrollY;
   const side = r.split('/')[1];
@@ -3318,6 +3327,7 @@ document.addEventListener('submit', async e => {
 
 addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
 matchMedia('(max-width: 640px)').addEventListener('change', () => { if (document.querySelector('.quest .chart')) { capture(); rerender(); } });  // график теста — узкий или широкий холст после поворота
+document.addEventListener('touchstart', () => {}, { passive: true });  // без него iOS Safari не показывает :active при касании
 for (const ev of ['pointerdown', 'mousedown']) document.addEventListener(ev, e => { if (e.target.closest('[data-keepfocus]')) e.preventDefault(); });
 fspReturn().catch(fail).finally(() => show());
 </script>

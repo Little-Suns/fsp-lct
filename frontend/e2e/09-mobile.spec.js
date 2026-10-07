@@ -282,8 +282,9 @@ test.describe('телефон: вход и тест', () => {
   });
 });
 
-// самый узкий телефон (320 px) и телефон боком: без горизонтальной прокрутки, шапка задания не прилипает на низком экране
-for (const [name, viewport] of [['узкий телефон', { width: 320, height: 568 }], ['телефон боком', { width: 812, height: 375 }]]) {
+// самый узкий телефон (320 px) и телефон боком (812×375, маленький — 568×320): без горизонтальной прокрутки;
+// на низком экране шапка сайта не прилипает, а у маленького боком — и шапка задания с «Дальше»
+for (const [name, viewport] of [['узкий телефон', { width: 320, height: 568 }], ['телефон боком', { width: 812, height: 375 }], ['маленький телефон боком', { width: 568, height: 320 }]]) {
   test.describe(name, () => {
     test.use({ viewport, hasTouch: true, isMobile: true });
 
@@ -309,8 +310,15 @@ for (const [name, viewport] of [['узкий телефон', { width: 320, heig
         await open(page, r);
         await noHScroll(page, r);
       }
-      if (viewport.height < 480) {  // телефон боком: шапка сайта не прилипает
-        expect(await page.locator('header.top').evaluate(e => getComputedStyle(e).position)).toBe('static');
+      const pos = sel => page.locator(sel).evaluate(e => getComputedStyle(e).position);
+      if (viewport.height < 480) expect(await pos('header.top')).toBe('static');  // телефон боком: шапка сайта не прилипает
+      if (viewport.width <= 640 && viewport.height < 480) {  // и шапка задания с «Дальше» — иначе съели бы пол-экрана
+        await demo(page, 'c');
+        await open(page, '/c/quest');
+        await page.getByRole('button', { name: 'Полный тест (~40 мин)' }).click();
+        await settled(page);
+        await noHScroll(page, 'задание');
+        expect([await pos('.quest-top'), await pos('.quest-foot')]).toEqual(['static', 'static']);
       }
     });
   });

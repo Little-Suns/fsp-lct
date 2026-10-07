@@ -143,6 +143,14 @@ test.describe('телефон', () => {
     await expect(ed).toBeFocused();
     await page.getByRole('button', { name: '⇤ Убрать отступ' }).tap();
     expect(await ed.inputValue()).toMatch(/\n$/);
+    // курсор в начале строки с отступом — «Убрать отступ» снимает его целиком
+    await ed.evaluate(el => { const i = el.value.lastIndexOf('    ...'); el.setSelectionRange(i, i); });
+    await page.getByRole('button', { name: '⇤ Убрать отступ' }).tap();
+    expect(await ed.inputValue()).toMatch(/\n\.\.\.\n$/);
+    // выделено несколько строк — отступ у каждой, текст не заменяется
+    await ed.evaluate(el => el.setSelectionRange(el.value.indexOf('\n') + 1, el.value.length));
+    await page.getByRole('button', { name: '⇥ Отступ' }).tap();
+    expect(await ed.inputValue()).toMatch(/\n {8}# ваше решение\n {4}\.\.\.\n$/);
     // у задачи на код низ не прилипает: подсказка длинная, отправка — последний шаг
     expect(await page.locator('.quest-foot').evaluate(e => getComputedStyle(e).position)).toBe('static');
   });
