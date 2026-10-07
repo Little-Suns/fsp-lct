@@ -20,8 +20,13 @@ def latest():
 
 
 @router.post("/run", dependencies=[Depends(organizer)])
-def rerun(k: int = Query(10, ge=1, le=50), seed: int = 42, db: Session = Depends(get_db)):
-    """Пересчёт (~5 с на 1500 кандидатах): синхронно, в пуле потоков FastAPI."""
-    res = svc.run(db, k=k, seed=seed)
+def rerun(k: int = Query(10, ge=1, le=50), seed: int = 42, today: str = Query(svc.DEMO_TODAY.isoformat()), db: Session = Depends(get_db)):
+    """Пересчёт (~40 с на 1500 кандидатах): синхронно, в пуле потоков FastAPI.
+    today — дата засева, как у seed.generate --today: YYYY-MM-DD или now (засев от реального времени)."""
+    try:
+        day = svc.parse_today(today)
+    except ValueError:
+        raise HTTPException(422, "today: дата YYYY-MM-DD или now") from None
+    res = svc.run(db, k=k, seed=seed, today=day)
     svc.save(res)
     return res
