@@ -268,6 +268,6 @@ def test_search_does_not_load_pii_columns(world):
         event.remove(engine, "before_cursor_execute", listen)
     bank = [s for s in sqls if "FROM candidates" in s and "candidates.theta IS NOT NULL" in s]
     assert len(bank) == 3, "запрос банка не найден"
-    for col in ("name", "email", "tg", "cv_text", "embedding", "truth"):
+    for col in ("name", "email", "tg", "cv_text", "embedding", "truth", "competencies", "notif"):
         assert not any(re.search(rf"candidates\.{col}\b", s) for s in bank), col
     assert all("candidates.public_id" in s for s in bank)  # сама выборка на месте

@@ -233,13 +233,24 @@ def test_demo_and_fsp_logins(client, monkeypatch):
     h = {"Authorization": f"Bearer {t1}"}
     assert client.post("/api/auth/logout", headers=h).json() == {"ok": True}
     assert client.get("/api/auth/me", headers=h).json()["email"] == "d.orlov@example.ru"
-    # обычный вход по почте выдаёт свой токен — его выход отзывает как раньше
+    # вход по почте персонажа в демо (код приходит в ответе) — тот же общий токен, остальных не выбивает; код потреблён
     otp = client.post("/api/auth/email", json={"email": "d.orlov@example.ru"}).json()["otp"]
-    own = {"Authorization": f"Bearer {client.post('/api/auth/verify', json={'email': 'd.orlov@example.ru', 'otp': otp}).json()['token']}"}
+    assert client.post("/api/auth/verify", json={"email": "d.orlov@example.ru", "otp": otp}).json()["token"] == t1
+    assert _ch("d.orlov@example.ru") is None
+    # срок продлевали больше суток назад — вход пишет строку заново
+    with SessionLocal() as db:
+        db.get(User, _user("d.orlov@example.ru").id).token_expires_at = exp - timedelta(days=2)
+        db.commit()
+    assert client.post("/api/auth/demo/candidate").json()["token"] == t1
+    assert _user("d.orlov@example.ru").token_expires_at > exp - timedelta(days=1)
+    # обычный пользователь по почте получает свой токен — его выход отзывает как раньше
+    otp = client.post("/api/auth/email", json={"email": "own@example.ru"}).json()["otp"]
+    own = {"Authorization": f"Bearer {client.post('/api/auth/verify', json={'email': 'own@example.ru', 'otp': otp}).json()['token']}"}
     assert client.post("/api/auth/logout", headers=own).status_code == 200
     assert client.get("/api/auth/me", headers=own).status_code == 401
-    # DEMO=0: демо-вход и ФСП ID закрыты, код в ответе не возвращается
+    # DEMO=0: демо-вход и ФСП ID закрыты, код в ответе не возвращается, выданный ранее общий демо-токен не действует
     monkeypatch.setattr(config, "DEMO", False)
+    assert client.get("/api/auth/me", headers=h).status_code == 401
     assert client.post("/api/auth/demo/candidate").status_code == 404
     assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).status_code == 501
     assert client.post("/api/auth/email", json={"email": "prod@example.ru"}).status_code == 503  # без SMTP входа нет
