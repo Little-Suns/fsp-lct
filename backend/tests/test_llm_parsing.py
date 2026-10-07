@@ -572,6 +572,7 @@ def test_need_pii_not_sent_to_model(model):
         ("Telegram Bot API, Instagram API, Telegram bots, tg bot, Telegram-bot, Julia, Kotlin", [],
          ["Telegram Bot API", "Instagram API", "Telegram bots", "tg bot", "Telegram-bot", "Julia"]),
         ("Telegram @vanya, Telegram ivan99, tg: vanya", ["vanya", "ivan99"], []),
+        ("email: ivan at gmail.com; почта — petya at mail.ru", ["ivan", "petya"], []),  # после подписи — и без скобок
         # не ПДн: годы, суммы, периоды, индексы БД, IP-адрес, GitHub Actions, стек через «/»
         ("2019-2021, 150000-200000 руб, оптимизировал индексы, IP-адрес, GitHub Actions, github-actions, Node.js/TypeScript", [],
          ["2019-2021", "150000-200000", "индексы", "IP-адрес", "GitHub Actions", "github-actions", "Node.js/TypeScript"]),
