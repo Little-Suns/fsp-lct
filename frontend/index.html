@@ -2336,7 +2336,8 @@ function eTaskView() {
 
 /* ===================== валидация ===================== */
 // GET /api/validation — результаты прогона app.services.validation; 404, пока прогон не запускали
-const VAL_RUN = '<div class="alert info"><span>→</span><span>Нет данных. Запустите прогон: <code>uv run python -m app.services.validation</code></span></div>';
+// на демо-стенде прогон запускается кнопкой (POST /api/validation/run), иначе — организатором из консоли
+const VAL_RUN = () => `<div class="alert info"><span>→</span><span>Нет данных. ${META && META.demo ? 'Нажмите «Запустить прогон» вверху — пересчёт займёт до минуты.' : 'Запустите прогон: <code>uv run python -m app.services.validation</code>'}</span></div>`;
 const VSHORT = { embed: 'эмбед.', rerank: 'реранк', full: 'полный' };
 const KIND = { normal: 'обычные', adjacent: 'соседний трек', fork_low: 'вилка ниже рынка' };
 const vbar = (label, v, cls) => `<div class="bar"><span>${esc(label)}</span><div class="b"><i class="${cls}" style="width:${v == null ? 0 : Math.max(0, Math.min(100, v * 100)).toFixed(0)}%"></i></div><span class="v">${DEC(v)}</span></div>`;
@@ -2352,7 +2353,10 @@ V['/v'] = () => {
   ${crumbs([['Главная', '/'], ['Валидация']])}
   <div class="row sb fade" style="margin-bottom:18px">
     <div class="stack-s"><h2>Валидация подбора и теста</h2><span class="small muted">${ds ? `${ds.candidates ?? '—'} синтетических кандидатов · ${ds.needs} потребностей · с достижениями ${ds.with_achievements != null && ds.with_achievements <= 1 ? PCT(ds.with_achievements) : ds.with_achievements ?? '—'} · с Codeforces ${ds.with_cf != null && ds.with_cf <= 1 ? PCT(ds.with_cf) : ds.with_cf ?? '—'} · ${ds.gold_experts != null ? `${ds.gold_experts} «золотых» пар с экспертами${ds.kappa != null ? `, κ Коэна = ${DEC(ds.kappa)}` : ''}` : 'разметка экспертов: нет'}` : 'Синтетический датасет: кандидаты, потребности, достижения'}</span></div>
-    <span class="demo-tag">${R ? `синтетика · прогон ${DATE(R.generated_at)}` : 'прогон не запускался'}</span>
+    <div class="row" style="gap:10px">
+      <span class="demo-tag">${R ? `синтетика · прогон ${DATE(R.generated_at)}` : 'прогон не запускался'}</span>
+      ${META && META.demo ? `<button class="btn dark" data-act="valrun" ${S.valBusy ? 'disabled' : ''}>${S.valBusy ? 'Считаем… до минуты' : R ? 'Пересчитать' : 'Запустить прогон'}</button>` : ''}
+    </div>
   </div>
   <div class="grid g2">
     <div class="panel stack">
@@ -2367,7 +2371,7 @@ V['/v'] = () => {
       ${Q.by_kind ? `<div class="tbl-wrap"><table class="tbl">
         <thead><tr><th>nDCG@${R.k} по типам потребностей</th>${vs.map(v => `<th class="num">${esc(VSHORT[v.key] || v.key)}</th>`).join('')}</tr></thead>
         <tbody>${Object.entries(Q.by_kind).map(([k, row]) => `<tr><td>${esc(KIND[k] || k)}</td>${vs.map(v => `<td class="num">${DEC(row[v.key] && row[v.key].ndcg)}</td>`).join('')}</tr>`).join('')}</tbody>
-      </table></div>` : ''}` : VAL_RUN}
+      </table></div>` : ''}` : VAL_RUN()}
     </div>
     <div class="panel stack">
       <h3>Симуляция рынка</h3>
@@ -2376,7 +2380,7 @@ V['/v'] = () => {
         <thead><tr><th>Метрика</th><th class="num">Без лимитов</th>${qo ? '<th class="num">Только квота</th>' : ''}<th class="num">Квота + ёмкость</th></tr></thead>
         <tbody>${M.rows.map(r => `<tr><td>${esc(r.label)}</td><td class="num">${mval(r.key, r.no_limits)}</td>${qo ? `<td class="num">${mval(r.key, r.quota_only)}</td>` : ''}<td class="num"><b>${mval(r.key, r.with_limits)}</b></td></tr>`).join('')}</tbody>
       </table></div>
-      ${M.top5_share ? `<p class="small muted">Доля приглашений у топ-5 % кандидатов: ${PCT1(M.top5_share.with_limits)} с лимитами, ${PCT1(M.top5_share.no_limits)} без них.${M.rounds ? ` Раундов симуляции: ${M.rounds}.` : ''}</p>` : ''}` : VAL_RUN}
+      ${M.top5_share ? `<p class="small muted">Доля приглашений у топ-5 % кандидатов: ${PCT1(M.top5_share.with_limits)} с лимитами, ${PCT1(M.top5_share.no_limits)} без них.${M.rounds ? ` Раундов симуляции: ${M.rounds}.` : ''}</p>` : ''}` : VAL_RUN()}
     </div>
     <div class="panel stack">
       <h3>${C && C.simulated ? 'Симуляция' : 'Эксперимент'}: LLM-«читер»</h3>
@@ -2386,7 +2390,7 @@ V['/v'] = () => {
         <tbody>${C.rows.map(r => `<tr><td>${esc(r.label)}</td><td>${gchip(r.grade)}</td><td class="num">${DEC(r.theta)}</td></tr>`).join('')}</tbody>
       </table></div>
       <div class="bars">${vbar('Поймано проверкой на несогласованность', C.caught, 'red').replace(/<span class="v">[^<]*<\/span>/, `<span class="v">${PCT(C.caught)}</span>`)}</div>
-      ${C.false_alarm != null ? `<p class="small muted">Ложные срабатывания на честных кандидатах: ${PCT(C.false_alarm)}</p>` : ''}` : VAL_RUN}
+      ${C.false_alarm != null ? `<p class="small muted">Ложные срабатывания на честных кандидатах: ${PCT(C.false_alarm)}</p>` : ''}` : VAL_RUN()}
     </div>
     <div class="panel stack">
       <h3>Стабильность и внешняя проверка</h3>
@@ -2395,12 +2399,12 @@ V['/v'] = () => {
         <div class="stat"><span class="label">Корреляция θ «Алгоритмы» и CF</span><b>${DEC(St.cf_spearman)}</b><span class="small muted">n = ${St.cf_n ?? '—'}, Спирмен</span></div>
         ${St.theta_corr != null ? `<div class="stat"><span class="label">Оценка θ и «истинный» θ</span><b>${DEC(St.theta_corr)}</b><span class="small muted">корреляция на синтетике</span></div>` : ''}
         <div class="stat"><span class="label">Утечка: сложность клона задания</span><b>±${DEC(St.clone_b_spread)}</b><span class="small muted">разброс b внутри семейства</span></div>
-      </div>` : VAL_RUN}
+      </div>` : VAL_RUN()}
     </div>
     <div class="panel stack" style="grid-column:1/-1">
       <h3>Разделяющая сила теста</h3>
       <p class="small muted">Отличает ли тест один грейд от другого${Sp && Sp.simulated ? `. Симуляция: ${Sp.n_per_grade} кандидатов на грейд, банки ${Sp.specs} специализаций; истинный θ взят из полосы грейда, грейд теста считается по θ − SE, как в продукте` : ''}</p>
-      ${Sp ? vsep(Sp) : VAL_RUN}
+      ${Sp ? vsep(Sp) : VAL_RUN()}
     </div>
   </div>`;
 };
@@ -2670,6 +2674,13 @@ const ACT = {
     clearSide(role); toast('Вы вышли');
     const to = role === 'e' ? '/e/signup' : '/c/signup';
     if (route() === to) show(); else go(to);
+  },
+
+  // валидация: пересчёт на синтетике стенда (засеяна seed.generate --today now)
+  async valrun() {
+    S.valBusy = true; rerender();
+    try { D.val = await api('POST', '/api/validation/run?today=now'); toast('Прогон готов'); }
+    finally { S.valBusy = false; rerender(); }
   },
 
   // вход

@@ -54,6 +54,7 @@ def test_app_wiring(client):
     assert client.get("/api/health").json() == {"ok": True}
     meta = client.get("/api/meta").json()
     assert meta["cap"] == catalog.CANDIDATE_CAP and meta["invite_ttl_days"] == catalog.INVITE_TTL_DAYS and "Backend" in meta["specs"]
+    assert meta["demo"] is config.DEMO
     paths = set(app.openapi()["paths"])
     for p in ("/api/auth/verify", "/api/candidate/me", "/api/employer/search", "/api/quest/start", "/api/achievements",
               "/api/lottery/{lottery_id}/public", "/api/validation", "/api/vacancies", "/api/tasks/mine"):
