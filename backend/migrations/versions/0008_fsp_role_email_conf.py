@@ -22,8 +22,9 @@ def upgrade() -> None:
     """Применить изменение схемы."""
     op.add_column('fsp_logins', sa.Column('role', sa.String(length=16), server_default='candidate', nullable=False))
     op.add_column('users', sa.Column('email_confirmed', sa.Boolean(), server_default=sa.false(), nullable=False))
-    # все, кто пришёл не через ФСП ID, подтвердили почту кодом (или это сид)
-    op.execute('UPDATE users SET email_confirmed = true WHERE fsp_id IS NULL')
+    # до этой ревизии брокеров не было: почта приходила только из ФСП ID (мок/реестр) или кодом, поэтому всем существующим
+    # пользователям она считается подтверждённой — иначе verified и domain_confirmed разошлись бы
+    op.execute('UPDATE users SET email_confirmed = true')
 
 
 def downgrade() -> None:

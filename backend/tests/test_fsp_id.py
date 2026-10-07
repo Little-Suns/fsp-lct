@@ -591,7 +591,7 @@ def test_sso_company_not_verified_until_code_login(client):
     assert any("Подтвердите рабочую почту: войдите по коду на hr@vendor-x.example" in c["text"] for c in co["checks"])
     # вход по коду на ту же почту подтверждает её и пересчитывает статус компании
     h = {"Authorization": f"Bearer {code_login(client, 'hr@vendor-x.example', 'employer')['token']}"}  # новый вход заменяет токен
-    assert _user(fsp_id=sub).email_confirmed is True
+    assert _user(email="hr@vendor-x.example").email_confirmed is True and _user(email="hr@vendor-x.example").fsp_id is None
     co = client.get("/api/employer/company", headers=h).json()
     assert co["verified"] is True and co["domain_confirmed"] is True
 
@@ -604,6 +604,8 @@ def test_code_login_drops_preclaimed_fsp_id(client):
     uid = _user(fsp_id=atk).id
     code_login(client, victim, "candidate")
     assert _user(id=uid).fsp_id is None
+    # H2-a: до создания профиля атакующий повторяет вход через брокер — почта подтверждена кодом, автосвязи нет
+    assert flow(client, atk) == {"fsp": "error", "e": "link"} and _user(id=uid).fsp_id is None
     with SessionLocal() as db:
         row = db.scalar(select(AuditLog).where(AuditLog.actor_user_id == uid, AuditLog.action == "fsp_id_unlinked"))
         assert row is not None and row.detail is None
@@ -613,8 +615,26 @@ def test_code_login_drops_preclaimed_fsp_id(client):
     # жертва завела профиль — старый sub атакующего в аккаунт не войдёт и не привяжется заново
     assert flow(client, atk) == {"fsp": "error", "e": "link"}
     assert _user(id=uid).fsp_id is None
-    # аккаунт с данными вход по коду не трогает: привязка владельца остаётся
+    # владелец, уже подтвердивший почту кодом (в том числе сид), привязку не теряет
     owner = account("KC-owner", "owner.pre@example.ru")
     oid, _ = make_candidate("owner.pre@example.ru", fsp=owner)
+    with SessionLocal() as db:
+        db.get(User, oid).email_confirmed = True
+        db.commit()
     code_login(client, "owner.pre@example.ru", "candidate")
     assert _user(id=oid).fsp_id == owner
+
+
+def test_code_login_drops_fsp_id_of_attacker_company(client):
+    """H2-b: атакующий через Trust-Email IdP завёл компанию на чужой почте; владелец входит по коду — привязка снимается."""
+    sub = account("KC-atk-co", "hr@bigbank.example")
+    r = login(client, sub, role="employer")
+    body = {"inn": "500100732259", "name": "БигБанк", "site_domain": "bigbank.example", "recruiter_name": "HR"}
+    assert client.post("/api/employer/company", json=body, headers={"Authorization": f"Bearer {r['token']}"}).json()["verified"] is False
+    uid = _user(fsp_id=sub).id
+    h = {"Authorization": f"Bearer {code_login(client, 'hr@bigbank.example', 'employer')['token']}"}
+    assert _user(id=uid).fsp_id is None
+    assert client.get("/api/employer/company", headers=h).json()["verified"] is True  # данные компании остаются владельцу почты
+    with SessionLocal() as db:
+        assert db.scalar(select(AuditLog).where(AuditLog.actor_user_id == uid, AuditLog.action == "fsp_id_unlinked")).detail is None
+    assert flow(client, sub, role="employer") == {"fsp": "error", "e": "link"}  # ни входа, ни повторной автосвязи

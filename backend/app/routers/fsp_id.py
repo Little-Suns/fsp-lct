@@ -108,8 +108,10 @@ def _login_user(db: Session, ident: dict, role: str) -> User:
         user = db.scalar(select(User).where(func.lower(User.email) == ident["email"]).with_for_update())
         if user and user.fsp_id:
             raise Fail("other")  # к этой почте уже привязан другой ФСП ID
-        if user and _has_profile(db, user):
-            raise Fail("link")  # аккаунт с данными: войти по коду и привязать ФСП ID в настройках
+        if user and (user.email_confirmed or _has_profile(db, user)):
+            # почту подтвердил владелец кодом (предзахват через брокер после его входа) или в аккаунте есть данные:
+            # войти по коду и привязать ФСП ID в настройках
+            raise Fail("link")
         if not user:
             user = User(email=ident["email"], role=role)
             db.add(user)

@@ -174,10 +174,12 @@ def verify(body: VerifyIn, db: Session = Depends(get_db)):
         user = User(email=email, role=role)
         db.add(user)
         db.flush()
-    elif not _has_profile(db, user):
-        if user.role != role:
+    else:
+        if user.role != role and not _has_profile(db, user):
             user.role = role  # роль меняется, пока нет ни профиля кандидата, ни компании
-        if user.fsp_id:  # пустой аккаунт с привязкой из брокера: владелец почты её не подтверждал (предзахват) — сбрасываем
+        if user.fsp_id and not user.email_confirmed:
+            # привязку сделали через брокер, почту владелец не подтверждал (предзахват, в том числе аккаунт с профилем
+            # или компанией, заведёнными атакующим) — сбрасываем независимо от данных
             user.fsp_id = None
             db.add(AuditLog(actor_user_id=user.id, action="fsp_id_unlinked", detail=None))
     user.email_confirmed = True
