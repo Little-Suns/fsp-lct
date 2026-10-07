@@ -523,6 +523,8 @@ def test_role_switch_rules_for_employer_login(client):
     # кандидат без профиля превращается в компанию — как во входе по коду
     nid, _ = make_candidate("empty.cand@example.ru", profile=False)
     assert login(client, account("KC-c3", "empty.cand@example.ru"), role="employer")["role"] == "employer" and _user(id=nid).role == "employer"
+    with SessionLocal() as db:  # смена роли — в журнале, без ПДн
+        assert db.scalar(select(AuditLog).where(AuditLog.actor_user_id == nid, AuditLog.action == "role_changed")).detail is None
     # организатор не превращается ни в кого
     aid, _ = make_candidate("adm2@fsp.example", role="admin", fsp=account("KC-adm", "adm2@fsp.example"))
     assert flow(client, "KC-adm", role="employer") == {"fsp": "error", "e": "role"} and _user(id=aid).role == "admin"
@@ -564,3 +566,55 @@ def test_idp_hint_in_authorize_url_and_unknown_idp(client, monkeypatch):
 def test_idps_config_parsing():
     assert config._parse_idps("yandex:Яндекс ID, corp:SSO ,Bad Alias:x,:y,ok") == {"yandex": "Яндекс ID", "corp": "SSO", "ok": "ok"}
     assert config._parse_idps("") == {}
+
+
+# ---------- почта компании и предзахват ----------
+
+
+def code_login(client, email: str, role: str) -> dict:
+    """Вход по коду (в DEMO код — в ответе): единственный способ подтвердить почту."""
+    otp = client.post("/api/auth/email", json={"email": email, "role": role}).json()["otp"]
+    r = client.post("/api/auth/verify", json={"email": email, "otp": otp})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_sso_company_not_verified_until_code_login(client):
+    """Почте из Keycloak/стороннего IdP («Trust Email») статус компании не отдаём: verified — только после входа по коду."""
+    sub = account("KC-vendor-1", "hr@vendor-x.example")
+    r = login(client, sub, role="employer", idp="corp")
+    h = {"Authorization": f"Bearer {r['token']}"}
+    assert _user(fsp_id=sub).email_confirmed is False
+    body = {"inn": "7707083893", "name": "Вендор", "site_domain": "vendor-x.example", "recruiter_name": "HR"}
+    co = client.post("/api/employer/company", json=body, headers=h).json()
+    assert co["verified"] is False and co["domain_confirmed"] is False and co["inn_checksum_valid"] is True
+    assert any("Подтвердите рабочую почту: войдите по коду на hr@vendor-x.example" in c["text"] for c in co["checks"])
+    # вход по коду на ту же почту подтверждает её и пересчитывает статус компании
+    h = {"Authorization": f"Bearer {code_login(client, 'hr@vendor-x.example', 'employer')['token']}"}  # новый вход заменяет токен
+    assert _user(fsp_id=sub).email_confirmed is True
+    co = client.get("/api/employer/company", headers=h).json()
+    assert co["verified"] is True and co["domain_confirmed"] is True
+
+
+def test_code_login_drops_preclaimed_fsp_id(client):
+    """Предзахват: атакующий занял пустой аккаунт чужой почты своим sub; вход владельца по коду снимает привязку."""
+    victim = "victim.pre@example.ru"
+    atk = account("KC-attacker", victim)
+    assert login(client, atk)["has_profile"] is False
+    uid = _user(fsp_id=atk).id
+    code_login(client, victim, "candidate")
+    assert _user(id=uid).fsp_id is None
+    with SessionLocal() as db:
+        row = db.scalar(select(AuditLog).where(AuditLog.actor_user_id == uid, AuditLog.action == "fsp_id_unlinked"))
+        assert row is not None and row.detail is None
+        db.add(Candidate(public_id="A-pre001", user_id=uid, name="Жертва", email=victim, spec="Backend", grade_claimed="Middle",
+                         min_salary=1, city="Москва", consent_152=True, consent_version=CONSENT_VERSION))
+        db.commit()
+    # жертва завела профиль — старый sub атакующего в аккаунт не войдёт и не привяжется заново
+    assert flow(client, atk) == {"fsp": "error", "e": "link"}
+    assert _user(id=uid).fsp_id is None
+    # аккаунт с данными вход по коду не трогает: привязка владельца остаётся
+    owner = account("KC-owner", "owner.pre@example.ru")
+    oid, _ = make_candidate("owner.pre@example.ru", fsp=owner)
+    code_login(client, "owner.pre@example.ru", "candidate")
+    assert _user(id=oid).fsp_id == owner

@@ -21,6 +21,8 @@ class User(Base):
     token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)  # sha256 токена, сам токен не храним
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     fsp_id: Mapped[str | None] = mapped_column(String(64), unique=True)  # sub из ФСП ID (в Keycloak — UUID, 36 символов)
+    # почту подтвердил наш код входа (deps.verify); почте из Keycloak и сторонних IdP («Trust Email») для проверки компании не верим
+    email_confirmed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = _now()
 
 

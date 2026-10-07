@@ -120,7 +120,7 @@ test('SSO компании: вход через провайдера броке�
   await expect(page.getByText('Вход через yandex (демо, брокер Keycloak)')).toBeVisible();
   expect(page.url()).toContain('kc_idp_hint=yandex');
   await page.getByRole('button', { name: 'Отмена' }).click();
-  await expect(toast(page)).toHaveText('Вход через ФСП ID отменён');
+  await expect(toast(page)).toHaveText('Вход через SSO отменён');  // у компании текст без «ФСП ID»
   await expect(page).toHaveURL(/#\/e\/signup$/);  // возврат — на сторону компании
 
   // у кандидата те же провайдеры рядом с «Войти через ФСП ID»
