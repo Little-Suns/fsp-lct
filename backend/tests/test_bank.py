@@ -14,7 +14,7 @@ from app.services.items import FAMILIES, TIME_LIMIT, generate_bank
 
 BANK = generate_bank()
 PANELS = {"logs", "chart", "code"}
-BANK_PREFIXES = ("be_", "fe_", "mob_", "mlds_", "dea_", "ops_", "qae_", "sec_")  # семейства services/bank/
+BANK_PREFIXES = ("be_", "fe_", "mob_", "mlds_", "dea_", "ops_", "qae_", "sec_", "an_", "pm_", "ux_", "adm_")  # семейства services/bank/
 
 
 def test_family_names_unique():

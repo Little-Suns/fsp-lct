@@ -8,12 +8,16 @@ a и b — экспертная оценка до калибровки по то
 """
 
 from app.services.bank import (  # noqa: F401
+    analysis,
     backend,
     data,
+    design,
     devops,
     frontend,
+    management,
     ml,
     mobile,
     qa,
     security,
+    sysadmin,
 )

@@ -92,6 +92,14 @@ _SPEC_RX = {
     "DevOps / SRE": rf"devops|девопс|sre(?![{_W}])|инфраструктур",
     "QA": rf"qa(?![{_W}])|тестировщ|автотест|тестирован",
     "Security": r"безопасн|security|пентест|pentest|appsec|ctf",
+    # нетехнические роли: категория — по первому упоминанию, поэтому «системный аналитик» и «бизнес-аналитик» опережают
+    # «аналитик» из Data Eng, а «дизайн» без «дизайнер» не берётся — иначе «тест-дизайн» уводил бы QA в Design
+    "Analysis": r"системн\w* аналит|бизнес.?аналит|system analy|business analy|аналитик\w* требований",
+    "Management": r"проджект|project.?manag|product.?manag|продакт|менеджер\w* (?:проект|продукт)|руководител\w* проект|"
+                  r"product owner|delivery manag|scrum.?master|скрам.?мастер",
+    "Design": rf"дизайнер|designer|ux(?![{_W}])|ui/ux|ux/ui|продуктов\w* дизайн|веб-дизайн",
+    "SysAdmin / Support": r"сисадмин|системн\w* администр|sysadmin|system admin|администратор\w* (?:сет|сервер|linux|windows)|"
+                          r"техподдержк|техническ\w* поддержк|служб\w* поддержк|инженер\w* поддержк|help.?desk|service.?desk|support engineer",
 }
 _SPEC_BY_SKILL = {
     "Backend": {"Python", "Go", "Java", "Kotlin", "Node.js", "C#", "Django", "FastAPI", "gRPC"},
@@ -102,6 +110,11 @@ _SPEC_BY_SKILL = {
     "DevOps / SRE": {"Terraform", "Prometheus"},
     "QA": {"Selenium"},
     "Security": {"Pentest"},
+    # голосуют только навыки, которых нет у разработчиков: Jira, Scrum, REST, Bash в тексте Python-вакансии не делают её менеджерской
+    "Analysis": {"BPMN", "UML"},
+    "Management": {"CustDev"},
+    "Design": {"Figma"},
+    "SysAdmin / Support": {"Windows Server", "ITIL", "Zabbix"},
 }
 # трек: (регулярка по тексту, навыки-подсказки)
 _TRACK_HINTS = {
@@ -127,6 +140,14 @@ _TRACK_HINTS = {
     "Automation": (r"автотест|automation|автоматиз", ["Selenium"]),
     "AppSec": (r"appsec|безопасн\w* разработ", []),
     "Pentest": (r"pentest|пентест", ["Pentest"]),
+    "System": (r"системн\w* аналит|system analy|интеграц", ["UML", "REST"]),
+    "Business": (r"бизнес|business", ["BPMN"]),
+    "Project": (r"проджект|project|проект|delivery|scrum|скрам", ["Jira", "Scrum"]),
+    "Product": (r"продакт|product|продукт", ["CustDev", "A/B-тесты"]),
+    "UX/UI": (rf"ux|ui(?![{_W}])|интерфейс|веб-дизайн", []),
+    "Product Design": (r"продуктов\w* дизайн|product design", []),
+    "SysAdmin": (r"сисадмин|администр|sysadmin|admin", ["Windows Server", "Bash"]),
+    "Support": (r"(?:тех)?поддержк|support|help.?desk|service.?desk", ["ITIL"]),
 }
 
 
@@ -666,6 +687,24 @@ if __name__ == "__main__":
     n = parse_need("Фронтендер на React + TypeScript, джун, 150к, офис СПб", use_llm=False)
     assert (n["spec"], n["track"], n["grade"], n["salary_to"], n["city"]) == ("Frontend", "React", "Junior", 150000, "Санкт-Петербург"), n
     assert n["must"] == ["React", "TypeScript"], n
+    # нетехнические роли и соседство с ними: «аналитик данных» — Data Eng, «тест-дизайн» — QA
+    for text, want in [
+        ("Ищем проджект-менеджера в ИТ-команду, Jira, Agile, мидл, до 250 на руки", ("Management", "Project", "Middle")),
+        ("Продакт-менеджер в B2B SaaS, CustDev и A/B-тесты, сеньор", ("Management", "Product", "Senior")),
+        ("Нужен системный аналитик на интеграции, REST, UML, мидл", ("Analysis", "System", "Middle")),
+        ("Бизнес-аналитик, BPMN, джун", ("Analysis", "Business", "Junior")),
+        ("UX/UI-дизайнер, Figma, мидл", ("Design", "UX/UI", "Middle")),
+        ("Ищем продуктового дизайнера в финтех, сеньор", ("Design", "Product Design", "Senior")),
+        ("Системный администратор Windows Server и Linux, мидл", ("SysAdmin / Support", "SysAdmin", "Middle")),
+        ("Инженер техподдержки L2, ITIL, джун", ("SysAdmin / Support", "Support", "Junior")),
+        ("Инженер техподдержки L2, джун", ("SysAdmin / Support", "Support", "Junior")),  # трек — по слову, без навыка
+        ("Ищем разработчика Python, REST API, Jira, Agile, мидл", ("Backend", "Python", "Middle")),  # общие навыки не голосуют за роль
+        ("Аналитик данных, SQL и ClickHouse, мидл", ("Data Eng / Analytics", "BI / Analytics", "Middle")),
+        ("QA-инженер: тест-дизайн, API, мидл", ("QA", "Manual", "Middle")),
+    ]:
+        n = parse_need(text, use_llm=False)
+        assert (n["spec"], n["track"], n["grade"]) == want, (text, n)
+    assert parse_need("Ищем проджект-менеджера, Jira, Agile", use_llm=False)["must"] == ["Jira", "Scrum"]
     cv = parse_cv("Дмитрий Орлов. CV. Опыт работы 4 года. Python, asyncio, Postgres, Kafka, Docker. Node.js немного.", use_llm=False)
     assert cv["years_exp"] == 4 and cv["spec"] == "Backend" and cv["track"] == "Python", cv
     assert cv["skills"] == ["Python", "asyncio", "PostgreSQL", "Kafka", "Docker", "Node.js"], cv
