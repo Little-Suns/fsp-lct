@@ -321,10 +321,10 @@ button.chip { cursor: pointer; }
 .door .go { margin-top: auto; color: var(--blue); font-weight: 600; }
 
 /* ---------- квест ---------- */
-.quest { background: var(--dark); color: var(--on-dark); border-radius: 22px; overflow: hidden; }
+.quest { background: var(--dark); color: var(--on-dark); border-radius: 22px; overflow: hidden; overflow: clip; }  /* clip, а не hidden: внутри работает sticky */
 .quest-top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 22px; border-bottom: 1px solid var(--dark-line); font-size: 13px; }
-.quest-top .pr { display: flex; gap: 4px; }
-.quest-top .pr i { width: 22px; height: 4px; border-radius: 2px; background: var(--dark-line); }
+.quest-top .pr { display: flex; gap: 4px; flex: 0 1 auto; min-width: 0; }
+.quest-top .pr i { flex: 0 1 22px; min-width: 3px; height: 4px; border-radius: 2px; background: var(--dark-line); }
 .quest-top .pr i.on { background: var(--blue); }
 .quest-top .pr i.cur { background: var(--on-dark); }
 .timer { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; display: inline-flex; gap: 8px; align-items: center; }
@@ -361,8 +361,36 @@ button.chip { cursor: pointer; }
 .code .kw { color: #A99BFF; } .code .st { color: #9FD8A8; } .code .cm { color: #6C6D78; }
 .quest-foot { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px 22px; border-top: 1px solid var(--dark-line); font-size: 12px; color: var(--on-dark-2); }
 .quest .chart text { fill: var(--on-dark-2); font-size: 10px; font-family: var(--mono); }
+.quest .chart.nar text { font-size: 12px; }
 .code-ed { width: 100%; min-height: 320px; resize: vertical; background: #0F1013; color: #E6E6EE; border: 1px solid var(--dark-line); border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 13px; line-height: 1.6; tab-size: 4; white-space: pre; overflow: auto; font-variant-ligatures: none; }
 .code-ed:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
+.code-tools { display: none; }
+/* телефон: шапка задания (таймер, прогресс) прилипает под шапкой сайта, кнопка «Дальше» — к низу экрана;
+   логи и код переносятся по строкам вместо прокрутки вбок */
+@media (max-width: 640px) {
+  .quest { border-radius: 16px; }
+  .quest-top { position: sticky; top: calc(56px + env(safe-area-inset-top)); z-index: 5; background: var(--dark);
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 10px 16px; }
+  .quest-top .qt-title { grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .quest-top .timer { grid-column: 2; grid-row: 1; margin: 0; }
+  .quest-top .pr { grid-column: 1 / -1; grid-row: 2; }
+  .quest-top .qt-comp { grid-column: 1; grid-row: 3; min-width: 0; font-size: 12px; }
+  .quest-top .switch { grid-column: 2; grid-row: 3; }
+  .quest-body > div { padding: 18px 16px; }
+  .quest .q { font-size: 16px; }
+  .quest-foot { position: sticky; bottom: 0; z-index: 5; background: var(--dark); flex-wrap: nowrap; gap: 12px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); font-size: 11px; line-height: 1.4; box-shadow: 0 -10px 18px rgba(0,0,0,.35); }
+  .quest-foot .row { flex: none; }
+  /* у задачи на код подсказка длинная, а отправка — осознанный последний шаг: низ не прилипает */
+  .quest-foot.qf-code { position: static; flex-wrap: wrap; box-shadow: none; }
+  .quest-foot.qf-code .row { flex: 1 1 100%; }
+  .quest-foot .btn.small { min-height: 44px; padding: 10px 18px; font-size: 14px; }
+  .term { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .code button { white-space: pre-wrap; min-width: 0; }
+  .code button > span:last-child { overflow-wrap: anywhere; }
+  .code-ed { min-height: 260px; }
+}
+@media (pointer: coarse) { .code-tools { display: flex; } .code-keys { display: none; } }
 
 /* ---------- карточки кандидатов / приглашений ---------- */
 .cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 20px; padding: 18px 20px; background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; transition: border-color .15s; text-align: left; width: 100%; }
@@ -439,6 +467,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .drawer .grp button span:first-child { color: var(--ink-3); }
 .drawer .grp button[aria-current="true"] span:first-child { color: var(--blue-line); }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+@media (max-width: 640px) { body:has(.quest-foot:not(.qf-code)) .toast { bottom: calc(88px + env(safe-area-inset-bottom, 0px)); } }  /* над прилипшей «Дальше» */
 
 .drop { border: 1.5px dashed var(--blue-line); border-radius: var(--r); padding: 22px; display: flex; gap: 16px; align-items: center; background: var(--blue-soft); }
 .file-ico { width: 40px; height: 48px; border-radius: 6px; background: var(--paper); border: 1px solid var(--blue-line); display: grid; place-items: center; font-size: 10px; font-weight: 700; color: var(--red); flex: none; }
@@ -767,7 +796,9 @@ function compRows(list, showTh = true) {
 
 function lineChart(p) {
   // panel {type:'chart', x, series:[{name, axis, max, data}], marker:{i, label}}
-  const t = p.x, W = 520, H = 210, L = 44, R = 40, T = 16, B = 28;
+  // телефон: холст уже — подписи крупнее; подпись события уходит в легенду, по оси X — каждая вторая метка (последняя — всегда)
+  const nar = innerWidth <= 640;
+  const t = p.x, W = nar ? 360 : 520, H = nar ? 230 : 210, L = 44, R = nar ? 34 : 40, T = 16, B = 28;
   const lefts = p.series.filter(s => s.axis !== 'right'), left = lefts[0] || p.series[0];
   const LC = ['#EDEDED', '#F2B84B'];  // серии слева делят одну шкалу
   const right = p.series.find(s => s.axis === 'right');
@@ -776,18 +807,19 @@ function lineChart(p) {
   const path = (arr, f) => arr.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + f(v).toFixed(1)).join(' ');
   const lm = left.max || Math.max(...left.data, 1), y1 = yOf(left);
   const m = p.marker;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(p.series.map(s => s.name).join(', '))}">
+  return `<svg class="chart${nar ? ' nar' : ''}" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(p.series.map(s => s.name).join(', '))}">
     ${[0, 1, 2, 3, 4, 5].map(k => Math.round(lm * k / 5)).map(v => `<line x1="${L}" x2="${W - R}" y1="${y1(v)}" y2="${y1(v)}" stroke="#2A2B33"/><text x="${L - 6}" y="${y1(v) + 3}" text-anchor="end">${v}</text>`).join('')}
     ${right ? [0, .5, 1].map(k => Math.round((right.max || Math.max(...right.data, 1)) * k)).map(v => `<text x="${W - R + 6}" y="${yOf(right)(v) + 3}">${v}</text>`).join('') : ''}
     ${m ? `<line x1="${x(m.i)}" x2="${x(m.i)}" y1="${T}" y2="${H - B}" stroke="#EC1D35" stroke-dasharray="3 3"/>
-    <text x="${x(m.i) - 6}" y="${T + 10}" text-anchor="end" style="fill:#FF7A8A">${esc(m.label)}</text>` : ''}
+    ${nar ? '' : `<text x="${x(m.i) - 6}" y="${T + 10}" text-anchor="end" style="fill:#FF7A8A">${esc(m.label)}</text>`}` : ''}
     ${right ? `<path d="${path(right.data, yOf(right))}" fill="none" stroke="#8C84FF" stroke-width="1.5" stroke-dasharray="4 3"/>` : ''}
     ${lefts.map((s, k) => `<path d="${path(s.data, y1)}" fill="none" stroke="${LC[k % 2]}" stroke-width="2"/>`).join('')}
-    ${t.map((s, i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(s)}</text>`).join('')}
+    ${t.map((s, i) => nar && t.length > 6 && (t.length - 1 - i) % 2 ? '' : `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(s)}</text>`).join('')}
   </svg>
   <div class="row small" style="color:var(--on-dark-2);margin-top:6px;gap:18px">
     ${lefts.map((s, k) => `<span><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="${LC[k % 2]}" stroke-width="2"/></svg> ${esc(s.name)}${right ? ' (слева)' : ''}</span>`).join('')}
     ${right ? `<span><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="#8C84FF" stroke-width="1.5" stroke-dasharray="4 3"/></svg> ${esc(right.name)} (справа)</span>` : ''}
+    ${nar && m ? `<span style="color:#FF7A8A"><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="#EC1D35" stroke-dasharray="3 3"/></svg> ${esc(m.label)}</span>` : ''}
   </div>`;
 }
 
@@ -1139,9 +1171,9 @@ function sceneView() {
   ${crumbs([['Тест-квест', '/c/quest'], [(S.story ? 'Сцена ' : 'Задание ') + n]])}
   <div class="quest fade">
     <div class="quest-top">
-      <b>${S.story ? esc(it.scene_title) : 'Задание ' + n}</b>
+      <b class="qt-title">${S.story ? esc(it.scene_title) : 'Задание ' + n}</b>
       <div class="pr" aria-label="Прогресс">${Array.from({ length: total }, (_, i) => `<i class="${i + 1 < n ? 'on' : i + 1 === n ? 'cur' : ''}"></i>`).join('')}</div>
-      <span style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
+      <span class="qt-comp" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> сюжет</button>
       <span class="timer" id="timer" data-sec="${sec}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
     </div>
@@ -1152,7 +1184,7 @@ function sceneView() {
       </div>
       <div>${right}</div>
     </div>
-    <div class="quest-foot">
+    <div class="quest-foot${isCode ? ' qf-code' : ''}">
       <span>${isCode ? 'Решение проверяется на скрытых тестах после отправки, исправить его потом нельзя. Правильность не показываем до конца теста.' : 'Ответ сохраняется сразу. Правильность не показываем до конца теста.'}</span>
       <div class="row">
         <button class="btn primary small" ${canNext ? '' : 'disabled'} data-act="qnext">${isCode ? 'Отправить решение' : 'Дальше'}</button>
@@ -1177,6 +1209,17 @@ function codeTask(it) {
       ${lang === 'typescript' ? `<p class="small" style="color:var(--on-dark-2)">${esc(c.ts_note)}</p>` : ''}
     </div>`;
 }
+// сенсорная клавиатура без Tab: отступ и обратный отступ (у строки курсора) кнопками над редактором
+function codeIndent(back) {
+  const el = document.getElementById('code-ed'), w = codeLang() === 'python' ? 4 : 2, p = el.selectionStart;
+  el.focus();
+  if (!back) el.setRangeText(' '.repeat(w), p, el.selectionEnd, 'end');
+  else {
+    const ls = el.value.lastIndexOf('\n', p - 1) + 1, n = el.value.slice(ls, ls + w).match(/^ */)[0].length;
+    if (n) el.setRangeText('', ls, ls + n, 'preserve');
+  }
+  S.qCode[codeLang()] = el.value;
+}
 function codeEditor(it) {
   const lang = codeLang(), code = S.qCode[lang] != null ? S.qCode[lang] : it.code.templates[lang], R = S.qRun;
   const res = !R ? '' : `<div class="stack-s" id="run-res">
@@ -1187,8 +1230,9 @@ function codeEditor(it) {
     </div>`;
   return `<div class="stack">
     <div class="seg" role="group" aria-label="Язык решения">${[['python', 'Python'], ['typescript', 'TypeScript']].map(([v, t]) => `<button data-act="code-lang" data-v="${v}" aria-pressed="${v === lang}">${t}</button>`).join('')}</div>
-    <textarea class="code-ed" id="code-ed" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Решение">${esc(code)}</textarea>
-    <span class="hint" style="color:var(--on-dark-2)">Tab — отступ, Esc и затем Tab — выйти из редактора. Функция возвращает ответ, ввод и вывод не нужны.</span>
+    <textarea class="code-ed" id="code-ed" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" aria-label="Решение">${esc(code)}</textarea>
+    <div class="row code-tools" role="group" aria-label="Отступы"><button class="btn dark small" data-act="code-indent" data-keepfocus>⇥ Отступ</button><button class="btn dark small" data-act="code-dedent" data-keepfocus>⇤ Убрать отступ</button></div>
+    <span class="hint" style="color:var(--on-dark-2)"><span class="code-keys">Tab — отступ, Esc и затем Tab — выйти из редактора. </span>Функция возвращает ответ, ввод и вывод не нужны.</span>
     <div class="row"><button class="btn dark small" data-act="code-run">Запустить на примерах</button></div>
     ${res}
   </div>`;
@@ -2950,6 +2994,8 @@ const ACT = {
   ans: (a, d) => { S.qAns = +d.i; rerender(); },
   mark: (a, d) => { S.codeMark = +d.line; rerender(); },
   'code-lang': (a, d) => { S.qLang = d.v; S.qRun = null; rerender(); },
+  'code-indent': () => codeIndent(false),
+  'code-dedent': () => codeIndent(true),
   async 'code-run'() {
     const it = S.quest.item, lang = codeLang();
     S.qRun = await api('POST', '/api/quest/run', { item_id: it.id, lang, code: S.qCode[lang] != null ? S.qCode[lang] : it.code.templates[lang] });
@@ -3232,6 +3278,7 @@ document.addEventListener('submit', async e => {
 });
 
 addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
+for (const ev of ['pointerdown', 'mousedown']) document.addEventListener(ev, e => { if (e.target.closest('[data-keepfocus]')) e.preventDefault(); });
 fspReturn().catch(fail).finally(() => show());
 </script>
 </body>

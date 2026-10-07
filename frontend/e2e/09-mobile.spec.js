@@ -223,5 +223,27 @@ test.describe('телефон: вход и тест', () => {
     await expect(page.locator('#timer')).toBeVisible();
     await noHScroll(page, 'задание');
 
+    // прогресс не вылезает за край карточки
+    const quest = await box(page.locator('.quest'));
+    expect((await box(page.locator('.quest-top .pr'))).right).toBeLessThanOrEqual(quest.right);
+    // шапка задания с таймером прилипает под шапкой сайта, «Дальше» — к нижнему краю экрана
+    const sticky = sel => page.locator(sel).evaluate(e => { const s = getComputedStyle(e); return [s.position, s.top, s.bottom].join(' '); });
+    expect(await sticky('.quest-top')).toMatch(/^sticky 56px /);
+    expect(await sticky('.quest-foot')).toMatch(/^sticky .* 0px$/);
+    // задание выше экрана (так почти всегда, но длина зависит от выпавшего задания): проверяем и на деле
+    // (poll: карточка появляется с анимацией сдвига на 4 px)
+    if (quest.bottom > 812) await expect.poll(async () => Math.round((await box(page.locator('.quest-foot'))).bottom)).toBe(812);
+    const room = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+    if (room > quest.top) {
+      await page.evaluate(y => scrollTo(0, y), Math.round(quest.top));
+      await expect.poll(async () => Math.round((await box(page.locator('.quest-top'))).top)).toBe(56);
+    }
+    // ответ и переход к следующему заданию с нижней панели
+    const opts = page.locator('.opt');
+    if (await opts.count()) await opts.first().click(); else await page.locator('.code button[data-act=mark]').nth(1).click();
+    if (await page.locator('#rv-comment').count()) await page.locator('#rv-comment').fill('Нет блокировки строки.');
+    const prev = await page.evaluate(() => S.quest.item.id);
+    await page.getByRole('button', { name: 'Дальше' }).click();
+    await expect.poll(() => page.evaluate(() => S.quest.item && S.quest.item.id)).not.toBe(prev);
   });
 });
