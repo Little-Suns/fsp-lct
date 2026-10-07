@@ -28,8 +28,9 @@ def test_family_names_unique():
 
 @pytest.mark.parametrize("spec", catalog.SPECS)
 def test_bank_size_per_competency(spec):
-    """Не меньше 3 рабочих семейств на компетенцию; компетенции — из справочника специализации."""
-    per = Counter(f["competency"] for f in FAMILIES if f["spec"] == spec and not f["pilot"])
+    """Не меньше 3 рабочих семейств на компетенцию без задач на код (их в полном тесте одна, в экспрессе нет);
+    компетенции — из справочника специализации."""
+    per = Counter(f["competency"] for f in FAMILIES if f["spec"] == spec and not f["pilot"] and f["kind"] != "code")
     assert set(per) == set(catalog.COMPETENCIES[spec]), set(per) ^ set(catalog.COMPETENCIES[spec])
     assert min(per.values()) >= 3, per
 
@@ -123,8 +124,8 @@ def test_non_backend_banks_have_context():
 @pytest.mark.parametrize("spec", catalog.SPECS)
 def test_full_test_precision_per_spec(spec):
     """Полный адаптивный тест на банке специализации: θ коррелирует с истинным, средняя SE в пределах цели."""
-    bank = [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "a", "b", "pilot")})
-            for i, r in enumerate(BANK) if r["spec"] == spec and not r["pilot"]]
+    bank = [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "kind", "a", "b", "pilot")})
+            for i, r in enumerate(BANK) if r["spec"] == spec and not r["pilot"]]  # с kind — задача на код идёт своим слотом
     rng = random.Random(f"bank:{spec}")
     true = [rng.gauss(0, 1) for _ in range(150)]
     runs = [irt.simulate_session(bank, t, rng) for t in true]

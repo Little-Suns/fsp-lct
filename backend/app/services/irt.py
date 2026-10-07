@@ -171,6 +171,8 @@ def simulate_session(bank, true_theta: float, rng: random.Random, prior_mean: fl
     """Прогон адаптивной сессии симулированным кандидатом (без пилотных заданий; задача на код — своим слотом, если она есть в банке)."""
     seen_ids, seen_fam, resp = set(), set(), []
     theta, se = prior_mean, 1.0
+    if express:  # как quest._serve: в экспрессе только EXPRESS_KINDS
+        bank = [it for it in bank if getattr(it, "kind", "choice") in EXPRESS_KINDS]
     while not should_stop(len(resp), se, express):
         it = choose(theta, bank, seen_ids, seen_fam, rng, len(resp))
         if it is None:
