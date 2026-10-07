@@ -82,6 +82,7 @@ test('валидация /v: без прогона — подсказка, с п
   const intern = heat.getByRole('row', { name: /^Intern/ });
   await expect(intern.getByRole('rowheader')).toHaveText('Intern');
   await expect(intern.locator('td.diag')).toHaveText('97 %');  // 194 из 200 — на диагонали
+  await expect(intern.locator('td.diag')).toHaveAttribute('aria-label', '97 %, совпадение');  // рамку скринридер не видит
   await expect(heat.locator('td.diag')).toHaveCount(5);
   await expect(sep.getByText('Точное совпадение грейда')).toBeVisible();
   await expect(sep.getByText(/по θ̂ без запаса SE — \d+ %/)).toBeVisible();
