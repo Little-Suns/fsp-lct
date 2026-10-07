@@ -422,12 +422,26 @@ button.chip { cursor: pointer; }
 .kv dd { margin: 0; }
 @media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: 2px 12px; } .kv dd { margin-bottom: 8px; } }
 
-.tbl-wrap { overflow-x: auto; }
+/* таблица шире экрана прокручивается внутри обёртки; тени по краям показывают, что за краем есть столбцы */
+.tbl-wrap { overflow-x: auto; overscroll-behavior-x: contain;
+  background: linear-gradient(90deg, var(--paper) 30%, rgba(255,255,255,0)) left / 28px 100% no-repeat local,
+    linear-gradient(270deg, var(--paper) 30%, rgba(255,255,255,0)) right / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(27,28,33,.16), transparent) left / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(27,28,33,.16), transparent) right / 12px 100% no-repeat scroll; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th { text-align: left; font-weight: 500; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; padding: 8px 10px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
 .tbl td { padding: 12px 10px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
 .tbl tr:last-child td { border-bottom: 0; }
 .tbl td.num, .tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl td.num { white-space: nowrap; }
+@media (max-width: 640px) {
+  .tbl { font-size: 12px; }
+  .tbl th { padding: 8px 6px; letter-spacing: .03em; white-space: normal; vertical-align: bottom; }
+  .tbl td { padding: 9px 6px; }
+  .tbl th:first-child, .tbl td:first-child { padding-left: 0; }
+  .tbl.heat td.c { padding: 8px 3px; }
+  .tbl.heat caption { position: sticky; left: 0; }
+}
 
 .tg { background: #E7EBF0; border-radius: 16px; padding: 14px; max-width: 360px; font-family: var(--sans); }
 .tg .bubble { background: #fff; border-radius: 12px 12px 12px 4px; padding: 10px 12px; font-size: 13px; line-height: 1.45; color: #111; }
