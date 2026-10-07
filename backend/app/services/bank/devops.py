@@ -21,12 +21,14 @@ def _(rng):
     base = rng.choice(["python:3.12-slim", "gcr.io/distroless/base", "alpine:3.20", "eclipse-temurin:21-jre"])
     m = rng.randint(10, 50)
     v = _variant(rng, 3)
+    short = legacy.split(".")[0]
+    alias = f"{short}.dc1.internal" if legacy.endswith(".corp.local") else f"{short}.corp.local"  # имя из сертификата ≠ имени, по которому ходят
     err, vm = [(f"GET https://{legacy}/api/v2/accounts: x509: certificate signed by unknown authority",
                 f"curl https://{legacy}/api/v2/health from old VM: HTTP/1.1 200 OK"),
                (f"GET https://{legacy}/api/v2/accounts: x509: certificate has expired or is not yet valid: current time is after 2026-10-0{rng.randint(1, 4)}T00:00:00Z",
                 f"curl https://{legacy}/api/v2/health from old VM: SSL certificate problem: certificate has expired"),
-               (f"GET https://{legacy}/api/v2/accounts: x509: certificate is valid for {legacy.split('.')[0]}.corp.local, not {legacy}",
-                f"curl https://{legacy.split('.')[0]}.corp.local/api/v2/health from old VM (старый конфиг): HTTP/1.1 200 OK")][v]
+               (f"GET https://{legacy}/api/v2/accounts: x509: certificate is valid for {alias}, not {legacy}",
+                f"curl https://{alias}/api/v2/health from old VM (старый конфиг): HTTP/1.1 200 OK")][v]
     lines = [
         _log(f"23:{m:02d}:01", "argocd", "INFO", f"sync {svc}: image {svc}:{ver} (base {base})"),
         _log(f"23:{m:02d}:14", svc, "INFO", "connected to postgres (managed, TLS)"),
@@ -176,8 +178,9 @@ def _(rng):
                  _log(f"19:{m:02d}:05", svc, "INFO", f"partner headers: X-RateLimit-Limit: {rps // 2}, X-RateLimit-Remaining: 0"),
                  _log(f"19:{m:02d}:30", "nat-gw-1", "INFO", "ports in use 800/64512, bandwidth 90 Mbit/s of 5 Gbit/s")]
     else:
-        lines = [_log(f"19:{m:02d}:00", svc, "INFO", f"resolve partner api: {dst}, 2001:db8::{rng.randint(10, 99)}"),
-                 _log(f"19:{m:02d}:04", svc, "ERROR", f"dial tcp [2001:db8::{rng.randint(10, 99)}]:443: connect: network is unreachable"),
+        v6 = f"2001:db8::{rng.randint(10, 99)}"
+        lines = [_log(f"19:{m:02d}:00", svc, "INFO", f"resolve partner api: {dst}, {v6}"),
+                 _log(f"19:{m:02d}:04", svc, "ERROR", f"dial tcp [{v6}]:443: connect: network is unreachable"),
                  _log(f"19:{m:02d}:05", svc, "INFO", f"dial tcp {dst}:443: ok, POST /v1/notify 200 (84 ms)"),
                  _log(f"19:{m:02d}:30", "netops", "INFO", "cluster egress: IPv4 only")]
     opts, key = _options(rng, ["Кончились SNAT-порты NAT-шлюза к одному адресу: включить keep-alive и пул соединений",
@@ -235,7 +238,7 @@ def _(rng):
         lines = [f"$ kubectl get pdb {svc}-pdb", "NAME        MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS", f"{svc}-pdb   N/A             1                 0",
                  f"$ kubectl get pods -l app={svc}", f"{svc}-7d9f-x2k   0/1   Pending   0   {m}m", f"$ kubectl describe pod {svc}-7d9f-x2k | tail -1",
                  f"  Warning  FailedScheduling  0/{rng.randint(3, 6)} nodes are available: Insufficient cpu"]
-        story = f"Один под {svc} уже выселен, второй drain выселить не даёт."
+        story = f"один под {svc} уже выселен, второй drain выселить не даёт."
     else:
         lang = "text"
         lines = [f"$ kubectl drain {node} --ignore-daemonsets", f"error: unable to drain node \"{node}\": cannot delete Pods not managed by ReplicationController, "
@@ -256,7 +259,7 @@ def _(rng):
     pod = f"{svc}-{rng.randint(100, 999)}x"
     v = _variant(rng, 3)
     if v == 0:
-        story = f"База переключилась на реплику за 20 секунд, а сервис {svc} лежал {rng.randint(6, 12)} минут: все {n} подов ушли в рестарт."
+        story = f"База переключилась на реплику за 20 секунд, а сервис {svc} лежал {rng.randint(6, 12)} минут: все {n} {'пода' if n == 4 else 'подов'} ушли в рестарт."
         lines = [_log(f"11:{m:02d}:00", "pg-ha", "INFO", "failover started: primary pg-0 -> pg-1"),
                  _log(f"11:{m:02d}:06", svc, "WARN", "GET /healthz -> 503: database unreachable"),
                  _log(f"11:{m:02d}:09", "kubelet", "WARN", f"{pod}: Liveness probe failed: HTTP probe failed with statuscode: 503"),
@@ -392,7 +395,7 @@ def _(rng):
     err = f'http_requests_total{{job="{svc}", status=~"5.."}}'
     v = _variant(rng, 3)
     lines, story = [([f"# панель «RPS {svc}», сейчас:", sel], f"График RPS {svc} на новом дашборде только растёт «лесенкой» и падает до нуля при каждом рестарте пода."),
-                    ([f"# панель «очередь {svc}», сейчас:", f"rate({q}[{w}])"], f"График длины очереди {svc} скачет около нуля и уходит в минус, хотя в очереди тысячи задач."),
+                    ([f"# панель «очередь {svc}», сейчас:", f"deriv({q}[{w}])"], f"График длины очереди {svc} скачет около нуля и уходит в минус, хотя в очереди тысячи задач."),
                     ([f"# панель «доля ошибок {svc}», сейчас:", f"sum(rate({err}[{w}]))"], f"Панель «доля ошибок» {svc} растёт вместе с трафиком, хотя доля ошибок не меняется.")][v]
     opts, key = _options(rng, [f"sum(rate({sel}[{w}]))", f"sum({q})", f"sum(rate({err}[{w}])) / sum(rate({sel}[{w}]))"], v,
                          [f"sum({sel}) / 300", f"max_over_time({sel}[{w}])"])
@@ -460,18 +463,21 @@ def _(rng):
 @family("ops_rb_undo", SPEC, "План отката", "choice", 2.1, -1.2)
 def _(rng):
     svc, r = rng.choice(SVCS), rng.randint(5, 40)
-    vs = [f"{rng.randint(1, 3)}.{rng.randint(10, 30) + i}.0" for i in range(3)]
+    major, minor = rng.randint(1, 3), rng.randint(10, 30)
+    vs = [f"{major}.{minor + i}.0" for i in range(3)]  # версии растут по ревизиям
     v = _variant(rng, 3)
+    cur = vs[1] if v == 2 else vs[2]  # что сейчас крутится в проде
     lines = [f"$ kubectl rollout history deploy/{svc}", "REVISION  CHANGE-CAUSE", f"{r - 2:<9} image {svc}:{vs[0]}", f"{r - 1:<9} image {svc}:{vs[1]}"]
     if v == 2:
-        lines += [f"{r:<9} image {svc}:{vs[1]}, configmap {svc}-config v{r}   # выкатили 5 минут назад: поменяли только конфиг"]
+        # ConfigMap правят на месте под тем же именем: ревизия r — только rollout restart, undo вернёт тот же образ с новым конфигом
+        lines += [f"{r:<9} image {svc}:{vs[1]}   # 5 минут назад: правка ConfigMap {svc}-config на месте + rollout restart"]
         story = f"После выкладки нового конфига {svc} отдаёт 500 на каждом третьем запросе. Образ не менялся."
     else:
         lines += [f"{r:<9} image {svc}:{vs[2]}   # выкатили 5 минут назад"]
         story = (f"Новый релиз {svc}:{vs[2]} отдаёт 500 на каждом третьем запросе. Миграций базы в нём не было." if v == 0 else
                  f"Новый релиз {svc}:{vs[2]} отдаёт 500 на каждом третьем запросе. В релизе была миграция, которая удалила старую колонку — {vs[1]} её читает.")
     opts, key = _options(rng, [f"kubectl rollout undo deploy/{svc} — вернуть ревизию {r - 1}",
-                               f"Откат кода сломается о новую схему: выпускать исправление поверх {vs[2]}",
+                               f"Откат кода сломается о новую схему: выпускать исправление поверх {cur}",
                                f"Вернуть прошлую версию ConfigMap {svc}-config и перезапустить поды"], v,
                          [f"Удалить Deployment и создать заново из манифеста {vs[1]}", f"Масштабировать {svc} до нуля и обратно, чтобы сбросить состояние"])
     return {"scene_title": "Плохой релиз", "story": story, "prompt": "Как быстрее всего и безопасно вернуть сервис?",
@@ -480,7 +486,8 @@ def _(rng):
 
 @family("ops_rb_canary", SPEC, "План отката", "choice", 2.2, 0.4)
 def _(rng):
-    m0, at, m = rng.randint(0, 20), 2, rng.choice([10, 15, 20])
+    m0, at = rng.randint(0, 20), 2
+    m = 4 * (7 - at)  # минут от включения канарейки до последней точки графика
     x = [f"22:{m0 + 4 * i:02d}" for i in range(8)]
     stable = [round(rng.uniform(0.2, 0.5), 1) for _ in range(8)]
     v = _variant(rng, 3)

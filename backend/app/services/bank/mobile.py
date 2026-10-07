@@ -35,8 +35,8 @@ def _(rng):
         mid = [_log(t(9, 46), "app", "ERROR", "SecItemCopyMatching failed: -34018 (errSecMissingEntitlement), keychain-access-groups"),
                _log(t(9, 47), "app", "ERROR", f"Fatal error: Unexpectedly found nil while unwrapping an Optional value\n  {vc}.swift:{line}  let token = keychain.token!")]
         story = "Тестировщик открывает экран — приложение сразу падает. В локальной сборке из Xcode всё работает, падает только сборка из TestFlight."
-    lines = [_log(t(1, 12), "xcodebuild", "INFO", f"Archive {ver} ({rng.randint(400, 900)}) succeeded"), *mid,
-             _log(t(9, 47), "crash", "ERROR", "EXC_BREAKPOINT (SIGTRAP), Thread 0 Crashed: com.apple.main-thread")]
+    lines = sorted([_log(t(1, 12), "xcodebuild", "INFO", f"Archive {ver} ({rng.randint(400, 900)}) succeeded"), *mid,
+                    _log(t(9, 47), "crash", "ERROR", "EXC_BREAKPOINT (SIGTRAP), Thread 0 Crashed: com.apple.main-thread")], key=lambda x: x["t"])
     opts, key = _options(rng, [f"После переименования связь @IBOutlet {outlet} со storyboard потеряна, outlet остался nil",
                                "Массив данных очищается раньше, чем таблица узнаёт об этом: менять данные и обновлять таблицу вместе на главном потоке",
                                "У сборки из TestFlight нет entitlement на группу Keychain (-34018): поправить capabilities и профиль подписи"], v,
@@ -50,23 +50,24 @@ def _(rng):
 def _(rng):
     dto, field, screen = rng.choice([("OrderDto", "deliveryAddress", "Заказ"), ("ProfileDto", "displayName", "Профиль"), ("TariffDto", "monthlyPrice", "Тарифы")])
     ver, t = _ver(rng), _ts(rng, 11)
+    slug = dto.removesuffix("Dto").lower()
     v = _variant(rng, 3)
     if v == 0:
         lines = [_log(t(0, 2), "ci", "INFO", f"assembleRelease {ver}: isMinifyEnabled=true (R8)"),
                  _log(t(4, 30), "qa", "INFO", f"debug {ver}: {dto}({field}=\"…\") — экран «{screen}» OK"),
                  _log(t(6, 11), "app", "WARN", f"release {ver}: parsed {dto}(a=null, b=null, c=0)"),
-                 _log(t(6, 11), "AndroidRuntime", "ERROR", f"java.lang.NullPointerException: Parameter specified as non-null is null: method {screen.lower()}Binder.bind, parameter {field}")]
+                 _log(t(6, 11), "AndroidRuntime", "ERROR", f"java.lang.NullPointerException: Parameter specified as non-null is null: method {slug}Binder.bind, parameter {field}")]
         story = f"Release-сборка {ver}: экран «{screen}» пустой и падает. Debug-сборка с тем же сервером и тем же аккаунтом работает."
     elif v == 1:
         lines = [_log(t(0, 2), "ci", "INFO", f"assembleRelease {ver}: BASE_URL=https://api-v1-legacy.demo.ru (buildTypes.release)"),
                  _log(t(0, 2), "ci", "INFO", f"assembleDebug {ver}: BASE_URL=https://api.demo.ru"),
-                 _log(t(6, 11), "app", "WARN", f"release {ver}: GET /{screen.lower()} → 200, ответ без поля {field} (схема v1)"),
+                 _log(t(6, 11), "app", "WARN", f"release {ver}: GET /{slug} → 200, ответ без поля {field} (схема v1)"),
                  _log(t(6, 11), "AndroidRuntime", "ERROR", f"java.lang.NullPointerException: Parameter specified as non-null is null: parameter {field}")]
         story = f"Release-сборка {ver}: экран «{screen}» пустой и падает. Debug-сборка с тем же аккаунтом работает."
     else:
         lines = [_log(t(0, 2), "ci", "INFO", f"release {ver}: amount = String.format(\"%.2f\", value)"),
-                 _log(t(6, 11), "app", "WARN", f"POST /{screen.lower()} body: {{\"amount\": \"1234,50\"}} → 400 invalid number (Locale ru-RU)"),
-                 _log(t(6, 12), "app", "INFO", f"POST /{screen.lower()} body: {{\"amount\": \"1234.50\"}} → 200 (Locale en-US)")]
+                 _log(t(6, 11), "app", "WARN", f"POST /{slug} body: {{\"amount\": \"1234,50\"}} → 400 invalid number (Locale ru-RU)"),
+                 _log(t(6, 12), "app", "INFO", f"POST /{slug} body: {{\"amount\": \"1234.50\"}} → 200 (Locale en-US)")]
         story = f"Сборка {ver}: на экране «{screen}» отправка падает с ошибкой сервера, но только у пользователей с русским языком системы."
     opts, key = _options(rng, ["R8 переименовал поля DTO, а Gson ищет поля по именам через рефлексию: нужны @SerializedName или keep-правила",
                                "Release-конфигурация ходит на старый сервер с другим контрактом: исправить BASE_URL для release",
@@ -111,9 +112,9 @@ def _(rng):
 
 @family("mob_lc_remember", "Mobile", "Жизненный цикл приложения", "mark", 2.1, -1.1)
 def _(rng):
-    fn, var, init, label, op, btn = rng.choice([("QuantityPicker", "count", "1", "Количество", "count++", "Ещё"),
-                                                ("TipSelector", "tip", "10", "Чаевые, %", "tip += 5", "+5 %"),
-                                                ("SeatCounter", "seats", "1", "Мест", "seats++", "Добавить")])
+    fn, var, init, label, op, btn, step = rng.choice([("QuantityPicker", "count", "1", "Количество", "count++", "Ещё", 1),
+                                                      ("TipSelector", "tip", "10", "Чаевые, %", "tip += 5", "+5 %", 5),
+                                                      ("SeatCounter", "seats", "1", "Мест", "seats++", "Добавить", 1)])
     v = _variant(rng, 3)
     if v == 0:
         lang, lines = "kotlin", ["@Composable", f"fun {fn}() {{"]
@@ -133,7 +134,7 @@ def _(rng):
         lang, lines = "swift", [f"struct {fn}View: View {{", f"    @ObservedObject var model = {fn}Model()"]
         key = len(lines)
         lines += ["    var body: some View {", "        VStack {", f"            Text(\"{label}: \\(model.{var})\")",
-                  f"            Button(\"{btn}\") {{ model.{var} += 1 }}", "        }", "    }", "}"]
+                  f"            Button(\"{btn}\") {{ model.{var} += {step} }}", "        }", "    }", "}"]
         story = f"Значение «{label}» сбрасывается к {init} каждый раз, когда обновляется родительский экран."
     return {"scene_title": "Значение сбрасывается", "story": story, "prompt": "Нажмите на строку, которую нужно изменить, чтобы значение не сбрасывалось.",
             "panel": {"type": "code", "lang": lang, "lines": lines}, "key": key}
@@ -164,7 +165,7 @@ def _(rng):
         story = "Курьеры жалуются: трек доставки прерывается, когда они сворачивают приложение и открывают навигатор."
     opts, key = _options(rng, ["Перенести загрузку в URLSession с background-конфигурацией: файл передаёт система, даже если приложение выгружено",
                                "Тихий пуш не будит приложение, закрытое пользователем: синхронизировать при запуске и не полагаться только на пуш",
-                               "Нужен фоновый режим location и разрешение «Всегда»: иначе обновления останавливаются в фоне"], v,
+                               "Нужен фоновый режим location и allowsBackgroundLocationUpdates = true: иначе обновления в фоне останавливаются"], v,
                          ["Вызывать beginBackgroundTask заново каждые 25 секунд: система каждый раз продлит время работы в фоне",
                           "Включить фоновый режим аудио и проигрывать тишину, чтобы приложение не засыпало"])
     return {"scene_title": "Работа в фоне", "story": f"{story} В логах устройства — вот что.", "prompt": "Как сделать правильно?",
@@ -174,7 +175,7 @@ def _(rng):
 @family("mob_lc_fgs_push", "Mobile", "Жизненный цикл приложения", "choice", 2.3, 2.1)
 def _(rng):
     svc = rng.choice(["SyncService", "TrackUploadService", "BackupService"])
-    api, t = rng.choice([31, 33, 34]), _ts(rng, 3)
+    api, t = 31, _ts(rng, 3)
     v = _variant(rng, 3)
     if v == 0:
         lines = [_log(t(0, 12), "PushHandler", "INFO", "onMessageReceived: type=sync, priority=normal"),
@@ -246,7 +247,7 @@ def _(rng):
 
 @family("mob_rv_force_unwrap", "Mobile", "Ревью кода", "mark", 2.1, -1.4)
 def _(rng):
-    param, ent = rng.choice([("order", "Order"), ("promo", "Promo"), ("ticket", "Ticket")])
+    param, ent, ru = rng.choice([("order", "Order", "заказов"), ("promo", "Promo", "промокодов"), ("ticket", "Ticket", "билетов")])
     v = _variant(rng, 3)
     if v == 0:
         lines = ["func handle(deepLink url: URL) {"]
@@ -256,7 +257,7 @@ def _(rng):
         lines.append(f"    let id = components!.queryItems!.first {{ $0.name == \"{param}\" }}!.value!")
         key = len(lines)
         lines += [f"    router.open{ent}(id: id)", "}"]
-        story, caption = f"После рассылки со ссылкой без параметра {param} пришла волна крашей при открытии приложения по ссылке.", f"диплинки на {ent.lower()}"
+        story, caption = f"После рассылки со ссылкой без параметра {param} пришла волна крашей при открытии приложения по ссылке.", f"диплинки {ru}"
     elif v == 1:
         lines = [f"func show{ent}s(_ items: [{ent}]) {{"]
         if rng.random() < 0.5:
@@ -264,15 +265,15 @@ def _(rng):
         lines.append("    let first = items[0]")
         key = len(lines)
         lines += ["    header.configure(with: first)", "    table.reload(items)", "}"]
-        story, caption = f"У новых пользователей без {ent.lower()} приложение падает сразу при открытии списка.", f"шапка списка {ent.lower()}"
+        story, caption = f"У новых пользователей без {ru} приложение падает сразу при открытии списка.", f"шапка списка {ru}"
     else:
         lines = [f"enum {ent}Status: String, Decodable {{ case new, paid, cancelled }}", "", f"func parse(_ data: Data) -> [{ent}] {{"]
         if rng.random() < 0.5:
             lines.append("    let decoder = JSONDecoder()")
         lines.append(f"    return try! JSONDecoder().decode([{ent}].self, from: data)")
-        key = len(lines)
+        key = [1, len(lines)]  # enum без запасного случая роняет декодирование, try! превращает ошибку в краш
         lines.append("}")
-        story, caption = f"После обновления бэкенда приложение падает на экране {ent.lower()}: сервер добавил новый статус partially_refunded.", f"разбор {ent.lower()}"
+        story, caption = f"После обновления бэкенда приложение падает на экране {ru}: сервер добавил новый статус partially_refunded.", f"разбор {ru}"
     return {"scene_title": "Волна крашей", "story": story, "prompt": "Нажмите на строку, из-за которой приложение падает.",
             "panel": {"type": "code", "lang": "swift", "lines": lines, "caption": f"PR #{rng.randint(300, 999)} · «{caption}»"}, "key": key}
 
@@ -303,7 +304,7 @@ def _(rng):
             story = f"В отчётах об ошибках: «setState() called after dispose(): _{page}State». Пользователи уходят с экрана, не дождавшись загрузки."
         else:
             lines += ["  Future<void> _save() async {", "    if (!mounted) return;", f"    await api.save{field.capitalize()}(_{field}!);", "    Navigator.of(context).pop();"]
-            key = len(lines)
+            key = [len(lines) - 2, len(lines)]
             lines += ["  }", "}"]
             story = "Иногда после сохранения закрывается не тот экран, а в отчётах — «Looking up a deactivated widget's ancestor is unsafe»."
         prompt = "Нажмите на строку, которую нужно исправить."
@@ -365,7 +366,7 @@ def _(rng):
     else:
         lines = [f"struct {typ}Screen: View {{", f"    @StateObject var model = {typ}ViewModel()", "    var body: some View {", "        List(model.items) { Row($0) }",
                  "            .onAppear {", "                Task { await model.load() }"]
-        key = len(lines)
+        key = [len(lines) - 1, len(lines)]
         lines += ["            }", "    }", "}"]
         story = f"При каждом возврате на экран уходит новый запрос {ep}, старые не отменяются, и иногда устаревший ответ приходит последним и перетирает свежий."
         prompt = "Нажмите на строку, из-за которой загрузки не отменяются."
@@ -378,11 +379,11 @@ def _(rng):
 
 @family("mob_net_offline_cache", "Mobile", "Сеть и офлайн", "choice", 2.0, -1.5)
 def _(rng):
-    screen = rng.choice(["ленту новостей", "список заказов", "расписание занятий"])
+    screen, screen_nom = rng.choice([("ленту новостей", "лента новостей"), ("список заказов", "список заказов"), ("расписание занятий", "расписание занятий")])
     place = rng.choice(["в самолёте", "в метро", "за городом без связи"])
     v = _variant(rng, 3)
     story = [f"Пользователь {place} открыл {screen} и видит бесконечный спиннер, хотя час назад всё загружалось.",
-             f"В кафе телефон подключён к Wi-Fi, но интернет там только после входа на страницу провайдера. Приложение уверено, что сеть есть, и {screen} висит на загрузке.",
+             f"В кафе телефон подключён к Wi-Fi, но интернет там только после входа на страницу провайдера. Приложение уверено, что сеть есть, и {screen_nom} висит на загрузке.",
              "Пользователи жалуются на расход батареи: приложение каждые 10 секунд спрашивает сервер, нет ли новых сообщений."][v]
     opts, key = _options(rng, ["Показать последние сохранённые данные из локального кэша с пометкой «нет сети» и обновить их, когда связь вернётся",
                                "Проверять доступность реальным запросом к своему серверу, а не только по флагу «подключено к сети»",
@@ -413,7 +414,7 @@ def _(rng):
                  _log(t(2, 15), "OkHttp", "ERROR", "javax.net.ssl.SSLHandshakeException: SSL handshake aborted: Failure in SSL library, usually a protocol error"),
                  _log(t(3, 0), "crash-stats", "INFO", "ошибка только на Android 7–9, на новых версиях всё работает")]
         story = "После обновления настроек сервера часть пользователей не может загрузить ни одного экрана."
-    lines.append(_log(t(2, 16), "app", "WARN", "feed: request failed, showing empty state"))
+    lines.insert(len(lines) - (v == 2), _log(t(2, 16), "app", "WARN", "feed: request failed, showing empty state"))
     opts, key = _options(rng, ["Сборка ходит на сервер по HTTP, а система по умолчанию блокирует незашифрованный трафик: перевести BASE_URL на HTTPS",
                                "Пин не совпал с новым ключом сервера: пиннить ключ с запасным пином и выпускать обновление заранее",
                                "Старые Android не умеют TLS 1.3: вернуть на сервере TLS 1.2 с совместимыми наборами шифров"], v,
@@ -445,7 +446,7 @@ def _(rng):
                  _log(t(0, 2), "http", "INFO", f"GET {eps[0]} → 401 token_expired"),
                  _log(t(0, 3), "app", "WARN", "client check says valid → no refresh, retry with same token → 401 → logout")]
         story = "Некоторых пользователей постоянно выкидывает на вход; у всех них неправильно выставлены часы в телефоне."
-    opts, key = _options(rng, ["Один refresh на всех: первый 401 запускает обновление, остальные запросы ждут его и повторяются с новым токеном",
+    opts, key = _options(rng, ["Один общий refresh: параллельные запросы с 401 ждут уже начатое обновление, а не запускают каждый своё",
                                "Токены обновлять в одном месте под общей блокировкой для приложения и расширений (общее хранилище App Group)",
                                "Не решать по часам устройства, истёк ли токен: на 401 обновлять токен, а время сверять с сервером"], v,
                          ["Увеличить срок жизни access-токена до 30 дней, чтобы обновление случалось реже",
@@ -496,7 +497,7 @@ def _(rng):
 @family("mob_perf_listview", "Mobile", "Производительность", "mark", 2.1, -0.9)
 def _(rng):
     title, coll, tile = rng.choice([("Каталог", "products", "ProductCard"), ("Отзывы", "reviews", "ReviewTile"), ("Афиша", "events", "EventCard")])
-    n, s = rng.choice([2000, 5000, 8000]), rng.choice([3, 4, 6])
+    n, s = rng.choice([2000, 5000, 8000]), rng.choice(["3 секунды", "4 секунды", "6 секунд"])
     v = _variant(rng, 3)
     lines = ["@override", "Widget build(BuildContext context) {"]
     if rng.random() < 0.5:
@@ -505,7 +506,7 @@ def _(rng):
         lines.append("  return ListView(")
         key = [len(lines), len(lines) + 1]
         lines += [f"    children: {coll}.map((x) => {tile}(item: x)).toList(),", "  );", "}"]
-        story = f"Экран «{title}» открывается {s} секунды: в списке {n} элементов, каждый — карточка с картинкой."
+        story = f"Экран «{title}» открывается {s}: в списке {n} элементов, каждый — карточка с картинкой."
     elif v == 1:
         lines.append(f"  final sorted = [...{coll}]..sort((a, b) => a.rank.compareTo(b.rank));")
         key = len(lines)
@@ -548,8 +549,8 @@ def _(rng):
     v = _variant(rng, 3)
     if v == 0:
         series = [{"name": "рекомпозиций строк в секунду", "axis": "left", "max": 2500, "data": [rng.randint(30, 60) if i < m else rng.randint(1800, 2400) for i in range(8)]}]
-        story = (f"После таймера акции в шапке лента «{screen}» дёргается. Layout Inspector: строки перерисовываются на каждый тик, хотя их данные не менялись. "
-                 f"Строки получают List<{typ}> из модуля domain.")
+        story = (f"После переноса моделей в модуль domain лента «{screen}» дёргается, пока в шапке идёт таймер акции. Layout Inspector: экран перекомпонуется "
+                 f"на каждый тик, как и до переноса, но теперь вместе с ним перерисовываются все строки, хотя их данные не менялись. Строки получают List<{typ}> из модуля domain.")
     elif v == 1:
         series = [{"name": "рекомпозиций экрана целиком в секунду", "axis": "left", "max": 100, "data": [rng.randint(0, 2) if i < m else rng.randint(55, 65) for i in range(8)]}]
         story = (f"После таймера акции лента «{screen}» дёргается. Layout Inspector: на каждый тик перекомпонуется весь экран — "
@@ -654,7 +655,7 @@ def _(rng):
     mb, what = rng.choice([32, 64, 128]), rng.choice(["миниатюр каталога", "обложек плейлистов", "аватаров в чате"])
     v = _variant(rng, 3)
     story = [f"Кэш {what} ограничен {mb} МБ. При переполнении нужно выкидывать то, что дольше всех не показывали; get и put вызываются на каждом кадре прокрутки.",
-             f"Приложение хранит {rng.randint(200, 900)} запланированных напоминаний и постоянно добавляет новые; нужно быстро узнавать ближайшее по времени.",
+             f"Приложение хранит {rng.randint(2, 9) * 100} запланированных напоминаний и постоянно добавляет новые; нужно быстро узнавать ближайшее по времени.",
              "В редакторе фото нужны «Отменить» и «Повторить» для любых правок; новая правка после отмены сбрасывает возможность повторить."][v]
     opts, key = _options(rng, ["Хеш-таблица плюс двусвязный список по порядку доступа (LRU): get и put за O(1)",
                                "Двоичная куча по времени: ближайшее — за O(1), добавление и удаление — за O(log n)",

@@ -57,7 +57,7 @@ def _(rng):
     lines.append(f"async def get_{ent}(id: int):")
     if v == 1:
         lines += ["    if id in _local:", "        return _local[id]"]
-        key = [len(lines) - 1, len(lines)]
+        key = [1, len(lines) - 1, len(lines)]  # локальный кэш без инвалидации: его объявление или чтение из него
     lines += [f'    row = await cache.get(f"{ent}:{{id}}")', "    if row is None:"]
     if rng.random() < 0.5:
         lines.append(f'        metrics.inc("{ent}_cache_miss")')
@@ -124,14 +124,16 @@ def _(rng):
 
 @family("be_cc_fencing", "Backend", "Конкурентность", "choice", 2.3, 2.8)
 def _(rng):
-    job, what = rng.choice([("settlement", "строк сверки"), ("payouts", "выплат"), ("billing-close", "счетов закрытия периода")])
+    job, what, what_nom = rng.choice([("settlement", "строк сверки", "строки сверки"), ("payouts", "выплат", "выплаты"),
+                                      ("billing-close", "счетов закрытия периода", "счета закрытия периода")])
     ttl = rng.choice([10, 15, 20, 30])
     pause = ttl + rng.randint(2, 9)
     w1, w2, w3 = rng.sample(["worker-1", "worker-2", "worker-3"], 3)
     m = rng.randint(10, 50)
-    t = lambda s: f"03:{m:02d}:{s:02d}"  # noqa: E731
-    dup = _log(t(pause + 4), "ledger-db", "ERROR", f"reconciliation: duplicate {what} for period {rng.randint(1, 12):02d}.2026")
     v = _variant(rng, 3)
+    # вариант 2: в 02:xx по Москве в UTC ещё вчера — локальные даты воркеров расходятся
+    t = lambda s: f"{'02' if v == 2 else '03'}:{m:02d}:{s:02d}"  # noqa: E731
+    dup = _log(t(pause + 4), "ledger-db", "ERROR", f"reconciliation: duplicate {what} for period {10 if v == 2 else rng.randint(1, 12):02d}.2026")
     if v == 0:
         lines = [_log(t(0), w1, "INFO", f"lock {job}: acquired (SET NX PX {ttl * 1000})"),
                  _log(t(2), w1, "WARN", f"process paused {pause}.{rng.randint(1, 9)} s (stop-the-world GC)"),
@@ -139,25 +141,25 @@ def _(rng):
                  _log(t(ttl + 2), w2, "INFO", f"{job}: batch written"),
                  _log(t(pause + 3), w1, "INFO", f"{job}: batch written"), dup]
     elif v == 1:
+        # блокировку снимает воркер, который её не брал (DEL в finally): TTL и пауз нет, fencing не спасает — w3 пишет после w1 с новым токеном
         lines = [_log(t(0), w1, "INFO", f"lock {job}: acquired (SET NX PX {ttl * 1000})"),
-                 _log(t(ttl - 3), w1, "INFO", f"{job}: batch written, waiting for audit-log"),
-                 _log(t(ttl + 1), w2, "INFO", f"lock {job}: acquired (SET NX PX {ttl * 1000})"),
-                 _log(t(ttl + 2), w1, "INFO", f"{job}: done, lock released (DEL lock:{job})"),
-                 _log(t(ttl + 3), w3, "INFO", f"lock {job}: acquired (SET NX PX {ttl * 1000})"),
-                 _log(t(pause + 2), w2, "INFO", f"{job}: batch written"),
-                 _log(t(pause + 3), w3, "INFO", f"{job}: batch written"), dup]
+                 _log(t(3), w2, "INFO", f"lock {job}: busy (SET NX returned nil), skipping run"),
+                 _log(t(3), w2, "INFO", f"{job}: finally: lock released (DEL lock:{job})"),
+                 _log(t(5), w3, "INFO", f"lock {job}: acquired (SET NX PX {ttl * 1000})"),
+                 _log(t(ttl - 4), w1, "INFO", f"{job}: batch written"),
+                 _log(t(ttl - 3), w3, "INFO", f"{job}: batch written"), dup]
     else:
-        lines = [_log(t(0), w1, "INFO", f"TZ=Europe/Moscow, period 2026-10-05; lock {job}:2026-10-05: acquired (SET NX PX {ttl * 1000})"),
-                 _log(t(0), w2, "INFO", f"TZ=UTC, period 2026-10-04; lock {job}:2026-10-04: acquired (SET NX PX {ttl * 1000})"),
+        lines = [_log(t(0), w1, "INFO", f"TZ=Europe/Moscow, now 2026-10-05 02:{m:02d}, period 2026-10-05; lock {job}:2026-10-05: acquired (SET NX PX {ttl * 1000})"),
+                 _log(t(0), w2, "INFO", f"TZ=UTC, now 2026-10-04 23:{m:02d}, period 2026-10-04; lock {job}:2026-10-04: acquired (SET NX PX {ttl * 1000})"),
                  _log(t(ttl - 4), w1, "INFO", f"{job}: batch written"),
                  _log(t(ttl - 3), w2, "INFO", f"{job}: batch written"), dup]
     opts, key = _options(rng, ["TTL-блокировка не спасает от паузы владельца: при захвате выдавать монотонный fencing-токен, а хранилище — отклонять запись со старым токеном",
                                "Снимать блокировку только своим значением: сравнить и удалить атомарно (Lua-скрипт), а не голым DEL по имени ключа",
                                "Ключ блокировки зависит от локальной даты воркера: период считать в одной зоне (UTC), иначе воркеры берут разные блокировки"], v,
                          ["Перейти на Redlock: брать блокировку на большинстве из пяти независимых Redis — тогда второй воркер её не получит, пока первый жив и держит кворум узлов",
-                          f"Поднять TTL до {ttl * 6} с и продлевать блокировку фоновым потоком каждые {ttl // 3} с, пока задача работает",
+                          f"Продлевать блокировку фоновым потоком каждые {ttl // 3} с, пока задача работает",
                           "Синхронизировать часы воркеров по NTP: истечение TTL считалось по разъехавшимся часам"])
-    return {"scene_title": "Два владельца", "story": f"Ночная задача {job} защищена распределённой блокировкой в Redis. Сегодня {what} записались дважды.",
+    return {"scene_title": "Два владельца", "story": f"Ночная задача {job} защищена распределённой блокировкой в Redis. Сегодня {what_nom} записались дважды.",
             "prompt": "Что устранит причину?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -172,14 +174,14 @@ def _(rng):
     metric = f'http_request_duration_seconds_bucket{{svc="{svc}"}}'
     v = _variant(rng, 3)
     if v == 0:
-        lines = [f"# панель «{ql} {svc}», {pods} подов", "avg(", f"  histogram_quantile({q}, sum by (pod, le) (rate({metric}[5m])))", ")"]
+        lines = [f"# панель «{ql} {svc}», подов: {pods}", "avg(", f"  histogram_quantile({q}, sum by (pod, le) (rate({metric}[5m])))", ")"]
         story = f"Дашборд показывает {ql} = {shown} мс, а по трассам такой же доли самых медленных запросов — дольше {real} мс. Нагрузка между подами неравномерная."
     elif v == 1:
-        lines = [f"# панель «{ql} {svc}», {pods} подов; бакеты le: 0.05, 0.1, 0.5, 5, +Inf", f"histogram_quantile({q}, sum by (le) (rate({metric}[5m])))"]
+        lines = [f"# панель «{ql} {svc}», подов: {pods}; бакеты le: 0.05, 0.1, 0.5, 5, +Inf", f"histogram_quantile({q}, sum by (le) (rate({metric}[5m])))"]
         sec = f"{rng.randint(38, 46) / 10:.1f}".replace(".", ",")
         story = f"Дашборд показывает {ql} = {sec} с, а по трассам такая же доля самых медленных запросов укладывается в {real} мс."
     else:
-        lines = [f"# панель «запросов за час, {svc}», {pods} подов", f'sum(http_requests_total{{svc="{svc}"}})', f'  - sum(http_requests_total{{svc="{svc}"}} offset 1h)']
+        lines = [f"# панель «запросов за час, {svc}», подов: {pods}", f'sum(http_requests_total{{svc="{svc}"}})', f'  - sum(http_requests_total{{svc="{svc}"}} offset 1h)']
         story = "Панель «запросов за час» после каждой выкладки на какое-то время показывает провал, иногда уходит в минус."
     opts, key = _options(rng, [f"Квантили не усредняются: сложить бакеты всех подов (sum by (le)) и уже из суммы считать histogram_quantile({q})",
                                "Добавить границы бакетов между 0,5 и 5 с: внутри широкого бакета квантиль — линейная интерполяция, отсюда завышение",

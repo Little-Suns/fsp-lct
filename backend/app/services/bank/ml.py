@@ -86,7 +86,7 @@ def _(rng):
         panel = {"type": "code", "lang": "text", "lines": [
             "период: прошлый квартал, без A/B", f"получили промокод {p} %: {_rub(rng.randint(40, 90) * 1000)} клиентов, покупали {a} %",
             f"не получили: {_rub(rng.randint(400, 900) * 1000)} клиентов, покупали {b} %", "кому давали промокод: решал менеджер, обычно — активным клиентам"]}
-        story = f"Аналитик пишет: «промокод {p} % поднимает покупки в {round(a / b, 1)} раза, давайте раздадим его всем»."
+        story = f"Аналитик пишет: «промокод {p} % поднимает покупки в {_dec(a / b, 1)} раза, давайте раздадим его всем»."
     else:
         d, ci = rng.choice([0.3, 0.4, 0.6]), rng.choice([2.0, 2.5, 3.0])
         panel = {"type": "code", "lang": "text", "lines": [
@@ -203,9 +203,10 @@ def _(rng):
 def _(rng):
     rel = rng.randint(3, 5)
     v = _variant(rng, 3)
-    f, how = rng.choice([("доход", "в тысячах вместо рублей"), ("стаж", "в годах вместо месяцев")])
+    # обе ошибки единиц делят значение на 12: медиана падает до ~8 % от прежней, а не до нуля (ноль — это подстановка нулей)
+    f, how = rng.choice([("доход", "за месяц вместо года"), ("стаж", "в годах вместо месяцев")])
     name, data = [(f"пустые значения «{f}», %", [rng.randint(1, 4) if i < rel else rng.randint(62, 85) for i in range(8)]),
-                  (f"медиана «{f}», % от прежней", [rng.randint(95, 104) if i < rel else rng.randint(0, 9) for i in range(8)]),
+                  (f"медиана «{f}», % от прежней", [rng.randint(95, 104) if i < rel else rng.randint(7, 9) for i in range(8)]),
                   (f"нули в «{f}», %", [rng.randint(1, 3) if i < rel else rng.randint(40, 70) for i in range(8)])][v]
     panel = {"type": "chart", "x": [f"Н{i}" for i in range(1, 9)], "marker": {"i": rel, "label": f"релиз анкеты v{rng.randint(2, 6)}"}, "series": [
         {"name": name, "axis": "left", "max": 110, "data": data},
@@ -278,6 +279,7 @@ def _(rng):
         second = {"name": "PSI входных признаков ×100", "axis": "right", "max": 30, "data": [rng.randint(3, 7) for _ in range(8)]}
         story = f"Precision последних недель резко падает, PSI признаков ровный, модель не менялась. Метки — чарджбэки, окно {win} дней; за последние 14 дней созрело {matured} % меток."
     elif v == 1:
+        win = 30  # на графике 8 недель: созревшими должны быть хотя бы первые недели
         prec = [68 - 4 * i + rng.randint(-1, 1) for i in range(8)]
         second = {"name": "PSI входных признаков ×100", "axis": "right", "max": 30, "data": [rng.randint(3, 7) for _ in range(8)]}
         story = f"Precision падает неделя за неделей, включая недели, по которым все метки давно созрели (окно {win} дней). PSI признаков ровный, модель не менялась."
@@ -337,9 +339,10 @@ def _(rng):
                  _log("11:30:41", "eval", "INFO", "top split: created_at > 1767225600 — все значения теста выше всех значений обучения")]
         story = "Добавили время операции, чтобы модель учла ночной и выходной фрод. На новых данных стало хуже."
     else:
-        lines = [_log("11:02:10", "train", "INFO", f"features: {n_num} numeric; payment_comment — свободный текст, {rng.randint(2, 4)} млн уникальных строк"),
+        uniq = rng.randint(2_000_000, 4_000_000)
+        lines = [_log("11:02:10", "train", "INFO", f"features: {n_num} numeric; payment_comment — свободный текст, {_dec(uniq / 1e6, 1)} млн уникальных строк"),
                  _log("11:02:11", "train", "INFO", "pd.get_dummies(df, columns=['payment_comment'])"),
-                 _log("11:02:58", "train", "ERROR", "MemoryError: Unable to allocate array with shape (…, 3218771)")]
+                 _log("11:02:58", "train", "ERROR", f"MemoryError: Unable to allocate array with shape ({rows}, {uniq + n_num})")]
         story = "Добавили комментарий к платежу — в нём часто видно назначение и признаки мошенничества."
     opts, key = _options(rng, ["Out-of-fold target encoding со сглаживанием, редкие значения — в общую категорию",
                                "Вместо абсолютного времени — циклические признаки: час, день недели, праздник",
@@ -369,8 +372,9 @@ def _(rng):
     else:
         lines += [f'X, y = df[NUM_FEATURES], df["{target}"]', "X, y = SMOTE(k_neighbors=5).fit_resample(X, y)"]
         key = len(lines)
-    lines += ["cv = GroupKFold(n_splits=5)" if v != 2 else "cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=0)",
-              'print(cross_val_score(LGBMClassifier(), X, y, cv=cv' + (', groups=df["client_id"]' if v != 2 else '') + ', scoring="roc_auc").mean())']
+    # одинаковая схема CV во всех вариантах: иначе случайный KFold без групп при GroupKFold в соседних клонах читается как второй дефект
+    lines += ["cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=0)",
+              'print(cross_val_score(LGBMClassifier(), X, y, cv=cv, scoring="roc_auc").mean())']
     return {"scene_title": "Кросс-валидация врёт", "story": f"На кросс-валидации ROC-AUC {cv}, а на отложенной выборке, которую не трогали при подготовке данных, — {ho}. "
             f"У многих {ent} всего несколько записей.",
             "prompt": "Нажмите на строку, из-за которой кросс-валидация завышена.", "panel": {"type": "code", "lang": "python", "lines": lines}, "key": key}
@@ -382,9 +386,10 @@ def _(rng):
     v = _variant(rng, 3)
     lines = []
     if v == 2:
+        # текущие значения, помеченные временем появления сущности, приклеиваются ко всей её истории
         lines.append(f'feats = feature_store.read_latest("{view}")  # текущие значения признаков')
-        key = len(lines)
-        lines.append('feats["snapshot_ts"] = feats["updated_at"]')
+        lines.append('feats["snapshot_ts"] = feats["first_seen_at"]  # момент появления сущности')
+        key = [len(lines) - 1, len(lines)]
     else:
         lines.append(f'feats = feature_store.read("{view}")  # снапшот признаков на конец дня')
         if v == 1:
@@ -397,7 +402,10 @@ def _(rng):
               f'    direction="{rng.choice(["nearest", "forward"]) if v == 0 else "backward"}",']
     if v == 0:
         key = len(lines)
-    lines += [f'    tolerance=pd.Timedelta("{rng.choice([1, 2, 3])}d"),', ")", "model.fit(train[FEATURES], train.label)"]
+    tol = rng.choice([1, 2, 3])
+    if v != 2:  # с допуском текущие значения доставались бы только событиям первых дней после появления сущности
+        lines.append(f'    tolerance=pd.Timedelta("{tol}d"),')
+    lines += [")", "model.fit(train[FEATURES], train.label)"]
     return {"scene_title": "Офлайн лучше онлайна", "story": f"Выборка {ev} собирается point-in-time join'ом со снапшотами признаков. Офлайн-AUC на {rng.randint(3, 8)} п.п. выше прода, "
                                                             "хотя train/test разделены по времени.",
             "prompt": "Нажмите на строку, из-за которой в обучение попадают данные из будущего.", "panel": {"type": "code", "lang": "python", "lines": lines}, "key": key}
@@ -451,7 +459,8 @@ def _(rng):
     m, tbl = rng.choice([("оттока", "client_events"), ("скоринга", "loan_features"), ("рекомендаций", "user_sessions")])
     a1, a2 = rng.choice([("0,84", "0,79"), ("0,81", "0,86"), ("0,78", "0,74")])
     v = _variant(rng, 3)
-    lines = [f"# train.py, коммит {rng.randint(0x100000, 0xffffff):06x}", "SEED = 42", "np.random.seed(SEED); random.seed(SEED)"]
+    # без глобального np.random.seed: иначе модель без своего сида всё равно воспроизводима (sklearn берёт глобальный генератор numpy)
+    lines = [f"# train.py, коммит {rng.randint(0x100000, 0xffffff):06x}", "SEED = 42"]
     if rng.random() < 0.5:
         lines.append(f'mlflow.set_experiment("{tbl}-model")')
     if v == 2:
@@ -464,7 +473,7 @@ def _(rng):
             key = len(lines)
     lines.append("X_train, X_val, y_train, y_val = split_by_time(df, val_days=14)")
     if v == 1:
-        lines.append("model = RandomForestClassifier(n_estimators=800, n_jobs=-1).fit(X_train, y_train)")
+        lines.append("model = MLPClassifier(hidden_layer_sizes=(256, 128), early_stopping=True).fit(X_train, y_train)")
         key = len(lines)
     else:
         lines.append("model = CatBoostClassifier(random_seed=SEED, iterations=800).fit(X_train, y_train)")
@@ -496,9 +505,10 @@ def _(rng):
                  _log("10:15:23", "monitor", "WARN", f"{feat}=0 share: training 0.4 %, online {rng.randint(12, 25)} %")]
         story = f"После запуска {model} в проде срабатываний заметно больше, чем в теневом тесте на исторических данных. Модель та же."
     lines.append(_log("10:20:05", "monitor", "WARN", f"{model}: alert rate ×{rng.randint(2, 6)} vs shadow test"))
-    opts, key = _options(rng, ["Логировать признаки в момент скоринга и обучать на залогированных значениях",
-                               "Один код вычисления признаков для обучения и сервинга, время — в одной зоне",
-                               "Одинаково обрабатывать пропуски: в сервинге отсутствующий признак — NaN, как в обучении, а не 0"], v,
+    # в каждом ответе — диагноз: «логировать признаки и учиться на логах» лечит любой перекос, и без диагноза подходил бы ко всем вариантам
+    opts, key = _options(rng, ["Свежесть признака разная: логировать признаки при скоринге и обучать на них",
+                               "Признак считают два разных кода: один код для обучения и сервинга, время в одной зоне",
+                               "Пропуски обработаны по-разному: в сервинге отсутствующий признак — NaN, как в обучении"], v,
                          ["Переобучать модель ежечасно на том же дневном батче — так она догонит свежие данные",
                           f"Нормализовать {feat} в сервинге z-score по статистике обучения, чтобы распределения совпали",
                           "Модель переобучилась на старом окне: усилить регуляризацию и расширить окно обучения до года"])
@@ -546,9 +556,10 @@ def _(rng):
         lines += ["    return float(loss.mean())"]
         story, prompt = f"На {ep}-й эпохе loss бинарного классификатора стал inf: модель уверенно выдаёт ровно 0 и 1 для части примеров.", "Нажмите на строку, где появляется бесконечность."
     else:
-        lines = ["def total_weight(weights: np.ndarray) -> float:", "    acc = np.float16(0)"]
+        # аккумулятор — массив float16: скаляр np.float16 при сложении с float64 сам повышается до float64, и ошибки бы не было
+        lines = ["def total_weight(weights: np.ndarray) -> float:", "    acc = np.zeros(1, dtype=np.float16)"]
         key = len(lines)
-        lines += ["    for w in weights:  # десятки миллионов весов около 1", "        acc += w", "    return float(acc)"]
+        lines += ["    for w in weights:  # десятки миллионов весов, почти все равны 1", "        acc[0] += w", "    return float(acc[0])"]
         story, prompt = "Сумма весов выборки перестала расти на 2048, хотя весов десятки миллионов.", "Нажмите на строку, из-за которой сумма перестала расти."
     return {"scene_title": "Численная ошибка", "story": story, "prompt": prompt, "panel": {"type": "code", "lang": "python", "lines": lines}, "key": key}
 

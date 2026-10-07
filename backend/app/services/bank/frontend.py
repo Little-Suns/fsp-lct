@@ -16,18 +16,22 @@ def _(rng):
     err, body, state = [("Cannot read properties of undefined (reading 'map')", f"[{n} items]", "useState()"),
                         (f"{res}.map is not a function", f'{{"items": [{n} items], "total": {n * 7}}}', "useState([])"),
                         ("Cannot read properties of null (reading 'name')", f"[{n} items, у {rng.randint(1, 3)} из них author: null]", "useState([])")][v]
+    net = _log(f"10:{s:02d}:02.{ms:03d}", "network", "INFO", f"GET /api/{res} 200 ({ms + 900} ms), body: {body}")
+    # v0 падает на первом рендере, до ответа API; v1 и v2 — уже на пришедших данных, после ответа
+    err_t = (1, 204) if v == 0 else (2, ms + 30)
     lines = [
-        _log(f"10:{s:02d}:01.120", "vite", "INFO", f"page reload src/pages/{comp}.tsx"),
-        _log(f"10:{s:02d}:01.204", "console", "ERROR", f"Uncaught TypeError: {err}\n    at {comp} ({comp}.tsx:{rng.randint(14, 40)}:{rng.randint(12, 30)})"),
-        _log(f"10:{s:02d}:01.205", "console", "WARN", f"The above error occurred in the <{comp}> component"),
-        _log(f"10:{s:02d}:02.{ms:03d}", "network", "INFO", f"GET /api/{res} 200 ({ms + 900} ms), body: {body}"),
+        _log(f"10:{s:02d}:01.020", "vite", "INFO", f"page reload src/pages/{comp}.tsx"),
+        *([] if v == 0 else [net]),
+        _log(f"10:{s:02d}:{err_t[0]:02d}.{err_t[1]:03d}", "console", "ERROR", f"Uncaught TypeError: {err}\n    at {comp} ({comp}.tsx:{rng.randint(14, 40)}:{rng.randint(12, 30)})"),
+        _log(f"10:{s:02d}:{err_t[0]:02d}.{err_t[1] + 1:03d}", "console", "WARN", f"The above error occurred in the <{comp}> component"),
+        *([net] if v == 0 else []),
     ]
     opts, key = _options(rng, ["Первый рендер идёт до ответа API: состояние undefined — задать [] или показывать загрузку",
                                f"API /api/{res} вернул объект с полем items, а не массив: брать data.items",
                                "У части элементов автора нет (null): обработать отсутствующие данные — опциональная цепочка и заглушка"], v,
                          ["Vite не пересобрал модуль после изменения файла: нужен полный перезапуск dev-сервера с очисткой кэша",
                           "У элементов списка нет key, поэтому React не может отрисовать map"])
-    return {"scene_title": "Белый экран", "story": f"Понедельник. Экран {comp} падает сразу при открытии. Состояние объявлено как {state}, данные грузятся в useEffect.",
+    return {"scene_title": "Белый экран", "story": f"Понедельник. Экран {comp} падает при открытии. Состояние объявлено как {state}, данные грузятся в useEffect.",
             "prompt": "Почему компонент падает?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -90,7 +94,8 @@ def _(rng):
 
 @family("fe_dbg_url_scheme", "Frontend", "Отладка UI", "choice", 2.3, 2.75)
 def _(rng):
-    field, role = rng.choice([("website", "модератора"), ("portfolio", "рекрутера"), ("homepage", "администратора")])
+    field, role, role_by = rng.choice([("website", "модератора", "модератором"), ("portfolio", "рекрутера", "рекрутером"),
+                                       ("homepage", "администратора", "администратором")])
     host = f"203.0.113.{rng.randint(2, 250)}"
     v = _variant(rng, 3)
     if v == 0:
@@ -108,7 +113,7 @@ def _(rng):
         patch = "Проверять расширение файла: принимать только .png, .jpg и .svg"
         lines = ["// загрузка аватара", 'if (!["image/png", "image/jpeg", "image/svg+xml"].includes(file.type)) throw new Error("bad type");',
                  "await upload(`/media/avatars/${user.id}`, file);", "", "// отдача: тот же домен, что и приложение", "// GET /media/avatars/<id> → Content-Type из загрузки, без Content-Disposition"]
-        story = f"Аватар из анкеты, открытый {role} по прямой ссылке в новой вкладке, выполнил скрипт в его сессии. Загружаются только картинки."
+        story = f"Аватар из анкеты, открытый {role_by} по прямой ссылке в новой вкладке, выполнил скрипт в его сессии. Загружаются только картинки."
     else:
         patch = "Проверять event.data.type строже: принимать только тип setToken и токен нужного формата"
         lines = ['window.addEventListener("message", (event) => {', '  if (event.data?.type === "setToken") {', "    widget.setToken(event.data.token);", "  }", "});",
@@ -288,11 +293,11 @@ def _(rng):
         lines += ["  }, [onClose]);", "", '  return <div role="dialog">{children}</div>;', "}"]
         story = "После нескольких открытий окна одно нажатие Esc вызывает onClose по три-четыре раза, в том числе у уже закрытых окон."
     else:
-        lines = [f"function {comp}() {{", "  const clicks = useRef(0);"]
+        lines = ["function ClickCounter() {", "  const clicks = useRef(0);"]
         if rng.random() < 0.5:
             lines.append("  const format = useDurationFormat();")
         lines += ["  const onClick = () => {", "    clicks.current += 1;"]
-        key = [len(lines), len(lines) + 3]
+        key = [2, len(lines), len(lines) + 3]  # useRef вместо useState, мутация без рендера, вывод ref
         lines += ["    console.log(clicks.current);", "  };", "  return <button onClick={onClick}>Нажатий: {clicks.current}</button>;", "}"]
         story = "Счётчик нажатий на экране всегда показывает 0, хотя в консоли значение растёт."
     return {"scene_title": "Хуки ведут себя странно", "story": story, "prompt": "Нажмите на строку с причиной.", "panel": {"type": "code", "lang": "tsx", "lines": lines}, "key": key}
@@ -307,10 +312,10 @@ def _(rng):
         lines.append("  // повторяем запрос с новым токеном")
     if v == 1:
         lines.append("  if (error.response?.status !== 401) throw error;")
-        key = len(lines)
+        key = len(lines)  # refresh помечен _retry, но условие флаг не проверяет: 401 самого refresh снова запускает refresh
     else:
         lines += ["  if (error.response?.status !== 401 || original._retry) throw error;", "  original._retry = true;"]
-    lines.append(f'  const tokens = await {cl}.post("/auth/refresh", {{ token: getRefreshToken() }}).then((r) => r.data);' if v == 1 else
+    lines.append(f'  const tokens = await {cl}.post("/auth/refresh", {{ token: getRefreshToken() }}, {{ _retry: true }}).then((r) => r.data);' if v == 1 else
                  "  const tokens = await auth.refresh(getRefreshToken());")
     if v == 0:
         key = len(lines)
@@ -341,6 +346,8 @@ def _(rng):
     if v == 1:
         key = len(lines)
     lines += ["  if (!cache.has(key)) {"]
+    if v == 2:
+        key = [1, len(lines)]  # кэш без срока жизни: сама Map и проверка has без учёта возраста записи
     if v == 0:
         lines.append(f"    cache.set(key, fetch(`{api}?q=${{encodeURIComponent(q)}}&lang=${{locale}}`).then(r => {{")
         key = len(lines)
@@ -449,8 +456,8 @@ def _(rng):
 
 @family("fe_arch_cdn_personal", "Frontend", "Архитектура клиента", "choice", 2.3, 2.4)
 def _(rng):
-    page, who, seen, n = rng.choice([("/catalog", "чужое имя пользователя", "видно", 7), ("/", "чужая корзина", "видна", 4),
-                                     ("/orders", "чужой номер телефона", "виден", 11)])
+    page, who, seen, n = rng.choice([("/catalog", "чужое имя пользователя", "видно", "7 минут"), ("/", "чужая корзина", "видна", "4 минуты"),
+                                     ("/orders", "чужой номер телефона", "виден", "11 минут")])
     ttl = rng.choice([60, 120, 300])
     v = _variant(rng, 3)
     if v == 0:
@@ -458,18 +465,20 @@ def _(rng):
                  _log("10:41:02", "cdn-edge", "INFO", f"response: cache-control: public, s-maxage={ttl}; vary: Accept-Encoding"),
                  _log("10:41:03", "web-ssr", "INFO", f"render {page} user=u_{rng.randint(1000, 9999)} stream=on 182 ms"),
                  _log("10:41:09", "support", "WARN", f"жалоба #{rng.randint(300, 900)}: в шапке {who}")]
-        story = f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с. Нагрузка на сервер упала, но за {n} минут пришли жалобы: в шапке — {who}."
+        story = f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с. Нагрузка на сервер упала, но за {n} пришли жалобы: в шапке — {who}."
     elif v == 1:
+        page = "/promo" if page == "/orders" else page
         lines = [_log("10:41:02", "cdn-edge", "INFO", f"GET {page} 200 x-cache: MISS"), _log("10:41:02", "cdn-edge", "INFO", f"response: cache-control: public, s-maxage={ttl}; vary: Cookie"),
                  _log("10:41:30", "cdn-edge", "INFO", f"hit ratio {page}: 0.{rng.randint(1, 9)} %, origin RPS без изменений")]
-        story = f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с, отдельно для каждого пользователя. Нагрузка на сервер не изменилась."
+        story = (f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с. Персональных данных на странице нет, она одинакова для всех. "
+                 "Нагрузка на сервер не изменилась.")
     else:
         lines = [_log("10:41:02", "cdn-edge", "INFO", f"GET {page}?page=3&sort=price 200 x-cache: HIT age={rng.randint(5, ttl - 1)}"),
                  _log("10:41:02", "cdn-edge", "INFO", "cache key: host + path (query string ignored)"),
                  _log("10:41:09", "support", "WARN", "жалоба: на любой странице каталога и при любой сортировке — одни и те же товары")]
         story = f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с. Нагрузка упала, но пагинация и сортировка перестали работать."
-    opts, key = _options(rng, ["Каркас — в кэш CDN, персональный блок — отдельным запросом с Cache-Control: private",
-                               "Vary: Cookie делает копию на каждого пользователя, и кэш не попадает: кэшировать общий каркас без зависимости от cookie",
+    opts, key = _options(rng, ["Персональная шапка попала в общий кэш: каркас — в CDN, персональный блок — отдельным запросом с Cache-Control: private",
+                               "Vary: Cookie делает копию на каждого посетителя, и кэш не попадает: убрать Vary: Cookie из ответа",
                                "Ключ кэша не учитывает строку запроса: включить в него page и sort"], v,
                          [f"Снизить s-maxage до 5 секунд: окно, в котором {seen} {who}, станет пренебрежимым", "Выключить потоковый SSR: при стриминге ответы разных запросов смешиваются"])
     return {"scene_title": "Кэш на CDN", "story": story, "prompt": "Как исправить, сохранив выигрыш от кэша?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
@@ -492,9 +501,10 @@ def _(rng):
     else:
         lines += [f'  <label for="f2">{ph}</label>', f'  <input id="f2" type="{typ}">']
         if v == 1:
-            lines.append(f'  <a href="/help"><img src="/img/help-{rng.randint(10, 99)}.svg"></a>')
+            num, spoken = rng.choice([(12, "двенадцать"), (24, "двадцать четыре"), (42, "сорок два"), (64, "шестьдесят четыре")])
+            lines.append(f'  <a href="/help"><img src="/img/help-{num}.svg"></a>')
             key = len(lines)
-            story = f"Тестировщик проверяет форму {form} со скринридером. На одной ссылке тот читает «ссылка, help тире сорок два точка svg»."
+            story = f"Тестировщик проверяет форму {form} со скринридером. На одной ссылке тот читает «ссылка, help тире {spoken} точка svg»."
         else:
             lines.append('  <div class="btn" onclick="submitForm()">Продолжить</div>')
             key = len(lines)
@@ -547,9 +557,9 @@ def _(rng):
                  "// при переходе по ссылке меняется только <main>, title и фокус остаются прежними"]
         story = "Пользователь скринридера нажимает на ссылку меню — и ничего не слышит: страница сменилась, а фокус остался на ссылке."
     else:
-        lines = ['<button class="icon-btn" aria-label="Удалить">', '  <span class="icon icon-trash"></span>', "</button>",
+        lines = ['<button class="icon-btn">', '  <span class="icon icon-trash"></span>', "</button>",
                  '<span class="icon icon-star"></span> Избранное']
-        story = "Скринридер читает «Удалить, private use символ E 0 1 2» и перед «Избранное» — ещё один непонятный символ."
+        story = "Кнопку удаления скринридер читает как «кнопка, private use символ E 0 1 2», а перед «Избранное» — ещё один непонятный символ."
     opts, key = _options(rng, ["Live-регион должен быть в DOM до изменения: рендерить контейнер всегда, менять только текст",
                                "При смене страницы переносить фокус на заголовок новой страницы и обновлять document.title",
                                "Декоративные иконки скрыть от скринридера aria-hidden=\"true\", смысловым дать текстовую подпись"], v,
@@ -592,7 +602,7 @@ def _(rng):
              f"Фильтр «{child}» должен показывать товары из всех вложенных категорий любой глубины."][v]
     opts, key = _options(rng, ["Построить Map id → категория один раз и подниматься по parentId до корня: O(глубины)",
                                "Один проход: Map id → узел, затем каждый узел положить в children родителя: O(n)",
-                               "Построить Map parentId → дети и обойти поддерево в ширину или в глубину: O(размера поддерева)"], v,
+                               "Собрать потомков выбранной категории: Map parentId → дети и обход её поддерева, O(размера поддерева)"], v,
                          ["На каждом уровне заново фильтровать весь список по parentId: это O(log n)",
                           "Отсортировать категории по name и искать родителя каждого узла бинарным поиском: O(log n) на шаг"])
     return {"scene_title": "Дерево категорий", "story": f"API отдаёт {n} тыс. категорий плоским списком с parentId, порядок произвольный. {story}",

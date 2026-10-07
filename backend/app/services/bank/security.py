@@ -67,7 +67,9 @@ def _(rng):
     else:
         lines += ["parts = urlsplit(target)", "if parts.netloc and parts.netloc not in ALLOWED_HOSTS:", '    target = "/"']
         story = "Чужие хосты проверка отсекает, но ссылка на наш /login из рассылки после входа выполняет скрипт на нашей странице."
-    lines.append("return redirect(target)")
+    # javascript: в Location серверного 302 браузер не исполняет — у варианта со скриптом переход делает сама страница
+    lines.append('return render_template("after_login.html", next_url=target)  # там: location.href = {{ next_url|tojson }}' if v == 2 else
+                 "return redirect(target)")
     opts, key = _options(rng, [f"«//{host}» без схемы проходит проверку: разбирать адрес через urlsplit и пускать только путь без хоста",
                                "Проверка префиксом пропускает «example.com.другой-домен»: сравнивать хост целиком с белым списком",
                                "Схема javascript: проходит проверку хоста: разрешать только https и путь без схемы"], v,
@@ -102,9 +104,10 @@ def _(rng):
         lines = ['@router.post("/register")', "async def register(request: Request):", "    data = await request.json()"]
         if rng.random() < 0.5:
             lines.append("    validate_email(data[\"email\"])")
+        lines.append("    password = data.pop(\"password\")")
         lines.append(f"    user = {model}(**data)")
         key = len(lines)
-        lines += ["    user.set_password(data.pop(\"password\"))", "    db.add(user)", "    await db.commit()", "    return {\"id\": user.id}"]
+        lines += ["    user.set_password(password)", "    db.add(user)", "    await db.commit()", "    return {\"id\": user.id}"]
         story = f"Новые пользователи при регистрации получают {field}, хотя форма такого поля не содержит."
     return {"scene_title": "Лишнее поле", "story": story,
             "prompt": "Нажмите на строку, из-за которой пользователь может выставить себе привилегированный атрибут.",
@@ -118,8 +121,9 @@ def _(rng):
 def _(rng):
     base = rng.choice(["uploads", "reports", "exports"])
     v = _variant(rng, 3)
+    # {name:path}: обычный {name} в FastAPI не пропускает «/», и «../» в него не попадёт
     if v == 0:
-        lines = [f'@router.get("/{base}/{{name}}")', "async def download(name: str):"]
+        lines = [f'@router.get("/{base}/{{name:path}}")', "async def download(name: str):"]
         if rng.random() < 0.5:
             lines.append("    name = name.strip()")
         lines.append(f'    path = os.path.join("/srv/{base}", name)')
@@ -133,7 +137,7 @@ def _(rng):
         lines += ["    return {\"id\": dest.name}"]
         story = f"Архивы распаковываются в каталог /srv/{base}. После загрузки чужого архива на сервере появились файлы вне этого каталога."
     else:
-        lines = [f'@router.get("/{base}/{{name}}")', "async def download(name: str):", f'    path = os.path.join("/srv/{base}", name)',
+        lines = [f'@router.get("/{base}/{{name:path}}")', "async def download(name: str):", f'    path = os.path.join("/srv/{base}", name)',
                  f'    if not path.startswith("/srv/{base}/"):']
         key = len(lines)
         lines += ["        raise HTTPException(404)", "    return FileResponse(path)"]
@@ -191,7 +195,7 @@ def _(rng):
                   "    client = httpx.AsyncClient(follow_redirects=True)"]
         key = len(lines)
         lines.append("    resp = await client.get(url, timeout=5)")
-        story = f"Сервис ходит по ссылке пользователя ({feat}) и проверяет, что адрес назначения не внутренний. Аудитор дал ссылку на свой сервер — и дотянулся до внутреннего."
+        story = f"Сервис ходит по ссылке пользователя ({feat}) и проверяет, что адрес назначения не внутренний. Аудитор дал ссылку на свой сервер, тот ответил 302 на внутренний адрес — и запрос туда дошёл."
     lines.append("    return resp.content")
     return {"scene_title": "Запрос по ссылке", "story": story, "prompt": "Нажмите на строку, из-за которой сервис можно заставить сходить во внутреннюю сеть.",
             "panel": {"type": "code", "lang": "python", "lines": lines, "caption": f"PR #{rng.randint(400, 899)} · «{feat}»"}, "key": key}
@@ -277,7 +281,7 @@ def _(rng):
         lines = [_log(f"03:{m:02d}:{s0:02d}", "fw", "INFO", f"{host} → {dst}:443 TLS, {rng.randint(300, 420)} B out / {rng.randint(150, 260)} B in"),
                  _log(f"03:{m + 1:02d}:{s0 + rng.randint(-2, 2):02d}", "fw", "INFO", f"{host} → {dst}:443 TLS, {rng.randint(300, 420)} B out / {rng.randint(150, 260)} B in")]
         lines += [_log(f"03:{m + 5:02d}:00", "netflow", "WARN", f"{host}: соединения с {dst} каждые 60 ± 2 с уже {rng.randint(3, 9)} суток, объём всегда маленький"),
-                  _log(f"03:{m + 5:02d}:00", "dns", "INFO", f"{dst}: нет обратной записи, домен зарегистрирован {rng.randint(2, 9)} дней назад")]
+                  _log(f"03:{m + 5:02d}:00", "dns", "INFO", f"{dst}: нет обратной записи, домен зарегистрирован {rng.randint(5, 9)} дней назад")]
     else:
         lines = [_log(f"03:{m:02d}:00", "proxy", "INFO", f"{host} PUT https://storage.cloud.example/{rng.choice(['backup-tmp', 'sync-7f3', 'arch-q'])}/part-001 (512 MB)"),
                  _log(f"03:{m:02d}:40", "proxy", "INFO", f"{host} PUT …/part-002 (512 MB)"),
@@ -338,7 +342,7 @@ def _(rng):
     else:
         lines = ["def enc(data: bytes) -> bytes:", "    iv = os.urandom(16)", "    return iv + AES.new(KEY, AES.MODE_CBC, iv).encrypt(pad(data, 16))", "",
                  "def dec(blob: bytes) -> bytes:", "    c = AES.new(KEY, AES.MODE_CBC, blob[:16])", "    return unpad(c.decrypt(blob[16:]), 16)  # ValueError → 400 «bad padding»"]
-    opts, key = _options(rng, ["Одинаковые значения дают одинаковый шифротекст и выдают совпадения: новый случайный IV на каждую запись",
+    opts, key = _options(rng, ["Фиксированный IV в CBC: одинаковые значения дают одинаковый шифротекст и выдают совпадения — новый случайный IV на каждую запись",
                                "Повтор nonce в GCM раскрывает XOR открытых текстов и ломает аутентичность: уникальный nonce на запись",
                                "Шифротекст можно незаметно менять, а ошибки паддинга дают оракула: AEAD (GCM) или HMAC поверх шифротекста"], v,
                          ["IV — открытый параметр и секретом не является: его и так передают рядом с шифротекстом, поэтому фиксированное значение ничем не опасно",
@@ -415,10 +419,11 @@ def _(rng):
     buf = rng.choice([5000, 10000, 20000])
     v = _variant(rng, 3)
     if v == 0:
+        small = rng.choice([500, 1000, 2000])
         lines = [_log(f"{a}:00", svc, "INFO", "audit log rotated"),
-                 _log(f"{a}:01", svc, "WARN", f"{sink} unreachable, buffering (buffer size {rng.choice([500, 1000, 2000])} events)"),
+                 _log(f"{a}:01", svc, "WARN", f"{sink} unreachable, buffering (buffer size {small} events)"),
                  _log(f"{a}:09", svc, "WARN", "buffer full, dropping events"),
-                 _log(f"{b}:10", svc, "INFO", f"{sink} restored, 0 events flushed")]
+                 _log(f"{b}:10", svc, "INFO", f"{sink} restored, {small} events flushed, {rng.randint(20000, 90000)} dropped")]
     elif v == 1:
         lines = [_log(f"{a}:00", svc, "INFO", "audit log rotated"),
                  _log(f"{a}:01", "chronyd", "WARN", f"system clock stepped by +{dur * 60}.0 s"),
@@ -518,12 +523,12 @@ def _(rng):
     v = _variant(rng, 3)
     if v == 0:
         lines = [_log("—", tool, "INFO", f"release {ver}: found reference to {ep}"), _log("—", tool, "WARN", f"flag enableDebug read from {store}")]
-    elif v == 1:
-        lines = [_log("—", tool, "WARN", f"release {ver}: android:debuggable=\"true\" in manifest"),
-                 _log("—", tool, "INFO", "к процессу на обычном телефоне подключается отладчик через adb")]
+    elif v == 1:  # android:debuggable, adb и logcat — Android, поэтому сканер всегда apk-scan
+        lines = [_log("—", "apk-scan", "WARN", f"release {ver}: android:debuggable=\"true\" in manifest"),
+                 _log("—", "apk-scan", "INFO", "к процессу на обычном телефоне подключается отладчик через adb")]
     else:
         lines = [_log("—", "logcat", "DEBUG", f"release {ver}: HTTP POST /auth/refresh → 200 {{\"access_token\": \"eyJ…\", \"refresh_token\": \"rt_…\"}}"),
-                 _log("—", tool, "INFO", "уровень логов в релизе: VERBOSE")]
+                 _log("—", "apk-scan", "INFO", "уровень логов в релизе: VERBOSE")]
     opts, key = _options(rng, ["Убрать отладочный путь из релизной сборки: флаг на устройстве легко включить самому",
                                "Собирать релиз с выключенным debuggable: иначе к процессу подключаются отладчиком",
                                "Убрать подробные логи из релиза и не писать токены в логи вовсе"], v,
@@ -592,12 +597,15 @@ def _(rng):
         key = len(lines)
         story = f"{fn} проверяет подпись ключом нашего IdP. Аудит показал, что токен, который IdP выдал мобильному приложению партнёра, принимается и нашим API."
     else:
+        # подпись проверяется у access-токена, а роли читаются из соседнего id_token без проверки (тот же token подделать нельзя: decode упадёт)
+        lines[0] = f"async def {fn}(token: str, id_token: str) -> dict:"
         lines += ["    jwks = await jwks_cache.get(IDP_JWKS_URL)  # кэш на 10 минут", '    signing_key = jwks.find(header["kid"])',
                   f'    jwt.decode(token, signing_key, algorithms=["RS256"], audience="{aud}")',
-                  '    claims = json.loads(b64url_decode(token.split(".")[1]))']
+                  '    claims = json.loads(b64url_decode(id_token.split(".")[1]))']
         key = len(lines)
         lines += ["    return claims"]
-        story = f"{fn} проверяет подпись ключом нашего IdP и аудиторию. Аудит прислал токен с исправленной вручную ролью — и он прошёл."
+        story = (f"{fn} проверяет подпись ключом нашего IdP и аудиторию. Аудит прислал настоящий токен, а рядом — id_token "
+                 "с исправленной вручную ролью, и роль применилась.")
     return {"scene_title": "Проверка токена", "story": story, "prompt": "Нажмите на строку, из-за которой проходит токен, который не должен проходить.",
             "panel": {"type": "code", "lang": "python", "lines": lines, "caption": f"PR #{rng.randint(400, 899)} · «{fn}: ротация ключей IdP»"}, "key": key}
 
@@ -650,11 +658,14 @@ def _(rng):
         story = f"Мультитенантный SaaS: API проверяет клиента, но к чужим файлам добираются снова и снова — это уже {n}-й отчёт."
     else:
         lines = [_log(f"{i + 1:02d}.0{rng.randint(1, 9)}", "bug-bounty", "WARN", f"GraphQL: {s} → вложенное поле отдаёт записи другого клиента") for i, s in enumerate(svcs)]
-        lines.append(_log("сводка", "appsec", "INFO", f"за полгода {n} похожих отчётов; корневые запросы проверяют клиента, вложенные резолверы грузят по id"))
-        story = f"Мультитенантный SaaS на GraphQL: доступ проверяется, но чужие данные находят снова и снова — это уже {n}-й отчёт."
+        # слой данных и RLS уже есть — иначе ответ варианта 0 закрывал бы и этот случай; дыра в кэше загрузчика, до БД запрос не доходит
+        lines.append(_log("сводка", "appsec", "INFO", f"за полгода {n} похожих отчётов; утечки только во вложенных полях под нагрузкой; "
+                                                      "DataLoader один на процесс, кэш по id общий для всех запросов и клиентов"))
+        story = (f"Мультитенантный SaaS на GraphQL: фильтр tenant_id в слое данных и row-level security в БД уже есть, "
+                 f"но чужие данные находят снова и снова — это уже {n}-й отчёт.")
     opts, key = _options(rng, ["Фильтр tenant_id из сессии — в общем слое доступа к данным, row-level security в БД вторым рубежом и тест «чужой клиент → отказ» на каждый эндпоинт",
                                "Закрыть бакет и отдавать файлы по короткоживущим подписанным ссылкам, которые выдаются только после проверки прав",
-                               "Проверять клиента в каждом резолвере через общий загрузчик данных с фильтром по клиенту, а не только в корневом запросе"], v,
+                               "Создавать загрузчик данных на каждый запрос, чтобы его кэш не переживал запрос и не смешивал объекты разных клиентов"], v,
                          ["Перейти с последовательных id на случайные UUID во всех сервисах и общей БД: подобрать идентификатор чужого объекта станет практически невозможно, а код проверок трогать не придётся",
                           "Проверять клиента в API-шлюзе: шлюз сверяет X-Tenant-Id с токеном и не пускает чужие запросы дальше",
                           "Закрепить точечные исправления: пункт про проверку владельца в чек-листе ревью и правило WAF на перебор id подряд"])
