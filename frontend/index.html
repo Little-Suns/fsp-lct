@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ФСП Карьера — макет</title>
+<title>ФСП Карьера</title>
 <link rel="icon" href="assets/mark.png">
 <style>
 @font-face { font-family: "JetBrains Mono"; src: url(assets/fonts/JetBrainsMono-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
@@ -111,7 +111,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 .msg.me { align-self: flex-end; background: var(--blue-soft); }
 .msg p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .msg time { display: block; text-align: right; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
-.dot { background: var(--red); color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; }
+.unread { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 1; vertical-align: middle; flex: none; }
 @media (max-width: 900px) { .chat { grid-template-columns: minmax(0, 1fr); } .chat-list { max-height: 30vh; } }
 @media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -442,7 +442,7 @@ const S = {
   questInvite: null,                 // тест по приглашению: invitation_id
   vf: { spec: '', grade: '', format: '', city: '', q: '' },   // фильтры вакансий кандидата
   sf: { spec: '', track: '', grade: '', skills: '', q: '', fsp: false, cf: false, hackathon: false, format: '', city: '', page: 1 },
-  vform: null, tform: null, applyNote: '', answer: '', picks: [], hiddenEdit: false, needAdd: null, plan: null,
+  vform: null, tform: null, applyNote: '', answer: '', picks: [], hiddenEdit: false, needAdd: null, needCat: null, plan: null,
   appDecline: null, reviewFor: null,
   pf: null, cv: null,
   declineFor: null, declineReason: null,
@@ -586,7 +586,7 @@ const NAV = {
 const NAV_OF = { '/c/invite': '/c/home', '/c/vacancy': '/c/vacancies', '/c/task': '/c/tasks', '/c/quest': '/c/result', '/e/vacancy': '/e/vacancies', '/e/task': '/e/tasks', '/e/need': '/e/picks', '/e/invite': '/e/pipeline' };
 function subnav(side) {
   const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
-  return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="dot">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
+  return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
 }
 // плашка неподтверждённой компании (квота урезана, кандидаты видят предупреждение)
 const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/signup">Данные компании</button></span></div>` : '';
@@ -915,6 +915,10 @@ const QUEST_INTRO = {
   'DevOps / SRE': ['Миграция в облако', 'Ночь переезда в облако', 'Вы SRE. За ночь миграции разберёте инциденты, сети, Kubernetes, CI/CD, мониторинг и план отката.', 'Kubernetes и облака'],
   'QA': ['Приёмка релиза', 'День приёмки релиза', 'Вы инженер по тестированию. Разберёте тест-дизайн, приёмку, автотесты, API, баг-репорты и регресс.', 'инструментов тестирования'],
   'Security': ['Ночной инцидент', 'Ночью сработал алерт безопасности', 'Вы инженер по безопасности. Разберёте уязвимости, ревью кода, сетевые атаки, криптографию, реагирование и реверс.', 'по безопасности (OWASP и др.)'],
+  'Analysis': ['Новая интеграция', 'Партнёр подключается через неделю, а требования расходятся', 'Вы системный или бизнес-аналитик. Разберёте требования, процессы, интеграцию и API, данные, спецификации и влияние изменений.', 'по нотациям (BPMN, UML) и API партнёра'],
+  'Management': ['Квартальное планирование', 'План квартала, а ресурсов на всё не хватает', 'Вы проджект- или продакт-менеджер. Разберёте сроки, риски, метрики продукта, приоритеты, стейкхолдеров и процессы команды.', 'по методологиям и вашему трекеру'],
+  'Design': ['Редизайн оформления заказа', 'Конверсия чекаута падает, редизайн — на этой неделе', 'Вы UX/UI- или продуктовый дизайнер. Разберёте исследования, юзабилити, доступность, дизайн-систему, прототипы и эксперименты.', 'по WCAG и вашей дизайн-системе'],
+  'SysAdmin / Support': ['Понедельник в офисе', 'Понедельник, 8 утра, очередь обращений растёт', 'Вы системный администратор или инженер поддержки. Разберёте инциденты, сеть, учётки и доступы, бэкапы, серверы и обращения пользователей.', 'по ОС и вашему оборудованию'],
 };
 
 V['/c/quest'] = () => {
@@ -1608,6 +1612,19 @@ function planPanel() {
   </div>`;
 }
 
+// категория из разбора правится вручную: специализация, трек, грейд — из справочника
+function needCatBox(p) {
+  const c = S.needCat;
+  if (!c) return `<div class="row">${catTag(p.spec, p.track, p.grade)}<button class="btn ghost small" data-act="need-cat">Изменить</button></div>`;
+  const opt = (xs, v) => xs.map(x => `<option value="${esc(x)}" ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join('');
+  return `<div class="row" style="gap:6px">
+    <select class="input" id="nc-spec" aria-label="Специализация" style="width:auto">${opt(META.specs, c.spec)}</select>
+    <select class="input" id="nc-track" aria-label="Трек" style="width:auto"><option value="">любой трек</option>${opt(META.tracks[c.spec], c.track)}</select>
+    <select class="input" id="nc-grade" aria-label="Грейд" style="width:auto">${opt(META.grades, c.grade)}</select>
+    <button class="btn primary small" data-act="need-cat-ok">Применить</button><button class="btn ghost small" data-act="need-cat-cancel">Отмена</button>
+  </div>`;
+}
+
 V['/e/need'] = () => {
   const p = S.need.parsed;
   const mk = p && p.market;
@@ -1628,7 +1645,7 @@ V['/e/need'] = () => {
       <div class="panel stack fade">
         <div class="row sb"><h3>Структура потребности</h3><span class="chip on">${p.parsed_by === 'llm' ? 'разобрано моделью · ' : ''}проверьте поля</span></div>
         <div class="parsed">
-          <span class="label">Категория</span><div class="row">${catTag(p.spec, p.track, p.grade)}<button class="btn ghost small" data-act="noop" data-msg="Категория берётся из текста: уточните специализацию, стек или грейд в описании">Изменить</button></div>
+          <span class="label">Категория</span>${needCatBox(p)}
           <span class="label">Обязательно</span><div class="chips">${p.must.map(s => `<button class="chip on" data-act="need-rm" data-k="must" data-v="${esc(s)}">${esc(s)} <span class="x">×</span></button>`).join('')}${addBox('must')}</div>
           <span class="label">Желательно</span><div class="chips">${p.nice.map(s => `<button class="chip" data-act="need-rm" data-k="nice" data-v="${esc(s)}">${esc(s)} <span class="x">×</span></button>`).join('')}${addBox('nice')}</div>
           <span class="label">Вилка на руки</span><div class="row num"><b>${p.from || p.to ? `${RUB(p.from)} — ${RUB(p.to)}` : 'не указана'}</b>${p.hints && p.hints.length ? `<span class="hint">${esc(p.hints[0])}</span>` : ''}</div>
@@ -1649,7 +1666,11 @@ V['/e/need'] = () => {
   </div>`;
 };
 
-const roleTitle = n => `${n.spec}-разработчик${n.track ? ` (${n.track})` : ''}`;
+// нетехнические роли называются по треку («Системный аналитик»), разработка — «Backend-разработчик (Python)»
+const ROLE_TITLE = { 'System': 'Системный аналитик', 'Business': 'Бизнес-аналитик', 'Project': 'Project-менеджер', 'Product': 'Product-менеджер',
+  'UX/UI': 'UX/UI-дизайнер', 'Product Design': 'Продуктовый дизайнер', 'SysAdmin': 'Системный администратор', 'Support': 'Инженер техподдержки' };
+const SPEC_ROLE = { 'Analysis': 'Аналитик', 'Management': 'Менеджер', 'Design': 'Дизайнер', 'SysAdmin / Support': 'Системный администратор' };
+const roleTitle = n => ROLE_TITLE[n.track] || SPEC_ROLE[n.spec] || `${n.spec}-разработчик${n.track ? ` (${n.track})` : ''}`;
 
 // панель «квалифицированной лотереи»: порог → замороженный пул + хеш зерна → жребий → проверка
 function lotteryPanel(n) {
@@ -1774,7 +1795,7 @@ function chatList() {
   if (peer != null && d && !list.some(c => String(c.peer_id) === peer)) list = [{ peer_id: peer, peer_name: d.peer.name, unread_count: 0, last_message: null }, ...list];
   return list.map(c => `<button class="chat-peer ${String(c.peer_id) === peer ? 'on' : ''}" data-go="/${side}/chat/${esc(encodeURIComponent(c.peer_id))}">
       <span class="stack-s" style="min-width:0;flex:1"><b>${esc(c.peer_name)}</b><span class="small muted">${c.last_message ? (c.last_message.sender === chatMe() ? 'Вы: ' : '') + esc(c.last_message.text) : 'Нет сообщений'}</span></span>
-      ${c.unread_count ? `<span class="dot">${c.unread_count}</span>` : ''}
+      ${c.unread_count ? `<span class="unread">${c.unread_count}</span>` : ''}
     </button>`).join('') || '<span class="small muted">Диалогов пока нет. Писать можно после принятия приглашения или отклика на вакансию.</span>';
 }
 
@@ -2856,7 +2877,14 @@ const ACT = {
   async parse(a) {
     a.textContent = 'Разбираю…';
     S.need.parsed = await api('POST', '/api/employer/needs/parse', { text: S.need.text });
-    S.plan = null; rerender();
+    S.plan = null; S.needCat = null; rerender();
+  },
+  'need-cat': () => { const p = S.need.parsed; S.needCat = { spec: p.spec, track: p.track || '', grade: p.grade }; rerender(); },
+  'need-cat-cancel': () => { S.needCat = null; rerender(); },
+  async 'need-cat-ok'() {
+    const p = S.need.parsed, c = S.needCat, cat = { spec: c.spec, track: c.track || null, grade: c.grade };
+    Object.assign(p, await api('POST', '/api/employer/needs/category', { ...cat, city: p.city, salary_to: p.to }), cat);
+    S.needCat = null; S.plan = null; rerender();
   },
   'need-rm': (a, d) => { const l = S.need.parsed[d.k]; l.splice(l.indexOf(d.v), 1); rerender(); },
   'need-add': (a, d) => { S.needAdd = d.k || null; rerender(); const el = document.getElementById('need-skill'); if (el) el.focus(); },
@@ -2867,7 +2895,8 @@ const ACT = {
     S.needAdd = null; rerender();
   },
   async plan() {
-    S.plan = await api('POST', '/api/quest/plan', S.need.parsed ? { text: S.need.text } : { need_id: S.needId });
+    const p = S.need.parsed;  // план — по структуре на экране (с правками категории и навыков), а не по повторному разбору текста
+    S.plan = await api('POST', '/api/quest/plan', p ? { spec: p.spec, track: p.track, grade: p.grade, must: p.must, nice: p.nice } : { need_id: S.needId });
     rerender();
   },
   async 'need-save'() {
@@ -2876,7 +2905,7 @@ const ACT = {
       text: S.need.text, spec: p.spec, track: p.track, grade: p.grade, must: p.must, nice: p.nice,
       salary_from: p.from, salary_to: p.to, format: p.format, city: p.city, parsed_by: p.parsed_by,
     });
-    S.needId = n.id; S.needObj = n; S.lot = null; S.filters.clear(); S.inviteForm = null; S.need.parsed = null; S.plan = null;
+    S.needId = n.id; S.needObj = n; S.needCat = null; S.lot = null; S.filters.clear(); S.inviteForm = null; S.need.parsed = null; S.plan = null;
     go('/e/picks');
   },
   async filter(a, d) { S.filters.has(d.k) ? S.filters.delete(d.k) : S.filters.add(d.k); await loadPicks(); rerender(); },
@@ -2987,6 +3016,10 @@ document.addEventListener('change', async e => {
   if (t.id === 'vx-spec') { capture(); S.vform.track = ''; rerender(); }
   if (t.id === 'tx-spec') { capture(); S.tform.competency = ''; rerender(); }
   if (t.id === 'sf-spec') { capture(); S.sf.track = ''; rerender(); }
+  if (t.id.startsWith('nc-') && S.needCat) {
+    const c = S.needCat;
+    if (t.id === 'nc-spec') { c.spec = t.value; c.track = ''; rerender(); } else c[t.id.slice(3)] = t.value;
+  }
   if (t.id === 'cv-file' && t.files[0]) {
     capture();
     const fd = new FormData();

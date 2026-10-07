@@ -56,8 +56,9 @@ set_clock(None)
 
 # ───────────────────────── справочники генератора ─────────────────────────
 
-SPEC_P = {"Backend": .30, "Frontend": .17, "Mobile": .08, "ML / DS": .10, "Data Eng / Analytics": .09,
-          "DevOps / SRE": .09, "QA": .11, "Security": .06}
+SPEC_P = {"Backend": .24, "Frontend": .14, "Mobile": .06, "ML / DS": .08, "Data Eng / Analytics": .07,
+          "DevOps / SRE": .07, "QA": .09, "Security": .05, "Analysis": .06, "Management": .05, "Design": .04, "SysAdmin / Support": .05}
+CF_P = {"Backend": .2, "ML / DS": .2, "Data Eng / Analytics": .2, "Analysis": 0, "Management": 0, "Design": 0, "SysAdmin / Support": 0}
 TRACK_P = {"Backend": [.35, .2, .2, .15, .1]}  # остальные специализации — равномерно
 GRADE_P = [.08, .25, .37, .22, .08]
 THETA_BAND = {"Intern": (-2.2, -0.5), "Junior": (-0.5, 0.5), "Middle": (0.5, 1.5), "Senior": (1.5, 2.3), "Lead": (2.3, 3.0)}
@@ -79,6 +80,8 @@ CORE = {  # трек → навыки, которые есть у каждого
     "Data Engineering": ["Python", "SQL", "Airflow"], "BI / Analytics": ["SQL", "ClickHouse"],
     "Kubernetes": ["Kubernetes", "Docker", "Linux"], "Cloud": ["Terraform", "Docker", "Linux"],
     "Manual": ["SQL"], "Automation": ["Python", "Selenium"], "AppSec": ["Python", "Pentest"], "Pentest": ["Pentest", "Linux"],
+    "System": ["SQL", "UML", "REST"], "Business": ["BPMN"], "Project": ["Jira", "Scrum"], "Product": ["CustDev", "A/B-тесты"],
+    "UX/UI": ["Figma"], "Product Design": ["Figma", "CustDev"], "SysAdmin": ["Linux", "Windows Server"], "Support": ["ITIL"],
 }
 EXTRA = {  # специализация → дополнительные навыки (часть есть, часть нет)
     "Backend": ["PostgreSQL", "MySQL", "MongoDB", "Redis", "Kafka", "RabbitMQ", "Docker", "Kubernetes", "gRPC", "ClickHouse", "Linux"],
@@ -89,6 +92,10 @@ EXTRA = {  # специализация → дополнительные нав�
     "DevOps / SRE": ["Prometheus", "Kubernetes", "Docker", "Terraform", "Python", "Go", "Kafka", "PostgreSQL"],
     "QA": ["Selenium", "Python", "SQL", "Docker", "Java", "JavaScript", "PostgreSQL"],
     "Security": ["Linux", "Docker", "Python", "Go", "Kubernetes", "PostgreSQL"],
+    "Analysis": ["SQL", "BPMN", "UML", "REST", "Jira", "Confluence", "PostgreSQL", "Kafka"],
+    "Management": ["Jira", "Confluence", "Scrum", "SQL", "A/B-тесты", "CustDev", "Figma"],
+    "Design": ["Figma", "CustDev", "A/B-тесты", "Jira", "Confluence"],
+    "SysAdmin / Support": ["Linux", "Windows Server", "Bash", "ITIL", "Zabbix", "Docker", "Python", "PostgreSQL", "Jira"],
 }
 POPULAR = {"PostgreSQL": 5, "SQL": 3, "Docker": 3, "TypeScript": 3, "Kafka": 2.5, "Redis": 2.5, "Linux": 2}
 TRACK_EXTRA = {"Python": ["asyncio", "FastAPI", "Django"], "Node.js": ["JavaScript"], "Android": ["Java"]}
@@ -139,12 +146,15 @@ def feminine(surname: str) -> str:
 
 SPEC_TITLE = {"Backend": "Backend-разработчик", "Frontend": "Frontend-разработчик", "Mobile": "Мобильный разработчик",
               "ML / DS": "ML-инженер", "Data Eng / Analytics": "Инженер данных", "DevOps / SRE": "DevOps-инженер",
-              "QA": "QA-инженер", "Security": "Специалист по ИБ"}
+              "QA": "QA-инженер", "Security": "Специалист по ИБ", "Analysis": "Аналитик", "Management": "Менеджер",
+              "Design": "Дизайнер", "SysAdmin / Support": "Системный администратор"}
 SPEC_WORD = {"Backend": ["бэкенд-разработчика", "backend-разработчика", "бэкендера"],
              "Frontend": ["фронтенд-разработчика", "фронтендера"], "Mobile": ["мобильного разработчика"],
              "ML / DS": ["ML-инженера", "data scientist'а"], "Data Eng / Analytics": ["дата-инженера", "аналитика данных"],
              "DevOps / SRE": ["DevOps-инженера", "SRE-инженера"], "QA": ["тестировщика", "QA-инженера"],
-             "Security": ["специалиста по безопасности", "AppSec-инженера"]}
+             "Security": ["специалиста по безопасности", "AppSec-инженера"],
+             "Analysis": ["системного аналитика", "бизнес-аналитика"], "Management": ["проджект-менеджера", "продакт-менеджера"],
+             "Design": ["UX/UI-дизайнера", "продуктового дизайнера"], "SysAdmin / Support": ["системного администратора", "инженера техподдержки"]}
 GRADE_WORD = {"Intern": "стажёр", "Junior": "джун", "Middle": "мидл", "Senior": "сеньор", "Lead": "лид"}
 TEAMS = ["платежей", "логистики", "поиска", "рекомендаций", "биллинга", "личного кабинета", "антифрода", "аналитики",
          "внутренних сервисов", "интеграций", "мобильного банка", "маркетплейса"]
@@ -152,6 +162,19 @@ CV_LINES = ["Разрабатывал(а) сервисы на {a} и {b}.", "О�
             "Писал(а) и поддерживал(а) код на {a}, настраивал(а) {b}.", "Оптимизировал(а) нагрузку, работал(а) с {a}.",
             "Вёл(а) код-ревью, помогал(а) младшим коллегам.", "Дежурил(а) по инцидентам, разбирал(а) логи и метрики.",
             "Делал(а) пет-проекты на {a}.", "Внедрял(а) {a} в команде из {n} человек."]
+CV_LINES_BY_SPEC = {  # у нетехнических ролей — свои строки опыта, иначе «разрабатывал сервисы на Figma»
+    "Analysis": ["Собирал(а) требования и описывал(а) процессы в {a}.", "Готовил(а) спецификации интеграций, работал(а) с {a} и {b}.",
+                 "Вёл(а) документацию в {a}.", "Проводил(а) интервью со стейкхолдерами, фиксировал(а) требования.",
+                 "Писал(а) выборки на {a} для проверки гипотез.", "Согласовывал(а) изменения с командой из {n} человек."],
+    "Management": ["Вёл(а) проект с командой из {n} человек, трекинг в {a}.", "Планировал(а) релизы, работал(а) по {a}.",
+                   "Запускал(а) эксперименты: {a}, {b}.", "Собирал(а) roadmap и согласовывал(а) приоритеты со стейкхолдерами.",
+                   "Отвечал(а) за сроки и риски проекта.", "Проводил(а) {a} с пользователями."],
+    "Design": ["Проектировал(а) интерфейсы в {a}.", "Вёл(а) дизайн-систему, работал(а) с {a}.", "Проводил(а) {a} и юзабилити-тесты.",
+               "Делал(а) прототипы и передавал(а) макеты в разработку команде из {n} человек.", "Анализировал(а) {a} и воронки."],
+    "SysAdmin / Support": ["Администрировал(а) {a} и {b}.", "Разбирал(а) обращения пользователей по {a}.", "Настраивал(а) мониторинг в {a}.",
+                           "Поддерживал(а) инфраструктуру офиса на {n} рабочих мест.", "Писал(а) скрипты на {a} для бэкапов.",
+                           "Вёл(а) учётные записи и права доступа в {a}."],
+}
 NEED_TPL = [
     "Ищем {sw} ({track}) в команду {team}. Нужен опыт с {must}. Хорошо бы {nice}. Уровень — {gw}, до {to_k} на руки. {fmt}, {city}.",
     "{company} ищет {sw} уровня {grade}. Обязательно: {must}. Будет плюсом: {nice}. Вилка {from_k}–{to_k} тыс. ₽. Формат: {fmt_l}, {city}.",
@@ -192,6 +215,7 @@ EVENTS = [  # (source, external_id, title, level, participants, months_ago, tags
 FSP_DISCIPLINE = {"product": "продуктовое программирование", "algo": "алгоритмическое программирование",
                   "security": "программирование систем информационной безопасности"}
 SPEC_TAGS = {"ML / DS": ["ml", "product", "algo"], "Mobile": ["mobile", "product"], "Security": ["security"],
+             "Analysis": ["product"], "Management": ["product"], "Design": ["product"], "SysAdmin / Support": ["security", "product"],
              "Data Eng / Analytics": ["ml", "product"]}
 
 assert all(s in C.SKILLS for v in (*CORE.values(), *EXTRA.values(), *TRACK_EXTRA.values()) for s in v)
@@ -294,7 +318,7 @@ class Gen:
         sk = list(skills)
         self.rng.shuffle(sk)
         lines = []
-        for tpl in self.sample(CV_LINES, 3):
+        for tpl in self.sample(CV_LINES_BY_SPEC.get(spec, CV_LINES), 3):
             a, b = self.pick(sk), self.pick(sk)
             lines.append(tpl.format(a=self.noisy(a), b=self.noisy(b), n=int(self.rng.integers(3, 12))))
         text = (f"{SPEC_TITLE[spec]} ({track}), {grade}. Опыт — {years:.0f} г.\n"
@@ -594,8 +618,9 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
         tt = c.truth["theta_true"]
         if r.random() < np.clip(0.25 + 0.08 * tt, 0.1, 0.6):
             g.achievements(c, events, tt)
-    # Codeforces: ~20 % у Backend / ML / Data, рейтинг коррелирует с θ «Алгоритмов» (ρ ≈ 0.6)
-    cf_c = [c for c in cands if r.random() < (0.2 if c.spec in ("Backend", "ML / DS", "Data Eng / Analytics") else 0.04)]
+    # Codeforces: ~20 % у Backend / ML / Data, 4 % у остальных разработчиков, рейтинг коррелирует с θ «Алгоритмов» (ρ ≈ 0.6);
+    # у нетехнических ролей CF нет — и «алгоритмической» компетенции, с которой он коррелирует, тоже
+    cf_c = [c for c in cands if r.random() < CF_P.get(c.spec, 0.04)]
     alg = np.array([next(x["t"] for x in c.competencies if x["n"] in ("Алгоритмы", "Реверс", "Регресс", "План отката")) for c in cf_c])
     z = (alg - alg.mean()) / (alg.std() or 1)
     ratings = np.clip(1550 + 330 * (0.6 * z + 0.8 * r.normal(0, 1, len(cf_c))), 800, 3300).round()

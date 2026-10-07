@@ -1,6 +1,7 @@
 """Справочник: специализации, треки, грейды, навыки, рынок, правила. Значения взяты из макета (frontend/index.html)."""
 
-SPECS = ["Backend", "Frontend", "Mobile", "ML / DS", "Data Eng / Analytics", "DevOps / SRE", "QA", "Security"]
+SPECS = ["Backend", "Frontend", "Mobile", "ML / DS", "Data Eng / Analytics", "DevOps / SRE", "QA", "Security",
+         "Analysis", "Management", "Design", "SysAdmin / Support"]
 
 TRACKS = {
     "Backend": ["Python", "Go", "Java / Kotlin", "Node.js", "C# / .NET"],
@@ -11,6 +12,11 @@ TRACKS = {
     "DevOps / SRE": ["Kubernetes", "Cloud"],
     "QA": ["Manual", "Automation"],
     "Security": ["AppSec", "Pentest"],
+    # нетехнические ИТ-роли: имена треков уникальны во всём справочнике (подсказки треков и синтетика ключуются по ним)
+    "Analysis": ["System", "Business"],
+    "Management": ["Project", "Product"],
+    "Design": ["UX/UI", "Product Design"],
+    "SysAdmin / Support": ["SysAdmin", "Support"],
 }
 
 GRADES = ["Intern", "Junior", "Middle", "Senior", "Lead"]
@@ -47,6 +53,10 @@ COMPETENCIES = {
     "DevOps / SRE": ["Диагностика инцидентов", "Сети", "Kubernetes", "CI/CD", "Наблюдаемость", "План отката"],
     "QA": ["Тест-дизайн", "Приёмка релиза", "Автотесты", "API-тестирование", "Баг-репорты", "Регресс"],
     "Security": ["Веб-уязвимости", "Ревью кода", "Сети", "Криптография", "Реагирование", "Реверс"],
+    "Analysis": ["Выявление требований", "Моделирование процессов", "Интеграции и API", "Данные и SQL", "Спецификации", "Анализ изменений"],
+    "Management": ["Планирование и сроки", "Риски", "Метрики продукта", "Приоритизация", "Стейкхолдеры", "Процессы команды"],
+    "Design": ["Исследования", "Юзабилити", "Доступность", "Дизайн-системы", "Прототипирование", "Метрики и эксперименты"],
+    "SysAdmin / Support": ["Диагностика инцидентов", "Сети", "Учётные записи и доступ", "Резервное копирование", "Серверы и ОС", "Работа с обращениями"],
 }
 
 # Навыки: канон → синонимы (нижний регистр). Используется при разборе резюме и потребностей.
@@ -89,6 +99,19 @@ SKILLS = {
     "Selenium": ["selenium", "playwright"],
     "Pentest": ["pentest", "пентест", "burp"],
     "Prometheus": ["prometheus", "grafana"],
+    "BPMN": ["bpmn"],
+    "UML": ["uml"],
+    "REST": ["rest", "openapi", "swagger"],
+    "Jira": ["jira", "джира"],
+    "Confluence": ["confluence", "конфлюенс"],
+    "Scrum": ["scrum", "скрам", "agile", "аджайл", "kanban", "канбан"],
+    "A/B-тесты": ["a/b", "a/b-тесты", "ab-тесты", "аб-тесты"],
+    "CustDev": ["custdev", "кастдев", "customer development"],
+    "Figma": ["figma", "фигма"],
+    "Windows Server": ["windows server", "active directory"],
+    "Bash": ["bash"],
+    "ITIL": ["itil", "service desk", "servicedesk"],
+    "Zabbix": ["zabbix", "заббикс"],
 }
 
 # Роли и софт-скиллы из резюме: канон → основы слов (регулярки, совпадение с начала слова, нижний регистр).
@@ -128,7 +151,8 @@ MARKET_MOSCOW = {
     "Senior": (320000, 390000, 460000),
     "Lead": (400000, 480000, 580000),
 }
-SPEC_MULT = {"Backend": 1.0, "Frontend": 0.95, "Mobile": 1.0, "ML / DS": 1.08, "Data Eng / Analytics": 0.95, "DevOps / SRE": 1.05, "QA": 0.8, "Security": 1.05}
+SPEC_MULT = {"Backend": 1.0, "Frontend": 0.95, "Mobile": 1.0, "ML / DS": 1.08, "Data Eng / Analytics": 0.95, "DevOps / SRE": 1.05, "QA": 0.8, "Security": 1.05,
+             "Analysis": 0.95, "Management": 1.05, "Design": 0.85, "SysAdmin / Support": 0.65}
 CITY_MULT = {"Москва": 1.0, "Санкт-Петербург": 0.92}
 CITY_MULT_DEFAULT = 0.78
 

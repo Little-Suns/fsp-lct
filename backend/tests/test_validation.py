@@ -6,11 +6,12 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
 from app.config import DATABASE_URL
 from app.db import get_db, reset_schema
+from app.models import Candidate
 from app.routers import validation as router_mod
 from app.services import matching
 from app.services import validation as V
@@ -170,8 +171,15 @@ def test_same_numbers_any_day(db, monkeypatch):
     monkeypatch.setattr(generate, "datetime", _Shifted)
     assert _numbers(V.run(db, k=5, seed=1)) == _numbers(base)
     assert matching.CLOCK.get() is None  # фиксированные часы сняты после прогона
-    # контроль: без фиксированной даты реальные часы через 40 дней дают другие цифры (приглашения истекли)
-    assert _numbers(V.run(db, k=5, seed=1, today=None)) != _numbers(base)
+    # контроль: без фиксированной даты реальные часы через 40 дней видят приглашения истёкшими — нагрузка кандидатов
+    # (вход «взаимного интереса») обнуляется; меряем её прямо: попадут ли эти кандидаты в топ-k, зависит от состава синтетики
+    ids = list(db.scalars(select(Candidate.id)))
+    tok = matching.CLOCK.set(generate.anchor(DEMO_TODAY))
+    try:
+        assert sum(matching.candidate_loads(db, ids).values()) > 0
+    finally:
+        matching.CLOCK.reset(tok)
+    assert sum(matching.candidate_loads(db, ids).values()) == 0
     monkeypatch.undo()
     monkeypatch.setattr(V, "N_GRADE", 20)
     # засев от четверга той же недели: в неделю квоты попадает другое число демо-приглашений, а данные — те же

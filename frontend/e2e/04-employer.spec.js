@@ -54,8 +54,34 @@ test('новая компания: вход по коду → проверка �
   if (p.ignored && p.ignored.length) await expect(page.getByText(/Не учитываем:/)).toBeVisible();
   await expect(page.getByText(/кандидатов открыты к предложениям/)).toBeVisible();
   await expect(page.getByText('Рынок · Backend')).toBeVisible();
+  // категория правится вручную: смена специализации сбрасывает трек, «Отмена» ничего не меняет
   await page.locator('.parsed').getByRole('button', { name: 'Изменить' }).click();
-  await expect(toast(page)).toContainText('Категория берётся из текста');
+  await page.getByLabel('Специализация').selectOption('Frontend');
+  await expect(page.getByLabel('Трек')).toHaveValue('');
+  await expect(page.getByLabel('Трек').locator('option').first()).toHaveText('любой трек');
+  await expect(page.getByLabel('Трек').locator('option', { hasText: 'React' })).toHaveCount(1);
+  await page.locator('.parsed').getByRole('button', { name: 'Отмена' }).click();
+  await expect(page.locator('.parsed .cat span')).toHaveText([p.spec, p.track, p.grade]);
+  await page.locator('.parsed').getByRole('button', { name: 'Изменить' }).click();
+  await page.getByLabel('Трек').selectOption('Go');
+  await page.getByLabel('Грейд').selectOption('Senior');
+  const cat = api(page, 'POST', '/api/employer/needs/category');
+  await page.getByRole('button', { name: 'Применить' }).click();
+  expect((await cat).request().postDataJSON()).toMatchObject({ spec: 'Backend', track: 'Go', grade: 'Senior' });
+  await expect(page.locator('.parsed .cat span')).toHaveText(['Backend', 'Go', 'Senior']);
+  await expect(page.getByText('Рынок · Backend · Senior')).toBeVisible();
+  await expect(page.getByText(/В категории Backend · Go · Senior \d+ кандидатов/)).toBeVisible();
+  const catPlan = api(page, 'POST', '/api/quest/plan');
+  await page.getByRole('button', { name: 'Показать план теста' }).click();
+  expect((await catPlan).request().postDataJSON()).toMatchObject({ spec: 'Backend', track: 'Go', grade: 'Senior' });
+  await expect(page.locator('.panel', { hasText: 'Как система проверит кандидатов под эту потребность' }).locator('.chip').first()).toHaveText('Backend · Senior');
+  // обратно на исходную категорию — дальше сценарий идёт по Python · Middle; правка категории сбрасывает план
+  await page.locator('.parsed').getByRole('button', { name: 'Изменить' }).click();
+  await page.getByLabel('Трек').selectOption(p.track);
+  await page.getByLabel('Грейд').selectOption(p.grade);
+  await page.getByRole('button', { name: 'Применить' }).click();
+  await expect(page.locator('.parsed .cat span')).toHaveText([p.spec, p.track, p.grade]);
+  await expect(page.getByRole('button', { name: 'Показать план теста' })).toBeVisible();
 
   const firstMust = p.must[0];
   await page.locator('.parsed').getByRole('button', { name: new RegExp('^' + firstMust) }).click();
@@ -68,7 +94,9 @@ test('новая компания: вход по коду → проверка �
   await page.locator('.parsed').getByRole('button', { name: '×', exact: true }).click();
   await expect(page.getByPlaceholder('навык')).toHaveCount(0);
 
+  const editedPlan = api(page, 'POST', '/api/quest/plan');
   await page.getByRole('button', { name: 'Показать план теста' }).click();
+  expect((await editedPlan).request().postDataJSON().must).toContain('Docker');  // правки навыков попадают в план
   await expect(page.getByRole('heading', { name: 'Как система проверит кандидатов под эту потребность' })).toBeVisible();
   await expect(page.getByText('Вес компетенции')).toBeVisible();
   await expect(page.getByText('Примеры заданий')).toBeVisible();
