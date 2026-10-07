@@ -4,7 +4,7 @@
 from app.services.items import _choice, _log, family, simple
 
 SPEC = "SysAdmin / Support"
-DOMAINS = ["corp.local", "office.lan", "ad.severvet.ru", "hq.local"]
+DOMAINS = ["corp.local", "office.lan", "ad.severvet.lan", "hq.local"]
 
 
 def _mac(rng) -> str:
@@ -75,7 +75,7 @@ def _(rng):
         _log(f"08:{m:02d}:05", pc, "WARN", "Winlogon: не удаётся подключить сетевые диски H: и S:"),
         _log(f"08:{m:02d}:31", dc, "WARN", f"Time-Service 36: служба времени не синхронизировалась {rng.randint(30, 90)} ч"),
         _log(f"08:{m + 1:02d}:10", "admin", "INFO", f"w32tm /query /source на {dc} (PDC-эмулятор): {src}"),
-        _log(f"08:{m + 1:02d}:12", "admin", "INFO", f"w32tm /stripchart {dc} → time.example.ru: смещение +00:{drift:02d}:{rng.randint(0, 59):02d}"),
+        _log(f"08:{m + 1:02d}:12", "admin", "INFO", f"w32tm /stripchart {dc} → ntp.example: смещение +00:{drift:02d}:{rng.randint(0, 59):02d}"),
     ]
     opts, key = _choice(rng, f"Часы {dc} ушли более чем на 5 мин, Kerberos отвергает билеты: настроить NTP на PDC-эмуляторе", [
         "Истёк срок действия паролей у сотрудников: принудительно сбросить пароли и попросить всех войти заново",
@@ -238,17 +238,20 @@ LEVELS = ["Нет доступа", "Чтение", "Изменение", "Пол
 
 @family("adm_acc_share_ntfs", SPEC, "Учётные записи и доступ", "choice", 2.2, 0.4)
 def _(rng):
-    code, dep, _ = rng.choice(DEPS)
+    (code, dep, _), (other, _, _) = rng.sample(DEPS, 2)
     srv, login = rng.choice(["fs01", "srv-files", "fs-main"]), rng.choice(["a.morozova", "k.sokolov", "e.belova", "d.orlov", "n.zaitseva"])
-    share, rw = rng.choice([(1, True), (2, False), (3, True), (3, False)])
-    eff = min(share, 2 if rw else 1)
+    eff = rng.choice([0, 1, 2])
+    # итог — минимум из прав общего ресурса и NTFS; 0 — ни одна группа сотрудника не указана в NTFS
+    share, groups = rng.choice({0: [(2, [f"GG_{other}_RW"]), (3, [f"GG_{other}_RO", f"GG_{other}_RW"])],
+                                1: [(1, [f"GG_{code}_RO", f"GG_{code}_RW"]), (3, [f"GG_{code}_RO"]), (2, [f"GG_{code}_RO"])],
+                                2: [(2, [f"GG_{code}_RO", f"GG_{code}_RW"]), (3, [f"GG_{code}_RW"])]}[eff])
     lines = [f"Общий ресурс \\\\{srv}\\{code}", f"  Разрешения общего ресурса: Everyone — {LEVELS[share]}", f"Разрешения NTFS на D:\\Shares\\{code}:",
              f"  CORP\\GG_{code}_RO — Чтение и выполнение", f"  CORP\\GG_{code}_RW — Изменение", "  BUILTIN\\Administrators — Полный доступ",
-             f"Учётная запись {login}: группы GG_{code}_RO" + (f", GG_{code}_RW" if rw else "")]
-    texts = {1: "Чтение: открывать и копировать файлы, но не сохранять изменения", 2: "Изменение: создавать, править и удалять файлы в папке",
-             3: "Полный доступ: как у Everyone на уровне общего ресурса", 0: "Нет доступа: разные права в двух группах дают конфликт и запрет"}
+             f"Учётная запись {login}: группы {', '.join(groups)}"]
+    texts = {0: "Нет доступа: папка не откроется", 1: "Чтение: открыть и скопировать файлы", 2: "Изменение: править и удалять файлы",
+             3: "Полный доступ, включая смену прав"}
     opts, key = _choice(rng, texts[eff], [t for lv, t in texts.items() if lv != eff])
-    return {"scene_title": "Права через сеть", "story": f"Сотрудник отдела «{dep}» открывает папку по сети: \\\\{srv}\\{code}.",
+    return {"scene_title": "Права через сеть", "story": f"Сотрудник открывает папку отдела «{dep}» по сети: \\\\{srv}\\{code}.",
             "prompt": f"Какой доступ к файлам по сети получит {login}?", "panel": {"type": "code", "lang": "text", "lines": lines}, "options": opts, "key": key}
 
 
@@ -258,9 +261,10 @@ def _(rng):
     x, y, z = rng.sample([5, 10, 15, 20, 30], 3)
     enf, blk = rng.random() < 0.5, rng.random() < 0.5
     pc = f"PC-{code.upper()}-{rng.randint(1, 30):02d}"
-    lines = [f"{dom} (домен)", f"  └ GPO «Default Security» [Принудительный: {'да' if enf else 'нет'}] — блокировка экрана через {x} мин", "  OU Компьютеры",
-             f"    └ OU {dep} [Блокировка наследования: {'да' if blk else 'нет'}]", f"        └ GPO «{dep}: экран» — блокировка экрана через {y} мин",
-             f"Локальная политика {pc}: блокировка экрана через {z} мин", f"Компьютер {pc} находится в OU {dep}"]
+    lines = ["Параметр: Конфигурация компьютера → Параметры безопасности → «Интерактивный вход в систему: предел простоя компьютера»",
+             f"{dom} (домен)", f"  └ GPO «Default Security» [Принудительный: {'да' if enf else 'нет'}] — {x * 60} с", "  OU Компьютеры",
+             f"    └ OU {dep} [Блокировка наследования: {'да' if blk else 'нет'}]", f"        └ GPO «{dep}: простой» — {y * 60} с",
+             f"Локальная политика {pc}: {z * 60} с", f"Компьютер {pc} находится в OU {dep}"]
     right = (f"{x} мин: принудительная доменная политика побеждает, даже если наследование заблокировано" if enf
              else f"{y} мин: политика, привязанная к OU компьютера, применяется последней и побеждает")
     opts, key = _choice(rng, right, [
@@ -269,7 +273,7 @@ def _(rng):
         f"{z} мин: при конфликте доменных политик остаётся локальная настройка компьютера",
         "Ни одна: при конфликте значений из разных объектов политики параметр не задаётся",
     ])
-    return {"scene_title": "Чья политика", "story": f"Служба безопасности спрашивает, через сколько минут заблокируется экран на {pc}. Структура политик — на панели.",
+    return {"scene_title": "Чья политика", "story": f"Служба безопасности спрашивает, через сколько минут простоя {pc} заблокирует сеанс (Interactive logon: Machine inactivity limit). Структура политик — на панели.",
             "prompt": "Какое значение применится?", "panel": {"type": "code", "lang": "text", "lines": lines}, "options": opts, "key": key}
 
 
@@ -364,20 +368,23 @@ def _num(v: float) -> str:
 
 @family("adm_bak_rto", SPEC, "Резервное копирование", "choice", 2.3, 2.7)
 def _(rng):
-    srv, rto = rng.choice(["fs01", "srv-files", "srv-1c"]), rng.choice([6, 8])
+    srv, rto = rng.choice(["fs01", "srv-files", "srv-1c"]), rng.choice([4, 6])
     size, mbit = rng.choice([(1.5, 200), (2, 200), (2, 500), (3, 500), (4, 1000), (3, 300)])
-    h = size * 8e6 / mbit / 3600
+    h = size * 8e6 / mbit / 3600  # ТБ → Мбит → ч; при любом наборе — от 8,9 ч, то есть больше RTO
+    nightly = rng.random() < 0.5
     lines = [f"План восстановления {srv}", f"RTO: {rto} ч, RPO: 24 ч", f"Объём данных {srv}: {_num(size)} ТБ",
              "Копия 1: NAS в серверной, каждую ночь, хранение 14 дней (SMB-ресурс, доменная учётка)",
-             "Копия 2: облачное хранилище, каждое воскресенье, хранение 8 недель", f"Канал офиса в интернет: {mbit} Мбит/с"]
-    opts, key = _choice(rng, f"Нет: скачать {_num(size)} ТБ по {mbit} Мбит/с — около {h:.0f} ч, да и недельная копия не держит RPO 24 ч", [
-        f"Да: {_num(size)} ТБ по каналу {mbit} Мбит/с скачаются примерно за {h / 8:.1f} ч".replace(".", ",") + ", останется запас на проверку",
-        "Да: RTO отсчитывается от запуска восстановления, а скачивание копии в него не входит",
-        "Да: облачная копия ежедневная, потеряем не больше суток данных — ровно столько, сколько разрешает RPO",
-    ])
+             f"Копия 2: облачное хранилище, {'каждую ночь' if nightly else 'каждое воскресенье'}, хранение 8 недель", f"Канал офиса в интернет: {mbit} Мбит/с"]
+    rto_ok, rto_bad = f"RTO — да: скачается примерно за {_num(round(h / 8, 1))} ч", f"RTO — нет: скачивание займёт около {h:.0f} ч"
+    if nightly:
+        rpo_ok, rpo_bad = "RPO — да: копия ночная, потеряем не больше суток", f"RPO — нет: за {h:.0f} ч простоя потеряем больше суток"
+    else:
+        rpo_ok, rpo_bad = "RPO — да: в облаке 8 недель копий, данные целы", "RPO — нет: копия недельная, потеряем до 7 дней"
+    rpo_right, rpo_wrong = (rpo_ok, rpo_bad) if nightly else (rpo_bad, rpo_ok)
+    opts, key = _choice(rng, f"{rto_bad}; {rpo_right}", [f"{rto_ok}; {rpo_right}", f"{rto_bad}; {rpo_wrong}", f"{rto_ok}; {rpo_wrong}"])
     return {"scene_title": "Осталось облако", "story": f"Шифровальщик зашифровал {srv}, а заодно и NAS с копиями: тот был подключён по SMB под доменной учёткой. "
                                                        "Цела только облачная копия. Директор спрашивает, уложитесь ли в план.",
-            "prompt": "Что ответить?", "panel": {"type": "code", "lang": "text", "lines": lines}, "options": opts, "key": key}
+            "prompt": "Что ответить директору по RTO и RPO из плана?", "panel": {"type": "code", "lang": "text", "lines": lines}, "options": opts, "key": key}
 
 
 # ============================== Серверы и ОС ==============================

@@ -110,10 +110,11 @@ _SPEC_BY_SKILL = {
     "DevOps / SRE": {"Terraform", "Prometheus"},
     "QA": {"Selenium"},
     "Security": {"Pentest"},
-    "Analysis": {"BPMN", "UML", "REST"},
-    "Management": {"Jira", "Scrum", "CustDev"},
+    # голосуют только навыки, которых нет у разработчиков: Jira, Scrum, REST, Bash в тексте Python-вакансии не делают её менеджерской
+    "Analysis": {"BPMN", "UML"},
+    "Management": {"CustDev"},
     "Design": {"Figma"},
-    "SysAdmin / Support": {"Windows Server", "Bash", "ITIL", "Zabbix"},
+    "SysAdmin / Support": {"Windows Server", "ITIL", "Zabbix"},
 }
 # трек: (регулярка по тексту, навыки-подсказки)
 _TRACK_HINTS = {
@@ -146,7 +147,7 @@ _TRACK_HINTS = {
     "UX/UI": (rf"ux|ui(?![{_W}])|интерфейс|веб-дизайн", []),
     "Product Design": (r"продуктов\w* дизайн|product design", []),
     "SysAdmin": (r"сисадмин|администр|sysadmin|admin", ["Windows Server", "Bash"]),
-    "Support": (r"поддержк|support|help.?desk|service.?desk", ["ITIL"]),
+    "Support": (r"(?:тех)?поддержк|support|help.?desk|service.?desk", ["ITIL"]),
 }
 
 
@@ -696,6 +697,8 @@ if __name__ == "__main__":
         ("Ищем продуктового дизайнера в финтех, сеньор", ("Design", "Product Design", "Senior")),
         ("Системный администратор Windows Server и Linux, мидл", ("SysAdmin / Support", "SysAdmin", "Middle")),
         ("Инженер техподдержки L2, ITIL, джун", ("SysAdmin / Support", "Support", "Junior")),
+        ("Инженер техподдержки L2, джун", ("SysAdmin / Support", "Support", "Junior")),  # трек — по слову, без навыка
+        ("Ищем разработчика Python, REST API, Jira, Agile, мидл", ("Backend", "Python", "Middle")),  # общие навыки не голосуют за роль
         ("Аналитик данных, SQL и ClickHouse, мидл", ("Data Eng / Analytics", "BI / Analytics", "Middle")),
         ("QA-инженер: тест-дизайн, API, мидл", ("QA", "Manual", "Middle")),
     ]:
