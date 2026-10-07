@@ -104,9 +104,9 @@ def _(rng):
         _log(t(1, 2), "UIApplication", "WARN", "Background task \"upload\" expired, ending"),
         _log(t(1, 2), "CFNetwork", "ERROR", "Task <…>.<1> finished with error [-999] cancelled"),
     ]
-    opts, key = _choice(rng, "Перенести загрузку в URLSession с background-конфигурацией: файл передаёт система, результат придёт даже после выгрузки приложения", [
-        "Вызывать beginBackgroundTask заново каждые 25 секунд, пока загрузка не закончится",
-        "Включить фоновый режим аудио и проигрывать тишину, чтобы приложение не засыпало",
+    opts, key = _choice(rng, "Перенести загрузку в URLSession с background-конфигурацией: файл передаёт система, даже если приложение выгружено", [
+        "Вызывать beginBackgroundTask заново каждые 25 секунд, пока загрузка не закончится: система каждый раз продлит время работы в фоне",
+        "Включить фоновый режим аудио и проигрывать тишину, чтобы приложение не засыпало, пока файл не уйдёт на сервер",
         "Увеличить timeoutIntervalForRequest до 10 минут, чтобы запрос не прерывался",
     ])
     return {"scene_title": "Загрузка в фоне", "story": f"Пользователи жалуются: видео на {size} МБ не загружается, если свернуть приложение. В логах устройства — вот что.",
@@ -124,9 +124,9 @@ def _(rng):
                                                     f"not allowed due to mAllowStartForeground false: service ru.demo.app/.{svc}"),
         _log(t(5, 0), "crash-stats", "INFO", f"все краши — API {api}+, процесс в фоне в момент пуша"),
     ]
-    opts, key = _choice(rng, "С Android 12 фоновое приложение не может запускать foreground-сервис: работу по пушу — через WorkManager (expedited), FGS — только из видимого состояния", [
-        "Добавить в манифест разрешение FOREGROUND_SERVICE: без него сервис не стартует из пуша",
-        "Заменить startForegroundService на startService: обычный сервис из фона запускать можно",
+    opts, key = _choice(rng, "С Android 12 из фона нельзя запускать foreground-сервис: работу по пушу ставить в WorkManager как expedited", [
+        "Добавить в манифест разрешение FOREGROUND_SERVICE и тип сервиса dataSync: без них сервис не стартует из обработчика пуша",
+        "Заменить startForegroundService на startService: обычный сервис из фона запускать можно, и уведомление ему не нужно",
         "Повторять startForegroundService с паузой, пока система не разрешит запуск сервиса",
     ])
     return {"scene_title": "Синхронизация по пушу", "story": f"После обновления targetSdk пуш синхронизации роняет приложение, если оно свёрнуто. {svc} запускается прямо из обработчика пуша.",
@@ -135,23 +135,26 @@ def _(rng):
 
 @family("mob_lc_process_death", "Mobile", "Жизненный цикл приложения", "choice", 2.3, 2.6)
 def _(rng):
-    holder, field, frag, title, where = rng.choice([("SessionHolder", "session", "CheckoutFragment", "оплаты", "экран входа"),
-                                                    ("CartHolder", "cart", "DeliveryFragment", "выбора доставки", "экран каталога"),
-                                                    ("ProfileHolder", "profile", "EditProfileFragment", "редактирования профиля", "главный экран")])
-    pid, mins, t = rng.randint(10000, 29999), rng.randint(20, 90), _ts(rng, 16)
+    holder, field, frag, title, where, keys = rng.choice([
+        ("SessionHolder", "session", "CheckoutFragment", "оплаты", "экран входа", "orderId, step"),
+        ("CartHolder", "cart", "DeliveryFragment", "выбора доставки", "экран каталога", "addressId, slot"),
+        ("ProfileHolder", "profile", "EditProfileFragment", "редактирования профиля", "главный экран", "draftName, avatarUri")])
+    pid, mins, t = rng.randint(10000, 29999), rng.randint(15, 18), _ts(rng, 16)  # минуты ≤ 59
     lines = [
         _log(t(0, 3), "app", "INFO", f"{frag} resumed; пользователь уходит в другое приложение"),
         _log(t(2, 51), "ActivityManager", "INFO", f"Killing {pid}:ru.demo.app/u0a211 (adj 905): cached #{rng.randint(12, 30)}"),
-        _log(t(18, 40), "ActivityManager", "INFO", f"Start proc {pid + rng.randint(40, 900)}:ru.demo.app/u0a211 for activity ru.demo.app/.MainActivity"),
-        _log(t(18, 41), "FragmentManager", "DEBUG", f"restored back stack top={frag}; SavedStateHandle keys=[orderId, step]"),
-        _log(t(18, 41), "AndroidRuntime", "ERROR", f"FATAL EXCEPTION: main\nkotlin.UninitializedPropertyAccessException: lateinit property {field} has not been initialized\n"
-                                                    f"  at ru.demo.app.{holder}.get{field.capitalize()}"),
-        _log(t(19, 0), "qa", "INFO", f"«Don't keep activities» и поворот экрана — без падений; краши у вернувшихся через {mins}+ мин"),
+        _log(t(mins, 40), "ActivityManager", "INFO", f"Start proc {pid + rng.randint(40, 900)}:ru.demo.app/u0a211 for activity ru.demo.app/.MainActivity"),
+        _log(t(mins, 41), "FragmentManager", "DEBUG", f"restored back stack top={frag}; SavedStateHandle keys=[{keys}]"),
+        _log(t(mins, 41), "AndroidRuntime", "ERROR", f"FATAL EXCEPTION: main\nkotlin.UninitializedPropertyAccessException: lateinit property {field} has not been initialized\n"
+                                                      f"  at ru.demo.app.{holder}.get{field.capitalize()}"),
+        _log(t(mins + 1, 0), "qa", "INFO", "«Don't keep activities» и поворот экрана — без падений; краши только у тех, кто возвращается через десятки минут"),
     ]
-    opts, key = _choice(rng, f"Процесс убит в фоне и восстановлен сразу на экране {title}: стек и SavedStateHandle вернулись, а синглтон {holder} пуст — он должен подниматься из хранилища сам", [
-        f"Это эффект «Don't keep activities»: Activity пересоздаётся без ViewModel — держать {field} в ViewModel экрана {title}, а не в синглтоне",
-        f"При восстановлении Activity.onCreate вызывается раньше Application.onCreate, и {holder} ещё не готов: перенести его инициализацию в ContentProvider",
-        "Глубокий экран после возврата восстанавливать не нужно: поставить clearTaskOnLaunch, чтобы приложение всегда открывалось с главного",
+    right = rng.choice([f"Процесс убит системой в фоне: стек экранов и SavedStateHandle восстановились, а синглтон {holder} пуст — он должен подниматься из хранилища сам",
+                        f"Система убила процесс в фоне; при возврате {frag} и SavedStateHandle восстановлены, а синглтон {holder} — нет: он должен уметь подниматься из хранилища"])
+    opts, key = _choice(rng, right, [
+        f"Это эффект «Don't keep activities»: Activity пересоздаётся без ViewModel — держать {field} в ViewModel экрана {title}, а не в синглтоне {holder}",
+        f"При восстановлении Activity.onCreate вызывается раньше Application.onCreate, и {holder} ещё не готов: перенести его инициализацию в ContentProvider приложения",
+        "Глубокий экран после возврата восстанавливать не нужно: поставить clearTaskOnLaunch, чтобы приложение всегда открывалось с главного экрана",
     ])
     return {"scene_title": "Падение при возврате", "story": f"Краши с экрана {title}: пользователь надолго уходит в другое приложение, возвращается — падение. {holder} — синглтон, его заполняет {where}.",
             "prompt": "В чём причина и что исправить?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
@@ -282,7 +285,8 @@ def _(rng):
 
 @family("mob_net_sync_conflict", "Mobile", "Сеть и офлайн", "choice", 2.4, 2.9)
 def _(rng):
-    what, f1, f2 = rng.choice([("заметку", "заголовок", "текст"), ("карточку задачи", "статус", "описание"), ("список покупок", "название", "позиции")])
+    what, f1, f2 = rng.choice([("одну и ту же заметку", "заголовок", "текст"), ("одну и ту же карточку задачи", "статус", "описание"),
+                               ("один и тот же список покупок", "название", "позиции")])
     h, skew, doc = rng.randint(9, 16), rng.randint(16, 40), rng.randint(100, 999)
 
     def hm(m: int) -> str:
@@ -295,12 +299,14 @@ def _(rng):
         _log(hm(h * 60 + 71) + ":03", "support", "WARN", f"doc {doc}: «{f1}» снова старый — правка с телефона пропала"),
         _log(hm(h * 60 + 72) + ":30", "device", "INFO", f"часы планшета спешат на {skew} мин"),
     ]
-    opts, key = _choice(rng, f"Слать изменённые поля с базовой ревизией: сервер видит правку поверх старой версии и сливает «{f1}» с телефона и «{f2}» с планшета", [
+    right = rng.choice([f"Слать только изменённые поля с базовой ревизией: сервер видит правку поверх старой версии и сливает «{f1}» с телефона и «{f2}» с планшета",
+                        "Отправлять на сервер только изменённые поля вместе с номером исходной ревизии документа, а конфликтующие правки сливать на сервере по полям"])
+    opts, key = _choice(rng, right, [
         "Ставить updatedAt на сервере в момент приёма запроса: тогда спешащие часы устройств перестанут влиять на то, какая из записей победит",
-        f"Поправлять время клиента по заголовку Date ответа сервера перед записью updatedAt: планшет спешит на {skew} мин, отсюда и неверный порядок",
-        "Брать на сервере блокировку документа на время редактирования, чтобы второе устройство не меняло его, пока первое не закончит",
+        f"Поправлять время клиента по заголовку Date ответа сервера перед записью updatedAt: планшет спешит на {skew} мин, отсюда и неверный порядок записей при синхронизации",
+        "Брать на сервере блокировку документа на время редактирования, чтобы второе устройство не меняло его, пока первое не закончит правку и не отправит её",
     ])
-    return {"scene_title": "Пропавшая правка", "story": f"Пользователь правит одну и ту же {what} на телефоне и на планшете, планшет часть времени без сети. Синхронизация — last-write-wins по updatedAt.",
+    return {"scene_title": "Пропавшая правка", "story": f"Пользователь правит {what} на телефоне и на планшете, планшет часть времени без сети. Синхронизация — last-write-wins по updatedAt.",
             "prompt": "Как исправить, чтобы не терялась ни одна из правок?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -353,9 +359,9 @@ def _(rng):
         {"name": "рекомпозиций строк в секунду", "axis": "left", "max": 2500, "data": rec},
         {"name": "кадров дольше 16 мс, %", "axis": "right", "max": 50, "data": jank},
     ]}
-    opts, key = _choice(rng, f"Параметр строки нестабилен для Compose (List и {typ} из модуля без компилятора Compose): сделать UI-модель @Immutable и задать key у items", [
-        "Таймер тикает слишком часто: если обновлять его раз в пять секунд, лента перестанет дёргаться",
-        "Картинки строк декодируются на главном потоке: перевести их загрузку в фоновый поток",
+    opts, key = _choice(rng, f"List<{typ}> из модуля без компилятора Compose нестабилен: сделать UI-модель @Immutable и задать key у items", [
+        "Таймер тикает слишком часто: если обновлять его раз в пять секунд, а не каждую секунду, лента перестанет дёргаться",
+        "Картинки строк декодируются на главном потоке: перевести их загрузку и декодирование в фоновый поток через Coil",
         "LazyColumn не подходит для длинных лент: заменить его на Column с verticalScroll",
     ])
     return {"scene_title": "Таймер акции", "story": f"После таймера акции в шапке лента «{screen}» дёргается. Layout Inspector: строки перерисовываются на каждый тик, хотя их данные не менялись. Строки получают List<{typ}> из модуля domain.",

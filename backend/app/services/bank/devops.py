@@ -51,7 +51,7 @@ def _(rng):
     ]}
     opts, key = _choice(rng, "CFS-троттлинг: потоки выбирают квоту CPU в начале периода и ждут его конца, хотя в среднем загрузка низкая", [
         "Узлам облачного пула не хватает CPU: соседние поды забирают ядра, нужен тип машин с более быстрыми ядрами",
-        "Вместе с CPU урезали память, и сборщик мусора запускается чаще и надолго останавливает обработку запросов",
+        "Вместе с CPU урезали память: сборщик мусора запускается чаще и на сотни миллисекунд останавливает обработку запросов, отсюда хвост p99",
         "После переезда выросла сетевая задержка между зонами доступности, и p99 вырос вместе с ней",
     ])
     return {"scene_title": "Медленно без нагрузки", "story": f"В облачном кластере подам {svc} выставили limits.cpu: 1. Средняя загрузка CPU — {use} % лимита, а p99 вырос в разы.",
@@ -177,7 +177,7 @@ def _(rng):
              f"  minAvailable: {n}", "  selector:", "    matchLabels:", f"      app: {svc}"]
     opts, key = _choice(rng, "minAvailable равен числу реплик: PDB не пускает ни одного выселения, нужен maxUnavailable: 1", [
         "drain нужно запускать с --force: тогда поды выселяются без проверки PodDisruptionBudget",
-        f"На новом пуле не хватает ресурсов, и выселенные поды {svc} не могут запланироваться",
+        f"На новом пуле не хватает ресурсов: выселенные поды {svc} не могут запланироваться, и drain ждёт, пока замена не станет Ready",
         f"Поды {svc} не обрабатывают SIGTERM, и выселение ждёт весь terminationGracePeriod",
     ])
     return {"scene_title": "Drain не идёт", "story": f"Переводите кластер на новый пул узлов. kubectl drain старого узла висит {m} минут: «Cannot evict pod as it would violate the pod's disruption budget».",
@@ -199,7 +199,7 @@ def _(rng):
     ]
     opts, key = _choice(rng, "Liveness проверяет базу: вынести эту проверку в readiness, а liveness — только сам процесс", [
         "Ускорить failover базы до 5 секунд, чтобы liveness-проба не успевала сработать",
-        "Добавить startupProbe на 90 секунд: тогда прогрев кэша больше не будет ронять поды",
+        "Добавить startupProbe на 90 секунд: тогда прогрев кэша после рестарта больше не будет ронять поды, и каскад остановится сам",
         f"Поднять число реплик {svc} вдвое, чтобы часть подов пережила сбой базы без рестарта",
     ])
     return {"scene_title": "Каскад рестартов", "story": f"База переключилась на реплику за 20 секунд, а сервис {svc} лежал {rng.randint(6, 12)} минут: все {n} подов ушли в рестарт.",
@@ -394,7 +394,7 @@ def _(rng):
                              "повторять на одном уровне, передавать дедлайн", [
         f"{db} не вытягивает нагрузку: масштабировать базу вертикально и поднять пул соединений {svc}-api",
         f"Таймауты слишком короткие: поднять их до 10 с на всех уровнях, чтобы медленные запросы к {db} успевали завершиться и не уходили в повтор",
-        f"Поставить circuit breaker на шлюзе перед {svc}-api, а повторы в сервисе и таймауты к {db} оставить как есть",
+        f"Поставить circuit breaker на шлюзе и поднять там повторы до 5: клиенты реже увидят ошибку, пока {svc}-api восстанавливается",
     ])
     return {"scene_title": "Самоподдерживающийся сбой", "story": f"{db} тормозил 40 секунд и восстановился, а {svc}-api до сих пор не отвечает. "
                                                                f"Шлюз: таймаут {t_gw} с, 2 повтора; {svc}-api: таймаут к базе {t_svc} с, {n_retry} повтора.",
@@ -426,19 +426,35 @@ def _(rng):
 
 @family("ops_k8s_qos_eviction", SPEC, "Kubernetes", "mark", 2.3, 2.75)
 def _(rng):
+    """При MemoryPressure kubelet ранжирует поды по превышению потребления над requests, а не по priorityClass;
+    клоны различаются тем, где запрошено мало памяти: основной контейнер, BestEffort без resources или сайдкар."""
     svc = rng.choice(["payments-api", "checkout-api", "auth-api"])
+    mode = rng.choice(["main", "besteffort", "sidecar"])
     req, used = rng.choice([("128Mi", "1.1Gi"), ("256Mi", "1.4Gi"), ("300Mi", "1.6Gi")])
     lines = ["apiVersion: apps/v1", "kind: Deployment", "metadata:", f"  name: {svc}", "spec:", "  template:", "    spec:",
              "      priorityClassName: business-critical", "      containers:", f"        - name: {svc}", f"          image: registry.local/{svc}:{_v(rng)}"]
     if rng.random() < 0.5:
         lines += ["          env:", "            - name: GOMEMLIMIT", "              value: 1800MiB"]
-    lines += ["          resources:", "            requests:", f"              cpu: {rng.choice(['250m', '500m'])}", f"              memory: {req}"]
-    key = len(lines)
-    lines += ["            limits:", "              memory: 2Gi"]
-    if rng.random() < 0.5:
-        lines.append(f"              cpu: {rng.choice(['1', '2'])}")
+    if mode == "besteffort":
+        lines.append("          resources: {}")
+        key = len(lines)
+        tail = f"контейнер {svc} без requests и limits"
+    elif mode == "main":
+        lines += ["          resources:", "            requests:", f"              cpu: {rng.choice(['250m', '500m'])}", f"              memory: {req}"]
+        key = len(lines)
+        lines += ["            limits:", "              memory: 2Gi"]
+        if rng.random() < 0.5:
+            lines.append(f"              cpu: {rng.choice(['1', '2'])}")
+        tail = f"потребление {svc} — {used}"
+    else:
+        agent = rng.choice(["log-shipper", "envoy-sidecar", "otel-agent"])
+        lines += ["          resources:", "            requests: {cpu: 500m, memory: 1536Mi}", "            limits: {cpu: '1', memory: 2Gi}",
+                  f"        - name: {agent}", f"          image: registry.local/{agent}:{_v(rng)}", "          resources:", "            requests:",
+                  "              cpu: 50m", "              memory: 64Mi"]
+        key = len(lines)
+        tail = f"основной контейнер в пределах своих requests, {agent} съел {used}"
     batch = rng.choice(["report-batch", "etl-nightly", "export-job"])
-    return {"scene_title": "Выселили не тех", "story": f"Узел ушёл в MemoryPressure. Kubelet выселил {svc} (потребление {used}, приоритет высокий), "
+    return {"scene_title": "Выселили не тех", "story": f"Узел ушёл в MemoryPressure. Kubelet выселил {svc} ({tail}, приоритет высокий), "
                                                        f"а {batch} с низким приоритетом и requests = limits остался работать.",
             "prompt": f"Нажмите на строку, из-за которой {svc} выселяется первым, несмотря на приоритет.",
             "panel": {"type": "code", "lang": "yaml", "lines": lines}, "key": key}

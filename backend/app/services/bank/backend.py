@@ -15,7 +15,7 @@ def _(rng):
         _log(f"11:{m:02d}:{2 + wait:02d}", "order-saga", "ERROR", f"{order}: charge failed: ReadTimeout after {wait} s"),
         _log(f"11:{m:02d}:{2 + wait:02d}", "order-saga", "INFO", f"{order}: compensation scheduled: release_stock, mark_failed"),
     ]
-    opts, key_i = _choice(rng, f"Исход неизвестен: держать шаг в pending, узнать статус платежа у {psp} по тому же ключу (запрос статуса или вебхук) и лишь затем продолжать или компенсировать", [
+    opts, key_i = _choice(rng, f"Исход неизвестен: шаг в pending, сверить статус у {psp} по тому же ключу и лишь потом продолжать или компенсировать", [
         f"Сразу компенсировать: снять резерв, пометить заказ failed и отправить refund в {psp} — возврат несуществующего списания безопасен, а клиент не ждёт",
         f"Повторить charge с новым Idempotency-Key, чтобы {psp} не вернул закешированный ответ, и компенсировать сагу целиком только после трёх неудачных попыток",
         f"Объединить reserve_stock и charge в одну распределённую транзакцию (2PC через XA) с {psp}, чтобы шаги фиксировались атомарно",
@@ -57,7 +57,7 @@ def _(rng):
     lines = ["async def relay():"]
     if rng.random() < 0.5:
         lines.append(f"    log.info(\"outbox relay start\", topic=\"{topic}\")")
-    lines += ['    last_id = await state.get("outbox_last_id")', "    while True:", "        rows = await db.fetch("]
+    lines += ['    last_id = await state.get("outbox_last_id") or 0', "    while True:", "        rows = await db.fetch("]
     lines.append(f'            "SELECT id, topic, payload FROM outbox WHERE id > $1 ORDER BY id LIMIT {batch}", last_id)')
     key = len(lines)
     lines += ["        for r in rows:", '            await kafka.send(r["topic"], r["payload"])', '            last_id = r["id"]',

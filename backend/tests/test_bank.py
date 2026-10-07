@@ -14,7 +14,7 @@ from app.services.items import FAMILIES, TIME_LIMIT, generate_bank
 
 BANK = generate_bank()
 PANELS = {"logs", "chart", "code"}
-BANK_PREFIXES = ("fe_", "mob_", "mlds_", "dea_", "ops_", "qae_", "sec_")  # семейства services/bank/
+BANK_PREFIXES = ("be_", "fe_", "mob_", "mlds_", "dea_", "ops_", "qae_", "sec_")  # семейства services/bank/
 
 
 def test_family_names_unique():
@@ -84,13 +84,24 @@ def test_bank_deterministic_and_clones_differ():
     assert not poor, poor
 
 
+def _key_longest(it) -> bool:
+    o, k = it["payload"]["options"], it["payload"]["key"]
+    return len(o[k]) > max(len(x) for i, x in enumerate(o) if i != k)
+
+
 def test_key_not_systematically_longest():
-    """Правильный вариант не выдаёт себя длиной: в новых банках он строго самый длинный не больше чем в половине клонов."""
+    """Правильный вариант не выдаёт себя длиной: в новых банках он строго самый длинный не больше чем в 40 % клонов
+    специализации и не больше чем в 60 % клонов каждого семейства (стратегия «выбери самый длинный» не решает задание)."""
+    new = {f["family"] for f in FAMILIES if f["render"].__module__.startswith("app.services.bank.")}
     for prefix in BANK_PREFIXES:
-        items = [it for it in BANK if it["family"].startswith(prefix) and it["kind"] == "choice"]
-        longest = [len(o := it["payload"]["options"]) and len(o[it["payload"]["key"]]) > max(len(x) for i, x in enumerate(o) if i != it["payload"]["key"])
-                   for it in items]
-        assert sum(longest) <= len(longest) / 2, (prefix, f"{sum(longest)}/{len(longest)}")
+        items = [it for it in BANK if it["family"].startswith(prefix) and it["family"] in new and it["kind"] == "choice"]
+        assert sum(map(_key_longest, items)) <= 0.4 * len(items), (prefix, f"{sum(map(_key_longest, items))}/{len(items)}")
+    by_fam = defaultdict(list)
+    for it in BANK:
+        if it["family"] in new and it["kind"] == "choice":
+            by_fam[it["family"]].append(_key_longest(it))
+    bad = sorted(f for f, v in by_fam.items() if sum(v) > 0.6 * len(v))
+    assert not bad, bad
 
 
 def test_non_backend_banks_have_context():

@@ -5,8 +5,10 @@ import io
 import json
 import os
 import random
+import runpy
 import secrets
 import threading
+import warnings
 from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_quest")
@@ -48,10 +50,19 @@ def env():
         seed_items(db)
         assert seed_items(db) == 0  # повторный сид ничего не добавляет
         # новое семейство в уже засеянной базе докладывается (обновление стенда без --reset), остальные не трогаются
-        fam = db.scalar(select(Item.family).where(Item.spec == "Security"))
+        fam = db.scalar(select(Item.family).where(Item.family.like("sec\\_%")))  # семейство из bank/
         n_fam = len(db.execute(delete(Item).where(Item.family == fam).returning(Item.id)).all())
         db.commit()
         assert seed_items(db) == n_fam > 0 and seed_items(db) == 0
+        # то же через CLI (python -m app.services.items): семейства bank/ видны и из __main__
+        n_fam = len(db.execute(delete(Item).where(Item.family == fam).returning(Item.id)).all())
+        db.commit()
+    with pytest.MonkeyPatch.context() as mp, warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # «found in sys.modules»
+        mp.setattr("app.db.init_db", lambda: None)  # схема набора — create_all, миграции здесь не нужны
+        runpy.run_module("app.services.items", run_name="__main__")
+    with SessionLocal() as db:
+        assert len(db.scalars(select(Item.id).where(Item.family == fam)).all()) == n_fam
         items = {it.id: it for it in db.scalars(select(Item).where(Item.spec == "Backend"))}
         users = [User(email=f"{r}-{tag}@example.ru", role=role) for r, role in (("q", "candidate"), ("qcf", "candidate"), ("emp", "employer"), ("emp2", "employer"))]
         db.add_all(users)

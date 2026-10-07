@@ -747,8 +747,10 @@ def plan_for_need(spec: str, must: list[str], nice: list[str], grade: str) -> di
 
 if __name__ == "__main__":
     # доложить новые семейства в уже засеянную базу (обновление стенда без --reset): python -m app.services.items
+    # под __main__ модуль — копия: bank/ зарегистрировал семейства в импортированном app.services.items, берём его seed_items
     from app.db import SessionLocal, init_db
+    from app.services import items
 
     init_db()
     with SessionLocal() as db:
-        print(f"Банк заданий: добавлено {seed_items(db)} заданий")
+        print(f"Банк заданий: добавлено {items.seed_items(db)} заданий")

