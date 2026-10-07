@@ -171,7 +171,7 @@ def test_demo_flow(client):
     assert client.post(f"/api/employer/invites/{iid}/feedback", json={"value": "hired"}, headers=E).json()["fb"] == "наняли"
     assert client.post(f"/api/employer/invites/{iid}/feedback", json={"value": "confirmed"}, headers=E).status_code == 409
     me = client.get("/api/candidate/me", headers=C).json()
-    assert me["employer_confirmed"] == 1 and me["name"] == "Дмитрий Орлов" and me["cf"]["rating"] == 1912 and me["invites_open"] == 0
+    assert me["employer_confirmed"] == 1 and me["name"] == "Дмитрий Орлов" and me["cf"]["rating"] == 1912 and me["invites_open"] == 0 and me["visible"]
 
 
 def test_capacity_quota_expiry(client):
@@ -450,9 +450,13 @@ def test_cv_before_profile(client):
         db.add(nul)
         db.commit()
         hdr = {"Authorization": "Bearer " + issue_token(db, nul)}
+        nul_id = nul.id
     r = client.post("/api/candidate/profile", headers=hdr, json={"name": "Нуль", "spec": "Backend", "grade_claimed": "Junior", "min_salary": 100000,
-                                                                "formats": ["Удалённо"], "city": "Казань", "consent_152": True, "cv_text": "2020 - 2022 A\x00B"})
-    assert r.status_code == 200 and r.json()["cv_filename"] == "resume.pdf"
+                                                                "formats": ["Удалённо"], "city": "Казань", "consent_152": True,
+                                                                "cv_text": "2020 - 2022 A\x00B", "cv_filename": "a\x00.pdf"})
+    assert r.status_code == 200 and r.json()["cv_filename"] == "a.pdf" and r.json()["visible"] is False  # без публикации не видна
+    with SessionLocal() as db:
+        assert db.query(Candidate.cv_text).filter(Candidate.user_id == nul_id).scalar() == "2020 - 2022 AB"
     pdf = _pdf("Go, PostgreSQL. 4 years", "2021 - 2023 Acme Pay, Go developer", "2023 - now Volna, backend")
     r = client.post("/api/candidate/cv", files={"file": ("late.pdf", pdf, "application/pdf")}, headers=LATE)
     cv = r.json()

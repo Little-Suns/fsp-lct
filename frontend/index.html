@@ -992,7 +992,7 @@ V['/c/home'] = () => {
             <button data-act="status" data-v="off" aria-pressed="${ME.status === 'off'}">Не ищу</button>
           </div>
         </div>
-        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: ${ME.consent_publish ? 'пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля.' : 'без него грейд — только с ваших слов.'} <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
+        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: ${ME.visible ? 'пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля.' : 'без него грейд — только с ваших слов.'} <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
         ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
           ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`

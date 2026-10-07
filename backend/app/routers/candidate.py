@@ -195,8 +195,9 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
     if body.soft_skills is not None:
         c.soft_skills = canon_terms(body.soft_skills, catalog.SOFT_SKILLS)
     if new:
-        if body.cv_text and body.cv_text.strip():
-            c.cv_text, c.cv_filename = body.cv_text.replace("\x00", "").strip(), body.cv_filename or "resume.pdf"  # NUL Postgres не примет
+        cv = (body.cv_text or "").replace("\x00", "").strip()  # NUL Postgres в тексте не примет
+        if cv:
+            c.cv_text, c.cv_filename = cv, (body.cv_filename or "").replace("\x00", "") or "resume.pdf"
         db.flush()  # нужен id для журнала согласий
         _set_consent(db, c, "processing", True, force=True)
         _set_consent(db, c, "publish", bool(body.consent_publish), force=True)
@@ -237,6 +238,7 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
         "format": matching.format_text(c.formats, c.city),
         "city": c.city,
         "status": c.status,
+        "visible": matching.visible(c),  # карточку видят работодатели (статус, действующие согласия); без теста — с пометкой
         "notif": c.notif,
         "hidden_from": c.hidden_from or [],
         "years_exp": c.years_exp,
