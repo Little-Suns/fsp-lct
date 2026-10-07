@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app import catalog
@@ -21,7 +21,7 @@ from app.deps import current_candidate, current_user
 from app.integrations.consent import lock_candidate, set_external_consent
 from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, Message, QuestSession, RetiredPublicId, TaskSubmission, User
 from app.routers.employer import company_trust
-from app.services import matching, profile_pdf
+from app.services import matching, profile_pdf, reputation
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, canon_terms, parse_cv
 
@@ -386,6 +386,9 @@ def _brief(db: Session, inv: Invitation, c: Candidate) -> dict:
         "below_min": inv.salary_to < c.min_salary,
         "sent_at": inv.sent_at,
         "expires_at": inv.expires_at,
+        # отзыв о компании: только сам отзыв кандидата, репутация компании кандидату не показывается
+        "feedback_open": reputation.feedback_open(inv),
+        "company_feedback": inv.company_feedback,
     }
 
 
@@ -461,8 +464,16 @@ def accept(invite_id: int, c: Candidate = Depends(current_candidate), db: Sessio
     # (PATCH /consents) — запросы сериализуются, отзыв не проскочит между проверкой и раскрытием
     c = lock_candidate(db, c.id)
     _require_152(c)
+    inv = _own_invite(db, c, invite_id, expire=False)
+    if inv.status in matching.OPEN and inv.company.blocked_at:  # блок встал после отправки: истекает, причину кандидату не показываем
+        inv.status = "expired"
+        db.commit()
+        raise HTTPException(409, "Срок ответа истёк")
     inv = _respond(db, c, invite_id, expire=False)
-    inv.status = "accepted"
+    # условный UPDATE: если блок компании успел истечь приглашение (reputation.check_block), принятие не перезапишет «истекло»
+    if not db.execute(update(Invitation).where(Invitation.id == inv.id, Invitation.status.in_(matching.OPEN)).values(status="accepted")).rowcount:
+        db.rollback()
+        raise HTTPException(409, "Срок ответа истёк")
     db.add(AuditLog(actor_user_id=c.user_id, action="contacts_revealed", subject_candidate_id=c.id, detail={"invitation_id": inv.id, "company_id": inv.company_id}))
     db.commit()
     return _detail(db, inv, c)
@@ -475,6 +486,25 @@ def decline(invite_id: int, body: DeclineIn, c: Candidate = Depends(current_cand
     inv = _respond(db, c, invite_id)
     inv.status, inv.decline_reason, inv.decline_comment = "declined", body.reason, body.comment
     db.commit()
+    return _detail(db, inv, c)
+
+
+class CompanyFeedbackIn(BaseModel):
+    value: str
+
+
+@router.post("/invites/{invite_id}/company-feedback")
+def company_feedback(invite_id: int, body: CompanyFeedbackIn, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
+    """Отзыв о компании через неделю после принятия, по желанию и один раз. Влияет только на квоту работодателя."""
+    if body.value not in catalog.COMPANY_FEEDBACK:
+        raise HTTPException(422, f"Отзыв: один из {', '.join(catalog.COMPANY_FEEDBACK)}")
+    inv = _own_invite(db, c, invite_id)
+    if inv.company_feedback:
+        raise HTTPException(409, "Отзыв уже оставлен")
+    if not reputation.feedback_open(inv):
+        raise HTTPException(409, f"Отзыв можно оставить через {catalog.COMPANY_FEEDBACK_AFTER_DAYS} дней после принятия приглашения")
+    if not reputation.save_feedback(db, inv, body.value):
+        raise HTTPException(409, "Отзыв уже оставлен")
     return _detail(db, inv, c)
 
 

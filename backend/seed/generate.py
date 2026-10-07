@@ -696,6 +696,9 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
                    ttl=6 + 5 / 1440))  # «осталось 6 дней»
     add(invitation(kiprey, orlov, kip_need, "sent", NOW - DAY * 4, role="Python-разработчик, сервис маршрутизации",
                    frm=190000, to=225000, fmt="Удалённо", synthetic=False, description=kip_need.text))  # «осталось 3 дня»
+    # принято больше недели назад — у Орлова открыт отзыв о компании (services/reputation.py); без rng: поток засева не сдвигается
+    add(invitation(companies[0], orlov, None, "accepted", NOW - DAY * 12, role="Python-разработчик, внутренние сервисы",
+                   frm=220000, to=270000, fmt="Удалённо", synthetic=False))
     P = personas
     pay, af = "Backend (Python), платежи", "Backend (Python), антифрод"
     add(invitation(ladoga, P["F-0911"], lad_need, "accepted", NOW - DAY * 7, role=pay, frm=240000, to=300000, synthetic=False))

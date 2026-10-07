@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.catalog import FORMATS
 from app.db import get_db
-from app.deps import current_company
+from app.deps import active_company, current_company
 from app.models import Company, Lottery, Need
 from app.services import lottery as svc
 
@@ -44,7 +44,7 @@ def _own(db: Session, company: Company, lottery_id: int) -> Lottery:
 
 
 @router.post("/")
-def create(body: LotteryIn, company: Company = Depends(current_company), db: Session = Depends(get_db)):
+def create(body: LotteryIn, company: Company = Depends(active_company), db: Session = Depends(get_db)):
     """Доступно и неподтверждённой компании: лотерея квоту не тратит, приглашения выбранным — по обычным правилам квоты."""
     th = body.threshold
     if th.formats and not set(th.formats) <= set(FORMATS):
@@ -63,7 +63,7 @@ def create(body: LotteryIn, company: Company = Depends(current_company), db: Ses
 
 
 @router.post("/{lottery_id}/draw")
-def draw(lottery_id: int, company: Company = Depends(current_company), db: Session = Depends(get_db)):
+def draw(lottery_id: int, company: Company = Depends(active_company), db: Session = Depends(get_db)):
     lot = _own(db, company, lottery_id)
     try:
         return svc.draw(db, lot)
