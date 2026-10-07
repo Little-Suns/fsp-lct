@@ -992,7 +992,7 @@ V['/c/home'] = () => {
             <button data-act="status" data-v="off" aria-pressed="${ME.status === 'off'}">Не ищу</button>
           </div>
         </div>
-        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля. <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
+        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: ${ME.consent_publish ? 'пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля.' : 'без него грейд — только с ваших слов.'} <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
         ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
           ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`
@@ -1778,7 +1778,7 @@ function candView() {
         <h3>Почему в подборке</h3>
         <div class="stack-s">
           ${e && e.why ? `<div class="alert info"><span>→</span><span>${esc(e.why)}</span></div>` : ''}
-          <div class="alert ok"><span>✓</span><span>Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}</span></div>
+          ${c.grade_tested === false ? '<div class="alert warn"><span>!</span><span>Навыки не подтверждены: тест не пройден</span></div>' : `<div class="alert ok"><span>✓</span><span>Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}</span></div>`}
           ${c.gaps.map(g => `<div class="alert warn"><span>!</span><span>${esc(g)}</span></div>`).join('')}
           ${c.inFork != null ? `<div class="alert ${c.inFork ? 'ok' : 'warn'}"><span>${c.inFork ? '✓' : '!'}</span><span>Ожидания от ${RUB(c.salary)} на руки ${c.inFork ? '— внутри вашей вилки' : '— выше вашей вилки: вероятность принятия ниже'}</span></div>` : ''}
           <div class="alert ${c.fmtOk === false ? 'warn' : 'ok'}"><span>${c.fmtOk === false ? '!' : '✓'}</span><span>Формат: ${esc(c.format)}</span></div>

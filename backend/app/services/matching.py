@@ -295,7 +295,8 @@ def _llm_scores(need: Need, cands: list[Candidate]) -> dict[str, float] | None:
         }
         for c in cands
     ]
-    key = (need.spec, need.track, need.grade, tuple(need.must), tuple(need.nice), tuple(p["id"] for p in profiles))
+    # в ключе и результат теста: после пройденного теста профиль другой, старая оценка не годится
+    key = (need.spec, need.track, need.grade, tuple(need.must), tuple(need.nice), tuple((p["id"], p["grade"], p["theta"]) for p in profiles))
     if key in _llm_cache:
         return _llm_cache[key]
     body = {"need": {"spec": need.spec, "track": need.track, "grade": need.grade, "must": need.must, "nice": need.nice}, "candidates": profiles}
@@ -350,7 +351,9 @@ def score_candidates(db: Session, need: Need, cands: list[Candidate], *, variant
     if not cands:
         return []
     sims, mode = _retrieval(need, cands)
-    order = sorted(range(len(cands)), key=lambda i: (-sims[i], cands[i].public_id))
+    # ярус «тест пройден» — уже при отборе: иначе в большой категории не подтверждённые заняли бы слоты RETRIEVE_K
+    # по сходству заявленного стека и вытеснили прошедших тест; и вариант «embed» тоже соблюдает порядок ярусов
+    order = sorted(range(len(cands)), key=lambda i: (not tested(cands[i]), -sims[i], cands[i].public_id))
     loads = candidate_loads(db, [c.id for c in cands])
     if variant == "embed":
         return [

@@ -2,6 +2,7 @@
 Плюс ёмкость, квота, лотерея, истечение, неподтверждённая компания, поиск по банку, согласия и права по 152-ФЗ. Своя БД (fsp_flows), LLM выключена — работают правила."""
 
 import io
+import json
 import os
 import re
 from datetime import UTC, datetime, timedelta
@@ -20,7 +21,7 @@ from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
 from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, ExternalAccount, Invitation, RetiredPublicId, User, Vacancy
 from app.routers import candidate, employer, lottery
-from app.services import profile_pdf
+from app.services import matching, profile_pdf
 
 config.LLM_BASE_URL = ""
 NOW = datetime.now(UTC)
@@ -251,6 +252,7 @@ def test_search(client):
     assert s["skills"] == ["Kafka"] and s["total"] == 4 and ids == ["A-1042", "B-2318"], s
     assert {"H-0002", "P-0008", "Z-0001"}.isdisjoint(ids)
     assert s["facets"]["grade"]["Senior"] == 2 and s["facets"]["spec"] == {"Backend": 4}  # фасет грейда — без своего фильтра
+    assert s["facets"]["grade"]["Middle"] == 4 and s["facets"]["grade"]["Junior"] == 1  # U-0004 — по заявленному, J-0003 — по тесту
     page2 = client.get("/api/employer/search?grade=Middle&q=кафка&limit=2&page=2", headers=E).json()
     assert [(c["id"], c["rank"]) for c in page2["items"]] == [("G-0005", 3), ("U-0004", 4)]  # без теста — в конце
     u = page2["items"][1]
@@ -272,6 +274,39 @@ def test_unconfirmed_grade(client):
     # тест показал грейд ниже заявленного: категория по тесту, заявленный виден
     j = client.get("/api/employer/candidates/J-0003", headers=E).json()
     assert (j["grade"], j["grade_claimed"], j["grade_tested"], j["pct"]) == ("Junior", "Middle", True, 60) and j["competencies"]
+    with SessionLocal() as db:  # счётчик категории — по тесту (J-0003 в Junior), без теста — по заявленному
+        assert employer._category_count(db, "Backend", "Python", "Junior") == 1
+    # ярусы во всех вариантах подбора: без теста — после прошедших
+    for variant in ("embed", "rerank", "full"):
+        ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks?variant={variant}", headers=E).json()["items"]]
+        assert ids[-1] == "U-0004" and len(ids) > 1, (variant, ids)
+
+
+def test_unconfirmed_grade_retrieval_cap(client, monkeypatch):
+    """Отбор топ-RETRIEVE_K — тоже по ярусам: не подтверждённые со стеком «как надо» не вытесняют прошедших тест."""
+    need_id = client.get("/api/employer/needs", headers=E).json()[-1]["id"]
+    monkeypatch.setattr(matching, "RETRIEVE_K", 3)
+    ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks?variant=rerank", headers=E).json()["items"]]
+    assert len(ids) == 3 and "U-0004" not in ids, ids
+
+
+def test_unconfirmed_grade_llm(client, monkeypatch):
+    """LLM-реранк: в модель уходит пометка «без теста» и θ = None; высокая оценка модели не поднимает выше прошедших."""
+    need_id = client.get("/api/employer/needs", headers=E).json()[-1]["id"]
+    sent = []
+
+    def fake_chat(system, user):
+        body = json.loads(user)
+        sent.append(body)
+        return {"scores": [{"id": c["id"], "score": 1.0 if c["id"] == "U-0004" else 0.0} for c in body["candidates"]]}
+
+    monkeypatch.setattr(matching.llm, "chat_json", fake_chat)
+    matching._llm_cache.clear()
+    ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks", headers=E).json()["items"]]
+    assert ids[-1] == "U-0004"
+    u = next(c for c in sent[0]["candidates"] if c["id"] == "U-0004")
+    assert (u["grade"], u["grade_tested"], u["theta"]) == ("Middle", False, None)
+    matching._llm_cache.clear()
 
 
 def test_roles_soft_and_pdf_profile(client):
@@ -410,6 +445,14 @@ def test_profile_cv_privacy(client):
 
 def test_cv_before_profile(client):
     """Резюме до создания профиля: до согласия сервер ничего не хранит, текст возвращается и приходит в POST /profile."""
+    with SessionLocal() as db:  # NUL в тексте (Postgres его не примет) вырезается, а не роняет запрос
+        nul = User(email="nul@example.ru", role="candidate")
+        db.add(nul)
+        db.commit()
+        hdr = {"Authorization": "Bearer " + issue_token(db, nul)}
+    r = client.post("/api/candidate/profile", headers=hdr, json={"name": "Нуль", "spec": "Backend", "grade_claimed": "Junior", "min_salary": 100000,
+                                                                "formats": ["Удалённо"], "city": "Казань", "consent_152": True, "cv_text": "2020 - 2022 A\x00B"})
+    assert r.status_code == 200 and r.json()["cv_filename"] == "resume.pdf"
     pdf = _pdf("Go, PostgreSQL. 4 years", "2021 - 2023 Acme Pay, Go developer", "2023 - now Volna, backend")
     r = client.post("/api/candidate/cv", files={"file": ("late.pdf", pdf, "application/pdf")}, headers=LATE)
     cv = r.json()

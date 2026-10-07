@@ -196,7 +196,7 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
         c.soft_skills = canon_terms(body.soft_skills, catalog.SOFT_SKILLS)
     if new:
         if body.cv_text and body.cv_text.strip():
-            c.cv_text, c.cv_filename = body.cv_text.strip(), body.cv_filename or "resume.pdf"
+            c.cv_text, c.cv_filename = body.cv_text.replace("\x00", "").strip(), body.cv_filename or "resume.pdf"  # NUL Postgres не примет
         db.flush()  # нужен id для журнала согласий
         _set_consent(db, c, "processing", True, force=True)
         _set_consent(db, c, "publish", bool(body.consent_publish), force=True)
