@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
@@ -79,7 +80,26 @@ jobs:
         if: failure()
         run: docker compose logs sandbox || true
 
+  frontend-syntax:
+    # лёгкая проверка синтаксиса JS в index.html — на каждый PR, без Playwright и бэкенда
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Синтаксис JS в index.html
+        run: |
+          node -e "const s=require('fs').readFileSync('index.html','utf8');const m=[...s.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(x=>x[1]).join('\n');require('fs').writeFileSync('/tmp/app.js',m)"
+          node --check /tmp/app.js
+
+  # e2e на каждый PR отключён: Playwright тормозит работу. Запуск вручную — Actions → CI → Run workflow;
+  # перед PR e2e гоняется локально (`cd frontend && npm test`).
   frontend-e2e:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -101,10 +121,6 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Синтаксис JS в index.html
-        run: |
-          node -e "const s=require('fs').readFileSync('index.html','utf8');const m=[...s.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(x=>x[1]).join('\n');require('fs').writeFileSync('/tmp/app.js',m)"
-          node --check /tmp/app.js
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
