@@ -14,6 +14,7 @@ from app.services.items import FAMILIES, TIME_LIMIT, generate_bank
 
 BANK = generate_bank()
 PANELS = {"logs", "chart", "code"}
+BANK_PREFIXES = ("fe_", "mob_", "mlds_", "dea_", "ops_", "qae_", "sec_")  # семейства services/bank/
 
 
 def test_family_names_unique():
@@ -65,13 +66,31 @@ def test_every_clone_well_formed():
         assert 1.4 <= it["a"] <= 2.7 and -2.5 <= it["b"] <= 3.0, ctx
 
 
+def _content(it) -> str:
+    """Содержимое клона без ключа и без порядка вариантов (перемешивание вариантов — не другой клон)."""
+    p = {k: v for k, v in it["payload"].items() if k != "key"}
+    return repr({**p, "options": sorted(p.get("options") or [])})
+
+
 def test_bank_deterministic_and_clones_differ():
+    """Клоны сценарных семейств (Backend и bank/) отличаются данными: утечка одного не раскрывает остальные.
+    # ponytail: «простые» шаблоны items.simple с одной-двумя подстановками сюда не входят — см. table.md"""
     assert generate_bank() == BANK
-    by_fam = defaultdict(list)
+    by_fam = defaultdict(set)
     for it in BANK:
-        by_fam[it["family"]].append(repr({k: v for k, v in it["payload"].items() if k != "key"}))
-    same = [f for f, v in by_fam.items() if len(set(v)) < 2]
-    assert not same, same  # клоны семейства отличаются данными: утечка одного не раскрывает остальные
+        by_fam[it["family"]].add(_content(it))
+    scenic = {f["family"] for f in FAMILIES if f["spec"] == "Backend" or f["family"].startswith(BANK_PREFIXES)}
+    poor = sorted(f for f in scenic if len(by_fam[f]) < (2 if f.startswith("be_") else 3))
+    assert not poor, poor
+
+
+def test_key_not_systematically_longest():
+    """Правильный вариант не выдаёт себя длиной: в новых банках он строго самый длинный не больше чем в половине клонов."""
+    for prefix in BANK_PREFIXES:
+        items = [it for it in BANK if it["family"].startswith(prefix) and it["kind"] == "choice"]
+        longest = [len(o := it["payload"]["options"]) and len(o[it["payload"]["key"]]) > max(len(x) for i, x in enumerate(o) if i != it["payload"]["key"])
+                   for it in items]
+        assert sum(longest) <= len(longest) / 2, (prefix, f"{sum(longest)}/{len(longest)}")
 
 
 def test_non_backend_banks_have_context():

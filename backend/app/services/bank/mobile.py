@@ -27,9 +27,9 @@ def _(rng):
         _log(t(9, 47), "app", "ERROR", f"Fatal error: Unexpectedly found nil while implicitly unwrapping an Optional value\n  {vc}.swift:{rng.randint(30, 90)}  {outlet}.isHidden = false"),
         _log(t(9, 47), "crash", "ERROR", "EXC_BREAKPOINT (SIGTRAP), Thread 0 Crashed: com.apple.main-thread"),
     ]
-    opts, key = _choice(rng, f"@IBOutlet {outlet} остался nil: после переименования связь с элементом в storyboard потеряна", [
+    opts, key = _choice(rng, f"После переименования связь @IBOutlet {outlet} со storyboard потеряна, outlet остался nil", [
         "Экран создаётся не на главном потоке, и UIKit падает на первом обращении к view",
-        f"Системе не хватило памяти, и view экрана выгружен до viewDidLoad в сборке {ver}",
+        f"Системе не хватило памяти: в сборке {ver} экран тяжелее, и его view выгружается ещё до вызова viewDidLoad",
         "Сборка подписана неверным профилем, поэтому приложение падает при открытии экранов",
     ])
     return {"scene_title": "Краш на открытии", "story": f"Сборка {ver} для TestFlight. Тестировщик открывает экран — приложение сразу падает. Перед сборкой был небольшой рефакторинг.",
@@ -46,8 +46,8 @@ def _(rng):
         _log(t(6, 11), "app", "WARN", f"release {ver}: parsed {dto}(a=null, b=null, c=0)"),
         _log(t(6, 11), "AndroidRuntime", "ERROR", f"java.lang.NullPointerException: Parameter specified as non-null is null: method {screen.lower()}Binder.bind, parameter {field}"),
     ]
-    opts, key = _choice(rng, "R8 переименовал поля DTO, а Gson сопоставляет JSON с полями по именам через рефлексию: нужны @SerializedName или keep-правила", [
-        "Прод-сервер отдаёт другой JSON, чем тестовый: нужно сверить контракт API с бэкендом",
+    opts, key = _choice(rng, "R8 переименовал поля DTO, а Gson ищет поля по именам через рефлексию: нужны @SerializedName или keep-правила", [
+        "Release-сборка ходит на другой стенд, и он отдаёт другой JSON: сверить BASE_URL release-конфигурации и контракт API с бэкендом",
         "В release-сборке отключено логирование, поэтому значения полей в логах выглядят пустыми",
         "Kotlin data class в release-сборке не поддерживает null: поля нужно сделать var",
     ])
@@ -66,8 +66,8 @@ def _(rng):
         _log(t(3, 41), "AndroidRuntime", "ERROR", f"FATAL EXCEPTION: main\njava.lang.RuntimeException: android.os.TransactionTooLargeException: data parcel size {size} bytes\n"
                                                     "  at android.app.servertransaction.PendingTransactionActions$StopInfo.run"),
     ]
-    opts, key = _choice(rng, f"В saved state кладётся весь список ({n} элементов), а Bundle уходит через Binder с лимитом около 1 МБ: сохранять id и позицию, данные — в ViewModel или БД", [
-        f"Утечка памяти в {screen}: в onStop нужно вызвать System.gc(), чтобы освободить место",
+    opts, key = _choice(rng, f"Весь список ({n} шт.) кладётся в saved state, а Bundle через Binder ограничен ~1 МБ: сохранять id и позицию", [
+        f"Утечка памяти в {screen}: адаптер держит все {n} элементов, поэтому в onStop нужно очищать адаптер и вызывать System.gc(), чтобы освободить место",
         "Процесс убивает система из-за нехватки памяти, это поведение ОС, и в коде его не исправить",
         "Приложение получило слишком большой push, и его обработка не уложилась в лимит сервиса",
     ])
@@ -133,6 +133,30 @@ def _(rng):
             "prompt": "Что сделать?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
+@family("mob_lc_process_death", "Mobile", "Жизненный цикл приложения", "choice", 2.3, 2.6)
+def _(rng):
+    holder, field, frag, title, where = rng.choice([("SessionHolder", "session", "CheckoutFragment", "оплаты", "экран входа"),
+                                                    ("CartHolder", "cart", "DeliveryFragment", "выбора доставки", "экран каталога"),
+                                                    ("ProfileHolder", "profile", "EditProfileFragment", "редактирования профиля", "главный экран")])
+    pid, mins, t = rng.randint(10000, 29999), rng.randint(20, 90), _ts(rng, 16)
+    lines = [
+        _log(t(0, 3), "app", "INFO", f"{frag} resumed; пользователь уходит в другое приложение"),
+        _log(t(2, 51), "ActivityManager", "INFO", f"Killing {pid}:ru.demo.app/u0a211 (adj 905): cached #{rng.randint(12, 30)}"),
+        _log(t(18, 40), "ActivityManager", "INFO", f"Start proc {pid + rng.randint(40, 900)}:ru.demo.app/u0a211 for activity ru.demo.app/.MainActivity"),
+        _log(t(18, 41), "FragmentManager", "DEBUG", f"restored back stack top={frag}; SavedStateHandle keys=[orderId, step]"),
+        _log(t(18, 41), "AndroidRuntime", "ERROR", f"FATAL EXCEPTION: main\nkotlin.UninitializedPropertyAccessException: lateinit property {field} has not been initialized\n"
+                                                    f"  at ru.demo.app.{holder}.get{field.capitalize()}"),
+        _log(t(19, 0), "qa", "INFO", f"«Don't keep activities» и поворот экрана — без падений; краши у вернувшихся через {mins}+ мин"),
+    ]
+    opts, key = _choice(rng, f"Процесс убит в фоне и восстановлен сразу на экране {title}: стек и SavedStateHandle вернулись, а синглтон {holder} пуст — он должен подниматься из хранилища сам", [
+        f"Это эффект «Don't keep activities»: Activity пересоздаётся без ViewModel — держать {field} в ViewModel экрана {title}, а не в синглтоне",
+        f"При восстановлении Activity.onCreate вызывается раньше Application.onCreate, и {holder} ещё не готов: перенести его инициализацию в ContentProvider",
+        "Глубокий экран после возврата восстанавливать не нужно: поставить clearTaskOnLaunch, чтобы приложение всегда открывалось с главного",
+    ])
+    return {"scene_title": "Падение при возврате", "story": f"Краши с экрана {title}: пользователь надолго уходит в другое приложение, возвращается — падение. {holder} — синглтон, его заполняет {where}.",
+            "prompt": "В чём причина и что исправить?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
+
+
 # --- Ревью кода ---
 
 
@@ -181,6 +205,23 @@ def _(rng):
             "key": [key, key + 1]}
 
 
+@family("mob_rv_actor_reentrancy", "Mobile", "Ревью кода", "mark", 2.3, 2.4)
+def _(rng):
+    actor, field, typ, call, ep = rng.choice([("SessionStore", "session", "Session", "api.refresh(session?.refreshToken)", "/auth/refresh"),
+                                              ("FlagsStore", "flags", "FeatureFlags", "api.fetchFlags()", "/v1/flags"),
+                                              ("ConfigStore", "config", "RemoteConfig", "api.fetchConfig()", "/v1/config")])
+    lines = [f"actor {actor} {{", f"    private var {field}: {typ}?"]
+    if rng.random() < 0.5:
+        lines.append(f"    private let log = Logger(subsystem: \"app\", category: \"{field}\")")
+    lines += ["", f"    func current() async throws -> {typ} {{", f"        if let v = {field}, !v.isExpired {{ return v }}", f"        let fresh = try await {call}"]
+    key = len(lines)
+    lines += [f"        {field} = fresh", "        return fresh", "    }", "}"]
+    return {"scene_title": "Актор не спас", "story": f"{actor} переписали на actor, чтобы убрать гонки при старте. Но бэкенд всё равно видит по {rng.randint(3, 6)} одинаковых запроса {ep} "
+                                                    "от одного устройства за секунду: экраны одновременно вызывают current().",
+            "prompt": "Нажмите на строку, из-за которой актор пропускает дублирующие запросы.",
+            "panel": {"type": "code", "lang": "swift", "lines": lines, "caption": f"PR #{rng.randint(300, 999)} · «{actor} → actor»"}, "key": key}
+
+
 # --- Сеть и офлайн ---
 
 
@@ -189,7 +230,7 @@ def _(rng):
     screen = rng.choice(["ленту новостей", "список заказов", "расписание занятий"])
     place = rng.choice(["в самолёте", "в метро", "за городом без связи"])
     opts, key = _choice(rng, "Показать последние сохранённые данные из локального кэша с пометкой «нет сети» и обновить их, когда связь вернётся", [
-        "Показать системную ошибку и закрыть экран, чтобы пользователь не видел устаревшие данные",
+        "Показать системную ошибку и закрыть экран: устаревшие данные без сети вреднее пустого экрана, пользователь сам вернётся, когда связь появится",
         "Увеличить таймаут запроса до пяти минут, чтобы дождаться появления сети",
         "Повторять запрос без паузы, пока он не пройдёт, и держать спиннер на экране",
     ])
@@ -213,7 +254,7 @@ def _(rng):
         _log(t(2, 15), "app", "WARN", "feed: request failed, showing empty state"),
     ]
     opts, key = _choice(rng, "Сборка ходит на сервер по HTTP, а система по умолчанию блокирует незашифрованный трафик: перевести BASE_URL на HTTPS", [
-        "Разрешить незашифрованный трафик для всех доменов в настройках приложения — так быстрее вернуть работу",
+        "Разрешить незашифрованный трафик для всех доменов (usesCleartextTraffic / NSAllowsArbitraryLoads) — так быстрее всего вернуть работу всем",
         f"DNS на устройствах не резолвит {host}: проверить настройки сети и VPN у пользователей",
         f"Сертификат сервера {host} истёк, и приложение отвергает соединение: обновить сертификат",
     ])
@@ -230,13 +271,37 @@ def _(rng):
              _log(t(0, 3), "auth", "WARN", f"POST /auth/refresh (refresh=…{r1}) → 401 refresh_token_reused, token family revoked"),
              _log(t(0, 3), "auth", "WARN", f"POST /auth/refresh (refresh=…{r1}) → 401 refresh_token_reused"),
              _log(t(0, 4), "app", "ERROR", "session revoked → logout, open LoginScreen")]
-    opts, key = _choice(rng, "Обновлять токен в одном месте: первый 401 запускает refresh, остальные запросы ждут его результата и повторяются с новым токеном", [
+    opts, key = _choice(rng, "Один refresh на всех: первый 401 запускает обновление, остальные запросы ждут его и повторяются с новым токеном", [
         "Увеличить срок жизни access-токена до 30 дней, чтобы обновление случалось реже и не мешало",
-        "Перенести refresh-токен в Keychain или зашифрованное хранилище, чтобы его не перезаписывали",
+        "Перенести refresh-токен в Keychain или EncryptedSharedPreferences: сейчас его перезаписывает фоновый процесс, и сервер видит старое значение",
         "При первом 401 сразу разлогинивать пользователя: это безопаснее, чем повторять запросы",
     ])
     return {"scene_title": "Выкинуло на вход", "story": "Утром после релиза часть пользователей внезапно оказывается на экране входа. Сервер выдаёт одноразовые refresh-токены (ротация).",
             "prompt": "Как исправить клиент?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
+
+
+@family("mob_net_sync_conflict", "Mobile", "Сеть и офлайн", "choice", 2.4, 2.9)
+def _(rng):
+    what, f1, f2 = rng.choice([("заметку", "заголовок", "текст"), ("карточку задачи", "статус", "описание"), ("список покупок", "название", "позиции")])
+    h, skew, doc = rng.randint(9, 16), rng.randint(16, 40), rng.randint(100, 999)
+
+    def hm(m: int) -> str:
+        return f"{m // 60:02d}:{m % 60:02d}"
+
+    lines = [
+        _log(hm(h * 60 - 10) + ":00", "tablet", "INFO", f"офлайн: изменено поле «{f2}», updatedAt={hm(h * 60 - 10 + skew)} (по часам планшета)"),
+        _log(hm(h * 60 + 5) + ":12", "sync", "INFO", f"phone: PUT /docs/{doc} (весь документ, изменено «{f1}»), updatedAt={hm(h * 60 + 5)} → 200"),
+        _log(hm(h * 60 + 70) + ":40", "sync", "INFO", f"tablet: PUT /docs/{doc} (весь документ), updatedAt={hm(h * 60 - 10 + skew)} → 200, newer wins"),
+        _log(hm(h * 60 + 71) + ":03", "support", "WARN", f"doc {doc}: «{f1}» снова старый — правка с телефона пропала"),
+        _log(hm(h * 60 + 72) + ":30", "device", "INFO", f"часы планшета спешат на {skew} мин"),
+    ]
+    opts, key = _choice(rng, f"Слать изменённые поля с базовой ревизией: сервер видит правку поверх старой версии и сливает «{f1}» с телефона и «{f2}» с планшета", [
+        "Ставить updatedAt на сервере в момент приёма запроса: тогда спешащие часы устройств перестанут влиять на то, какая из записей победит",
+        f"Поправлять время клиента по заголовку Date ответа сервера перед записью updatedAt: планшет спешит на {skew} мин, отсюда и неверный порядок",
+        "Брать на сервере блокировку документа на время редактирования, чтобы второе устройство не меняло его, пока первое не закончит",
+    ])
+    return {"scene_title": "Пропавшая правка", "story": f"Пользователь правит одну и ту же {what} на телефоне и на планшете, планшет часть времени без сети. Синхронизация — last-write-wins по updatedAt.",
+            "prompt": "Как исправить, чтобы не терялась ни одна из правок?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
 # --- Производительность ---
@@ -268,9 +333,9 @@ def _(rng):
         {"name": "холодный старт p90, мс", "axis": "left", "max": 3000, "data": start},
         {"name": "размер приложения, МБ", "axis": "right", "max": 200, "data": size},
     ]}
-    opts, key = _choice(rng, "Синхронная инициализация новых SDK при запуске: перенести некритичные в отложенную инициализацию и проверить трассировкой старта", [
+    opts, key = _choice(rng, "Новые SDK инициализируются синхронно при запуске: некритичные отложить и проверить трассировкой старта", [
         "Векторные иконки: их растеризация занимает секунды при каждом холодном старте",
-        f"Рост размера приложения на {d} МБ: система дольше читает его с диска при запуске",
+        f"Рост размера приложения на {d} МБ: при каждом запуске система дольше читает и проверяет пакет с диска, а код грузится целиком до первого кадра",
         "Новый онбординг: его экраны и анимации создаются при каждом холодном старте",
     ])
     return {"scene_title": "Медленный старт", "story": f"В {x[rel]}: новый онбординг (только при первом запуске), иконки в векторе и ещё {k} SDK (аналитика, A/B, чат), они инициализируются при старте приложения.",
@@ -297,6 +362,26 @@ def _(rng):
             "prompt": "В чём причина?", "panel": panel, "options": opts, "key": key}
 
 
+@family("mob_perf_prefs_anr", "Mobile", "Производительность", "choice", 2.3, 2.75)
+def _(rng):
+    screen = rng.choice(["FeedActivity", "CatalogActivity", "ChatListActivity"])
+    ver, kb, share, t = _ver(rng), rng.randint(300, 900), rng.randint(85, 96), _ts(rng, 19)
+    lines = [
+        _log(t(0, 1), "release", "INFO", f"{ver}: кэш списка (≈{kb} КБ JSON) сохраняется в SharedPreferences через apply() при каждой остановке прокрутки"),
+        _log(t(3, 12), "ActivityManager", "ERROR", f"ANR in ru.demo.app (ru.demo.app/.{screen})\nReason: Input dispatching timed out (5000 ms)"),
+        _log(t(3, 12), "traces", "INFO", "\"main\" prio=5 WAITING\n  at java.util.concurrent.CountDownLatch.await\n  at android.app.SharedPreferencesImpl$EditorImpl$1.run\n"
+                                         "  at android.app.QueuedWork.waitToFinish\n  at android.app.ActivityThread.handleStopActivity"),
+        _log(t(5, 0), "anr-stats", "INFO", f"{share}% ANR — бюджетные устройства с eMMC; StrictMode: commit() и чтений файлов на главном потоке нет"),
+    ]
+    opts, key = _choice(rng, "apply() пишет в фоне, но при onStop ActivityThread ждёт незаконченные записи: большой кэш вынести из prefs в файл или БД и писать реже", [
+        "Где-то в коде остался синхронный commit(): найти запись в prefs на главном потоке и заменить её на apply()",
+        f"Разбор JSON на {kb} КБ при возврате на {screen} нагружает главный поток: перенести парсинг кэша в Dispatchers.Default, а на экране показывать заглушку",
+        "Бюджетным устройствам не хватает памяти, и сборка мусора на каждом кадре прокрутки даёт ANR: снизить аллокации",
+    ])
+    return {"scene_title": "ANR при сворачивании", "story": f"После {ver} ANR выросли втрое: зависание на секунды, когда пользователь сворачивает {screen}. На флагманах почти не воспроизводится.",
+            "prompt": "В чём причина и что сделать?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
+
+
 # --- Алгоритмы ---
 
 
@@ -309,7 +394,7 @@ def _(rng):
     opts, key = _choice(rng, f"Запоминать уже встреченные значения {field} в HashSet: проверка за O(1), всего O(n)", [
         "Сортировать result после каждого добавления, чтобы поиск шёл быстрее",
         "Заменить mutableListOf на ArrayList с заранее заданной ёмкостью",
-        "Запустить функцию в Dispatchers.Default: так сам алгоритм станет быстрее",
+        "Запустить функцию в Dispatchers.Default: на фоновом потоке перебор не мешает интерфейсу, и сам импорт пройдёт быстрее",
     ])
     return {"scene_title": "Импорт контактов", "story": f"Импорт {n} тыс. контактов из телефонной книги «висит» минуту: дубли по {by} убираются функцией ниже.",
             "prompt": "Как ускорить?", "panel": {"type": "code", "lang": "kotlin", "lines": lines}, "options": opts, "key": key}

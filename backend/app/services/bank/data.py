@@ -32,8 +32,8 @@ def _(rng):
     n = rng.randint(120, 900)
     lines = ["SELECT count(*)", f"FROM {tbl} t", f"WHERE t.created_at >= '2026-0{rng.choice([1, 4, 7])}-01'",
              f"  AND t.{col} NOT IN (SELECT {col} FROM {black});"]
-    opts, key = _choice(rng, f"В {black} есть строки с NULL в {col}: NOT IN тогда ни для одной строки не даёт TRUE; нужен NOT EXISTS", [
-        "NOT IN не работает с подзапросом больше 1000 строк: стоп-лист нужно разбить на части",
+    opts, key = _choice(rng, f"В {black} есть NULL в {col}: с NULL условие NOT IN не бывает истинным; нужен NOT EXISTS", [
+        "NOT IN с подзапросом больше 1000 строк планировщик заменяет пустым списком: стоп-лист нужно разбить на части и объединить через UNION",
         "count(*) пропускает строки, где есть NULL; нужно считать count(t.id)",
         "Подзапрос выполняется на каждую строку и обрывается по таймауту, поэтому вернулся 0",
     ])
@@ -48,7 +48,7 @@ def _(rng):
     lines = [f"CREATE TABLE {tbl} (", f"    {idc} UInt64,", "    status String,", "    amount Decimal(18, 2),", "    updated_at DateTime",
              ") ENGINE = ReplacingMergeTree(updated_at)", f"ORDER BY {idc};", "", f"SELECT count(), sum(amount) FROM {tbl};"]
     opts, key = _choice(rng, "Версии схлопываются только при фоновых слияниях частей: читать с FINAL или брать argMax(amount, updated_at) по ключу", [
-        "ReplacingMergeTree убирает дубли при вставке, значит CDC присылает разные id: проверять источник",
+        "ReplacingMergeTree схлопывает дубли уже при вставке, значит CDC присылает каждую версию записи с новым id — проверять ключи в источнике",
         "Decimal(18, 2) округляет суммы при вставке, и ошибка копится: перейти на Float64",
         "Без PARTITION BY по дате движок вообще не дедуплицирует строки: добавить партиционирование",
     ])
@@ -83,7 +83,7 @@ def _(rng):
     shown = real * days + rng.randint(-3, 3)
     lines = ["SELECT date_trunc('month', snapshot_date) AS month,", f"       SUM({col}) AS total", f"FROM {tbl}", "GROUP BY 1", "ORDER BY 1;"]
     opts, key = _choice(rng, "Это полуаддитивная мера: по объектам её складывают, по дням — нет; брать значение на конец месяца или среднее", [
-        "date_trunc считает в UTC, и часть дней попадает в соседний месяц: перевести в местное время",
+        "date_trunc считает месяц в UTC, поэтому дни на стыке месяцев попадают в соседний и сумма раздувается: перевести даты в местное время",
         f"В снимке {tbl} дубли строк по объектам: нужен DISTINCT перед SUM",
         "Измерение объектов должно быть SCD Type 2, иначе история снимков теряется",
     ])
@@ -108,6 +108,21 @@ def _(rng):
             "prompt": "Нажмите на строку, из-за которой продажи задваиваются.", "panel": {"type": "code", "lang": "sql", "lines": lines}, "key": key}
 
 
+@family("dea_mod_late_member", SPEC, "Моделирование данных", "choice", 2.3, 2.6)
+def _(rng):
+    fact = rng.choice(["fact_sales", "fact_orders", "fact_policies"])
+    channel = rng.choice(["партнёрского канала", "маркетплейса", "B2B-портала"])
+    rows, lag, share = rng.randint(2, 8), rng.randint(1, 3), rng.randint(3, 9)
+    opts, key = _choice(rng, "Заводить в измерении предполагаемую запись по натуральному ключу, а когда клиент придёт из CRM, дописать её атрибуты на месте", [
+        f"Оставить -1, но каждую ночь перегружать {fact} целиком, чтобы старые заказы подхватили появившихся клиентов",
+        "Держать такие заказы в staging, пока клиент не появится в CRM, и только тогда загружать их в факт",
+        "Хранить в факте натуральный id клиента и при запросе брать атрибуты из текущей версии измерения",
+    ])
+    return {"scene_title": "Неизвестный клиент", "story": f"{fact} ({rows} млрд строк) ссылается на dim_customer — SCD Type 2: отчёты показывают сегмент клиента на дату продажи. "
+            f"Клиенты {channel} приходят из CRM на {lag} дн. позже первых заказов; такие заказы получают customer_key = -1 («неизвестный») и так и остаются — их уже {share} %. Выручку финансы смотрят в тот же день.",
+            "prompt": "Как правильно загружать такие заказы?", "panel": None, "options": opts, "key": key}
+
+
 # --- Пайплайны ---
 
 
@@ -124,7 +139,7 @@ def _(rng):
     ]
     opts, key = _choice(rng, "Выгрузка приходит позже запуска по расписанию: ждать появления файла сенсором или запускать по событию", [
         "У задачи нет прав на чтение бакета: выдать роль на s3://raw",
-        "Файл приходит битым: добавить проверку схемы перед загрузкой",
+        "Файл иногда приходит битым или неполным: добавить проверку схемы и числа строк перед загрузкой, а упавшие запуски повторять",
         "Включить catchup, чтобы Airflow сам догнал упавший запуск",
     ])
     return {"scene_title": "Утренний перезапуск", "story": f"Ночная загрузка {src} падает примерно раз в неделю. Утром её перезапускают руками — и она проходит.",
@@ -143,9 +158,9 @@ def _(rng):
         _log("09:14:04", "scheduler", "INFO", f"DagRuns queued for {dag}: {total}"),
         _log("09:14:30", "pg-replica", "WARN", f"{rng.randint(40, 90)} active queries from airflow_etl, connections near limit"),
     ]
-    opts, key = _choice(rng, "Включён catchup: Airflow создал запуск на каждый день с start_date; выключить catchup, ограничить max_active_runs, историю — отдельным backfill", [
+    opts, key = _choice(rng, "Включён catchup: Airflow ставит запуск на каждый день с start_date; выключить catchup, историю — отдельным backfill", [
         "Расписание @daily из-за часового пояса читается как «каждую минуту»",
-        "Завис scheduler: его перезапуск очистит очередь запусков",
+        "Завис scheduler и дублирует запуски: перезапустить его, очистить очередь DagRun и выставить max_active_runs=1 для всех DAG",
         "У DAG нет retries, и каждая ошибка порождает новый DagRun",
     ])
     return {"scene_title": "Сотни запусков", "story": f"Новый DAG {dag} выкатили утром. Через минуту воркеры забиты, а реплика базы-источника захлёбывается запросами.",
@@ -163,13 +178,28 @@ def _(rng):
         _log("02:41:11", "spark", "INFO", f"task {(slow + 7) % 200} SUCCESS 17 s, shuffle read {rng.randint(120, 200)} MB"),
         _log("02:41:15", f"executor-{rng.randint(1, 12)}", "WARN", f"spilling {round(gb / 3, 1)} GB to disk"),
     ]
-    opts, key = _choice(rng, "Перекос по ключу соединения: горячий ключ целиком попал в одну задачу; солить ключ или включить AQE skew join", [
-        "Поднять spark.sql.shuffle.partitions до 2000: задачи станут мельче и закончатся быстрее",
+    opts, key = _choice(rng, "Перекос по ключу соединения: горячий ключ попал в одну задачу; солить ключ или включить AQE skew join", [
+        "Поднять spark.sql.shuffle.partitions до 2000: задачи станут мельче, и долгая задача разобьётся на сотню быстрых параллельных",
         f"Добавить executors: задача {slow} ждёт свободных ядер в очереди",
         "Закэшировать обе таблицы через .cache() перед соединением",
     ])
     return {"scene_title": "Одна задача из 200", "story": f"Сборка витрины {mart} на Spark шла 20 минут, после подключения крупного маркетплейса — больше двух часов.",
             "prompt": "Что происходит и как исправить?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
+
+
+@family("dea_pipe_late_watermark", SPEC, "Пайплайны", "mark", 2.3, 2.75)
+def _(rng):
+    mart, src = rng.choice([("mart_app_events", "raw.app_events"), ("mart_checkout_events", "raw.checkout_events"), ("mart_game_events", "raw.game_events")])
+    lag, gap = rng.randint(6, 30), f"{rng.uniform(1.2, 3.5):.1f}".replace(".", ",")
+    lines = [f"INSERT INTO {mart} (event_id, user_id, event_ts, event_type, country)", "SELECT e.event_id, e.user_id, e.event_ts, e.event_type, u.country",
+             f"FROM {src} e", "LEFT JOIN dim_users u ON u.user_id = e.user_id", f"WHERE e.event_ts > (SELECT coalesce(max(event_ts), '1970-01-01') FROM {mart})"]
+    key = len(lines)
+    if rng.random() < 0.5:
+        lines.append("  AND e.event_type <> 'heartbeat'")
+    lines.append("ON CONFLICT (event_id) DO NOTHING;")
+    return {"scene_title": "Недостача за прошлые дни", "story": f"Загрузка {mart} идёт каждый час. Мобильные клиенты копят события офлайн и досылают их до {lag} ч позже; event_ts — время на устройстве. "
+            f"За прошлые дни в витрине на {gap} % меньше событий, чем в {src}, и разница со временем не уходит; пересборка с нуля сходится с источником.",
+            "prompt": "Нажмите на строку, из-за которой витрина теряет события.", "panel": {"type": "code", "lang": "sql", "lines": lines}, "key": key}
 
 
 # --- Качество данных ---
@@ -187,8 +217,8 @@ def _(rng):
         {"name": "строк в витрине за день, тыс.", "axis": "left", "max": 500, "data": rows},
         {"name": f"доля пустых {field}, %", "axis": "right", "max": 50, "data": nulls},
     ]}
-    opts, key = _choice(rng, f"После релиза источник перестал заполнять {field}: нужна проверка доли пустых значений и разбор с командой источника", [
-        "Загрузка теряет строки: объём витрины после релиза упал",
+    opts, key = _choice(rng, f"Релиз источника перестал заполнять {field}: проверять долю пустых и чинить в источнике", [
+        f"Загрузка теряет строки после релиза: пустые {field} — это заказы, для которых не нашлась пара при JOIN со справочником",
         "Витрина задвоилась после перезапуска загрузки",
         "Это сезонность конца квартала, через неделю всё вернётся",
     ])
@@ -208,9 +238,9 @@ def _(rng):
         _log("06:01:41", "dbt", "INFO", f"3 of 3 PASS accepted_values_{mart}_status"),
         _log("06:01:50", "bi", "INFO", f"dashboard «{dash}» refreshed"),
     ]
-    opts, key = _choice(rng, "Источник не обновлялся двое суток, а тесты проверяют только корректность строк: проверка свежести должна блокировать публикацию", [
+    opts, key = _choice(rng, "Источник не обновлялся двое суток, а тесты проверяют только строки: нужна проверка свежести перед публикацией", [
         "BI отдал закэшированный дашборд: сбросить кэш и обновить ещё раз",
-        "Инкрементальная модель потеряла строки из-за unique_key: пересобрать с --full-refresh",
+        "Инкрементальная модель отбросила новые строки из-за неверного unique_key: пересобрать её с --full-refresh и добавить тест на число строк",
         "Отчёт строится в UTC, и вчерашние продажи попали в сегодняшний день",
     ])
     return {"scene_title": "Зелёные тесты", "story": f"Все проверки {mart} зелёные, дашборд «{dash}» обновился в 06:01. Финансы пишут: продаж за вчера в отчёте нет.",
@@ -233,6 +263,29 @@ def _(rng):
             "prompt": "Нажмите на строку, из-за которой результат недетерминирован.", "panel": {"type": "code", "lang": "sql", "lines": lines}, "key": key}
 
 
+@family("dea_dq_session_split", SPEC, "Качество данных", "choice", 2.4, 2.9)
+def _(rng):
+    rel, d0, k = rng.randint(3, 4), rng.randint(1, 20), rng.choice([1.5, 1.7, 1.9])
+    x = [f"{d0 + i:02d}.09" for i in range(8)]
+    users = [rng.randint(380, 420) for _ in range(8)]
+    sess = [round(u * (1.3 if i < rel else 1.3 * k)) + rng.randint(-8, 8) for i, u in enumerate(users)]
+    orders = [rng.randint(18, 21) for _ in range(8)]
+    cr = lambda part: f"{100 * sum(orders[i] for i in part) / sum(sess[i] for i in part):.1f}".replace(".", ",")
+    sdk = f"SDK аналитики {rng.randint(5, 7)}.{rng.randint(0, 9)}"
+    panel = {"type": "chart", "x": x, "marker": {"i": rel, "label": f"релиз: новый чекаут и {sdk}"}, "series": [
+        {"name": "сессии, тыс.", "axis": "left", "max": 1200, "data": sess},
+        {"name": "уникальные пользователи, тыс.", "axis": "left", "max": 1000, "data": users},
+        {"name": "заказы, тыс.", "axis": "right", "max": 30, "data": orders},
+    ]}
+    opts, key = _choice(rng, "Бизнес не просел: при тех же пользователях и заказах выросли только сессии — новый SDK дробит их; чинить определение сессии", [
+        "Пришёл бот-трафик: сессий стало больше, а заказов нет; отфильтровать ботов по user-agent и пересчитать конверсию",
+        "Новый чекаут отпугивает покупателей: конверсия упала сразу после релиза, его нужно откатить и разобрать воронку",
+        "После обновления SDK задвоились user_id: один человек считается дважды, отсюда и рост сессий — чинить склейку",
+    ])
+    return {"scene_title": "Конверсия рухнула", "story": f"Конверсия сессии в заказ упала с {cr(range(rel))} % до {cr(range(rel, 8))} % в день релиза, где вышли новый чекаут и {sdk}. Продакт требует откатить чекаут.",
+            "prompt": "Что показывают графики и что делать?", "panel": panel, "options": opts, "key": key}
+
+
 # --- Визуализация ---
 
 
@@ -243,7 +296,7 @@ def _(rng):
     lo = round(a - 0.1, 1)
     fmt = lambda v: f"{v:.1f}".replace(".", ",")
     opts, key = _choice(rng, "Для столбцов начинать ось с нуля; если важны десятые доли — линия или подпись разницы в п. п.", [
-        "Добавить вторую ось Y справа с тем же масштабом, тогда разница будет видна честно",
+        "Оставить ось как есть, но подписать значения над столбцами: зритель прочитает точные цифры, а масштаб подчеркнёт рост",
         "Сделать столбцы объёмными, чтобы разница читалась точнее",
         "Заменить столбцы круговой диаграммой по месяцам",
     ])
@@ -274,10 +327,11 @@ def _(rng):
 @family("dea_viz_simpson", SPEC, "Визуализация", "choice", 2.3, 2.3)
 def _(rng):
     a, b = rng.choice([("контекст", "соцсети"), ("email", "push"), ("партнёры", "SEO")])
-    va = {"desktop": rng.randint(76, 84) * 100, "mobile": rng.randint(18, 24) * 100}
-    vb = {"desktop": rng.randint(18, 24) * 100, "mobile": rng.randint(76, 84) * 100}
+    # объёмы ~100 тыс. визитов на канал: разница CR внутри разрезов — 3–5 стандартных ошибок, а не шум
+    va = {"desktop": rng.randint(76, 84) * 1000, "mobile": rng.randint(18, 24) * 1000}
+    vb = {"desktop": rng.randint(18, 24) * 1000, "mobile": rng.randint(76, 84) * 1000}
     cra = {"desktop": rng.uniform(5.5, 6.2), "mobile": rng.uniform(1.6, 2.0)}
-    crb = {"desktop": cra["desktop"] + rng.uniform(0.5, 0.9), "mobile": cra["mobile"] + rng.uniform(0.3, 0.5)}
+    crb = {"desktop": cra["desktop"] + rng.uniform(0.7, 1.0), "mobile": cra["mobile"] + rng.uniform(0.4, 0.6)}
     oa = {d: round(va[d] * cra[d] / 100) for d in va}
     ob = {d: round(vb[d] * crb[d] / 100) for d in vb}
     pct = lambda o, v: f"{100 * o / v:.1f} %".replace(".", ",")
@@ -288,11 +342,12 @@ def _(rng):
         lines += [row(ch, d, v[d], o[d]) for d in ("desktop", "mobile")]
     lines += [row(a, "всего", sum(va.values()), sum(oa.values())), row(b, "всего", sum(vb.values()), sum(ob.values()))]
     opts, key = _choice(rng, f"«{b}» конвертирует лучше на каждом устройстве; общий проигрыш — из-за доли мобильного трафика (парадокс Симпсона)", [
-        f"«{b}» хуже: общая конверсия учитывает все визиты и надёжнее, чем разрезы по устройствам",
-        "Выводы делать рано: при десяти тысячах визитов разница внутри разрезов случайна",
+        f"«{b}» хуже: общая конверсия учитывает все визиты сразу, поэтому она надёжнее разрезов, где выборка делится на части",
+        "Выводы делать рано: внутри разрезов разница меньше процентного пункта, это обычный шум конверсии",
         "Каналы равны: если усреднить конверсию по строкам, разница исчезает",
     ])
-    return {"scene_title": "Урезать канал?", "story": f"Маркетинг хочет урезать бюджет канала «{b}»: на дашборде его общая конверсия почти вдвое ниже, чем у «{a}».",
+    total = lambda o, v: pct(sum(o.values()), sum(v.values()))
+    return {"scene_title": "Урезать канал?", "story": f"Маркетинг хочет урезать бюджет канала «{b}»: на дашборде его общая конверсия {total(ob, vb)} против {total(oa, va)} у «{a}».",
             "prompt": "Какой вывод корректен?", "panel": {"type": "code", "lang": "text", "lines": lines}, "options": opts, "key": key}
 
 
@@ -336,3 +391,19 @@ def _(rng):
     ])
     return {"scene_title": "Выборка из потока", "story": f"Из потока {what} неизвестной длины нужна равномерная случайная выборка ровно {k} событий за один проход, весь поток в память не влезает.",
             "prompt": "Какой алгоритм выбрать?", "panel": None, "options": opts, "key": key}
+
+
+@family("dea_alg_sketch", SPEC, "Алгоритмы", "choice", 2.2, 2.4)
+def _(rng):
+    n, m = rng.randint(20, 60), rng.randint(6, 15)
+    country, platform = rng.choice(["RU", "KZ", "BY"]), rng.choice(["ios", "android", "web"])
+    lines = ["-- предложение аналитика: MAU из дневной витрины", "SELECT sum(dau) AS mau",
+             "FROM mart_dau_daily  -- day, country, platform, channel, dau = uniqExact(user_id)",
+             "WHERE day BETWEEN '2026-09-01' AND '2026-09-30'", f"  AND country = '{country}' AND platform = '{platform}';"]
+    opts, key = _choice(rng, "Хранить по дню и сегменту скетч uniqState(user_id) и сливать через uniqMerge: погрешность около 1–2 %, зато всё складывается", [
+        "Так и оставить: уникальные пользователи разных дней и сегментов не пересекаются, поэтому сумма DAU и даёт MAU",
+        "Заранее посчитать uniqExact для каждого периода и каждой комбинации фильтров и класть в отдельную таблицу",
+        "Брать среднее DAU за период и умножать на коэффициент MAU/DAU, посчитанный один раз по полному месяцу",
+    ])
+    return {"scene_title": "MAU на лету", "story": f"Продукт хочет MAU по любому периоду и сочетанию фильтров (страна × платформа × канал) за секунды. Сырых событий {n} млрд, uniqExact по ним за месяц считается {m} мин.",
+            "prompt": "Как построить витрину?", "panel": {"type": "code", "lang": "sql", "lines": lines}, "options": opts, "key": key}

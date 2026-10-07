@@ -869,7 +869,7 @@ V['/c/quest'] = () => {
 
 // экспресс: 5 заданий по минуте, оценка предварительная (SE больше), уже подтверждённый грейд не меняет
 function irtExpressHint() {
-  const base = '5 заданий по минуте, по одному на компетенцию. Оценка предварительная: погрешность больше, в карточке пометка «экспресс-оценка».';
+  const base = '5 заданий по минуте, по одному на компетенцию. Оценка предварительная: погрешность больше, грейд выше Middle по 5 заданиям почти не присваивается, в карточке пометка «экспресс-оценка».';
   if (ME && ME.grade && !ME.grade_express) return base + ' Ваш грейд уже подтверждён полным тестом — экспресс его не изменит.';
   if (ME && ME.grade_express) return base + ' Предварительная категория уже есть — повторный экспресс её не изменит.';
   return base + ' Кулдаун 90 дней не запускает: полный тест можно пройти сразу.';
@@ -966,7 +966,7 @@ V['/c/result'] = () => {
         </div>
         <p class="prose small">${R.percentile != null ? `Вы сильнее ${R.percentile} % кандидатов ${R.percentile_scope === 'spec' ? 'специализации' : 'категории'}. ` : ''}${R.strong.length ? `Сильные стороны — ${esc(low(R.strong))}. Слабее — ${esc(low(R.weak))}.` : ''}</p>
       </div>
-      ${R.express ? `<div class="alert info"><span>≈</span><span><b>Экспресс-оценка.</b> Категория предварительная: ${R.mode === 'express' ? '5 заданий' : 'по экспресс-тесту'}, погрешность ± ${R.se.toFixed(2)} больше, чем у полного теста, поэтому грейд выставлен осторожно. Работодатели видят пометку «экспресс-оценка». Подтвердите грейд полным тестом — кулдаун не мешает. <button class="btn ghost small" data-act="qstart" data-v="full">Полный тест</button></span></div>` : ''}
+      ${R.express ? `<div class="alert info"><span>≈</span><span><b>Экспресс-оценка.</b> Категория предварительная: ${R.mode === 'express' ? '5 заданий' : 'по экспресс-тесту'}, погрешность ± ${R.se.toFixed(2)} больше, чем у полного теста, поэтому грейд выставлен осторожно: Senior и Lead экспресс почти не присваивает. Работодатели видят пометку «экспресс-оценка». Подтвердите грейд полным тестом — кулдаун не мешает. <button class="btn ghost small" data-act="qstart" data-v="full">Полный тест</button></span></div>` : ''}
       ${R.target ? `<div class="alert ${R.target.verdict === 'below' ? 'warn' : 'ok'}"><span>${R.target.verdict === 'below' ? '↓' : R.target.verdict === 'above' ? '↑' : '✓'}</span><span><b>${esc(R.target.label)}.</b> Тест на ${esc(R.target.grade)}, результат попытки — ${esc(R.target.result_grade)}.</span></div>` : ''}
       ${S.finish && S.finish.note ? `<div class="alert warn"><span>!</span><span>${esc(S.finish.note)} Результат попытки: θ = ${S.finish.attempt.theta.toFixed(2)} ± ${S.finish.attempt.se.toFixed(2)}.</span></div>` : ''}
       <div class="panel">

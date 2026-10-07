@@ -1,6 +1,7 @@
 """Тест-квест: сессия с симулированным кандидатом, ключ не утекает, кулдаун, тест на заявленный грейд,
 история попыток, план теста под вакансию и фокус по приглашению."""
 
+import io
 import json
 import os
 import random
@@ -15,6 +16,7 @@ os.environ.setdefault("LLM_BASE_URL", "")  # разбор вакансии — �
 import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from pypdf import PdfReader  # noqa: E402
 from sqlalchemy import delete, select  # noqa: E402
 from sqlalchemy.exc import IntegrityError  # noqa: E402
 
@@ -22,8 +24,8 @@ from app import catalog  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.deps import issue_token  # noqa: E402
 from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession, User  # noqa: E402
-from app.routers import quest  # noqa: E402
-from app.services import irt, matching  # noqa: E402
+from app.routers import candidate, quest  # noqa: E402
+from app.services import irt, matching, profile_pdf  # noqa: E402
 from app.services.items import generate_bank, plan_for_need, seed_items  # noqa: E402
 
 NEED_TEXT = "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. Уровень — мидл, до 300 на руки. Гибрид, Москва."
@@ -31,6 +33,7 @@ MK = dict(spec="Backend", track="Python", grade_claimed="Middle", min_salary=200
 
 app = FastAPI()
 app.include_router(quest.router)
+app.include_router(candidate.router)  # /me — пометка экспресс-оценки в кабинете
 
 
 def _client(token: str | None = None) -> TestClient:
@@ -44,6 +47,11 @@ def env():
     with SessionLocal() as db:
         seed_items(db)
         assert seed_items(db) == 0  # повторный сид ничего не добавляет
+        # новое семейство в уже засеянной базе докладывается (обновление стенда без --reset), остальные не трогаются
+        fam = db.scalar(select(Item.family).where(Item.spec == "Security"))
+        n_fam = len(db.execute(delete(Item).where(Item.family == fam).returning(Item.id)).all())
+        db.commit()
+        assert seed_items(db) == n_fam > 0 and seed_items(db) == 0
         items = {it.id: it for it in db.scalars(select(Item).where(Item.spec == "Backend"))}
         users = [User(email=f"{r}-{tag}@example.ru", role=role) for r, role in (("q", "candidate"), ("qcf", "candidate"), ("emp", "employer"), ("emp2", "employer"))]
         db.add_all(users)
@@ -211,7 +219,10 @@ def test_express_mode(env):
             c = db.get(Candidate, cid)
             assert c.grade_express and c.next_upgrade_at is None and c.tested_at
             assert matching.card(c)["express"] and matching.card(c)["grade"] == res["category"]["grade"]
+            pdf = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(profile_pdf.render(c))).pages)
+            assert "экспресс-оценка" in pdf and "тест пройден" not in pdf
             express_grade, express_se = c.grade, c.se
+        assert client.get("/api/candidate/me").json()["grade_express"] is True
 
         # повторный экспресс (всё верно) предварительную категорию не повышает
         again = _run(client, items, lambda it: True, {"mode": "express", "story": False})["result"]
@@ -225,6 +236,7 @@ def test_express_mode(env):
         with SessionLocal() as db:
             c = db.get(Candidate, cid)
             assert not c.grade_express and (c.next_upgrade_at - datetime.now(UTC)).days in (89, 90)
+            assert not matching.card(c)["express"] and "тест пройден" in "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(profile_pdf.render(c))).pages)
             full_grade, full_theta = c.grade, c.theta
 
         # экспресс после полного теста не меняет категорию даже вниз; ответ после лимита 60 с + запас — неверный
