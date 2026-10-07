@@ -507,6 +507,45 @@ async function verifyLogin(role, email, otp) {
   setTok(role, r.token);
 }
 
+// ФСП ID (OIDC): сервер отдаёт адрес провайдера и ставит куку потока; браузер уходит туда целиком
+// согласия, отмеченные на экране регистрации, переживают уход к провайдеру (страница перезагрузится)
+async function fspStart(mode) {
+  const r = await api('POST', '/api/auth/fsp/start', { mode }, 'c');
+  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
+  location.assign(r.url);
+}
+const FSP_ERR = {
+  state: 'Вход через ФСП ID устарел или открыт в другом браузере — начните заново',
+  denied: 'Вход через ФСП ID отменён',
+  provider: 'ФСП ID недоступен или отклонил запрос — попробуйте позже',
+  token: 'ФСП ID прислал неподтверждённые данные — вход отклонён',
+  email: 'В ФСП ID не подтверждена почта — подтвердите её или войдите по коду',
+  role: 'Эта почта зарегистрирована как работодатель — войдите по коду',
+  taken: 'Этот ФСП ID уже привязан к другому аккаунту',
+  other: 'К аккаунту уже привязан другой ФСП ID — сначала отвяжите его в настройках',
+  link: 'Аккаунт с этой почтой уже есть — войдите по коду и привяжите ФСП ID в настройках',
+};
+const fspAch = a => a === 'consent' ? 'Достижения ФСП подтянем после согласия на внешние данные — в настройках' : +a ? `Подтверждено достижений ФСП: ${a}` : 'Новых достижений в ФСП ID нет';
+// возврат из ФСП ID: билет или код ошибки — во фрагменте (не уходит на сервер и в Referer), сразу стираем его из адреса
+async function fspReturn() {
+  if (!location.hash.startsWith('#fsp=')) return;
+  const p = new URLSearchParams(location.hash.slice(1));
+  const kind = p.get('fsp');  // login | linked | error; ошибка у вошедшего — это привязка из настроек
+  history.replaceState(null, '', location.pathname + '#/c/' + (kind === 'linked' || (kind === 'error' && TOK.c) ? 'settings' : 'signup'));
+  if (kind === 'error') {
+    try { sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+    return toast(Object.hasOwn(FSP_ERR, p.get('e')) ? FSP_ERR[p.get('e')] : 'Не удалось войти через ФСП ID');
+  }
+  if (kind === 'linked') return toast('ФСП ID привязан. ' + fspAch(p.get('ach')));
+  const r = await api('POST', '/api/auth/fsp/exchange', { ticket: p.get('t') || '' }, 'c');
+  if (r.role !== 'candidate') throw new Error('Эта почта зарегистрирована как работодатель');
+  clearSide('c');
+  setTok('c', r.token);
+  try { Object.assign(S.signup, JSON.parse(sessionStorage.getItem('fsp.signup')) || {}); sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+  history.replaceState(null, '', location.pathname + (r.has_profile ? '#/c/home' : '#/c/profile'));
+  toast(r.has_profile ? 'Вход через ФСП ID. ' + fspAch(p.get('ach')) : 'Вход через ФСП ID: заполните профиль');
+}
+
 /* ===================== утилиты ===================== */
 const $app = document.getElementById('app');
 const esc = s => (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -666,7 +705,7 @@ V['/c/signup'] = () => `
       <h1>Создайте профиль</h1>
       <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений.</p>
       ${TOK.c ? '<div class="alert ok"><span>✓</span><span>Вы уже вошли. <button class="btn ghost small" data-go="/c/home">В кабинет</button></span></div>' : ''}
-      <button class="btn ghost block" data-act="noop" data-msg="Вход через ФСП ID (OIDC) подключится, когда ФСП выдаст доступ. Пока — по почте" style="justify-content:flex-start;padding:14px 16px">
+      <button class="btn ghost block" data-act="fsp-login" style="justify-content:flex-start;padding:14px 16px">
         <img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px"> Войти через ФСП ID <span class="muted small" style="margin-left:auto">подтянем достижения</span>
       </button>
       <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
@@ -1171,7 +1210,7 @@ V['/c/settings'] = () => {
           </div></div>
           <div><span class="dot ${ext ? 'on' : ''}"></span><div style="flex:1">
             <button class="switch" role="switch" aria-checked="${!!ext}" data-act="consent-ext"><i></i> <b>Данные внешних профилей</b></button>
-            <p class="small muted" style="margin-top:4px">Codeforces и CTFtime: рейтинг и результаты соревнований. Отзыв удаляет привязки и полученные из них достижения. <button class="btn ghost small" data-go="/c/profile">Привязки в профиле</button></p>
+            <p class="small muted" style="margin-top:4px">Codeforces, CTFtime и ФСП ID: рейтинг, участия и места. Отзыв удаляет привязки и полученные из них достижения. <button class="btn ghost small" data-go="/c/profile">Привязки в профиле</button></p>
             ${consentLog('external')}
             ${confirmBox('revokeExt', 'Отозвать согласие? Привязки Codeforces и CTFtime и полученные из них достижения будут удалены.', 'Отозвать')}
           </div></div>
@@ -1199,6 +1238,13 @@ V['/c/settings'] = () => {
       <span class="label">Вход</span>
       <p class="small">${esc(ME.email)}</p>
       <button class="btn ghost small" data-act="logout">Выйти</button>
+      <div class="divider"></div>
+      <span class="label">ФСП ID</span>
+      ${D.auth && D.auth.fsp_id ? `<p class="small">Привязан <b class="num">${esc(D.auth.fsp_id)}</b>: участия и места подтверждаются реестром ФСП.</p>
+      <div class="row"><button class="btn ghost small" data-act="fsp-link">Обновить достижения</button><button class="btn ghost small" data-act="ask" data-k="fspUnlink">Отвязать</button></div>
+      ${confirmBox('fspUnlink', 'Отвязать ФСП ID? Войти через него больше не получится. Подтверждённые достижения останутся — удалить их можно отзывом согласия на внешние данные.', 'Отвязать')}`
+      : `<p class="small muted">Свяжите аккаунт с ФСП ID: участия и места подтянутся из реестра ФСП (нужно согласие на внешние данные).</p>
+      <button class="btn ghost small" data-act="fsp-link">Связать с ФСП ID</button>`}
     </aside>
   </div>`;
 };
@@ -2310,7 +2356,7 @@ async function load(r) {
       [D.inv, D.invTasks] = await Promise.all([or404(api('GET', '/api/candidate/invites/' + encodeURIComponent(arg))), or404(api('GET', '/api/tasks/for-invitation/' + encodeURIComponent(arg)))]);
       S.declineFor = null;
     }
-    else if (page === 'settings') { ACH = await api('GET', '/api/achievements'); S.confirm = null; S.hiddenEdit = false; }
+    else if (page === 'settings') { [ACH, D.auth] = await Promise.all([api('GET', '/api/achievements'), api('GET', '/api/auth/me')]); S.confirm = null; S.hiddenEdit = false; }
     else if (page === 'vacancies') [, D.apps] = await Promise.all([loadVac(), api('GET', '/api/vacancies/applications/mine')]);
     else if (page === 'vacancy') { [D.vacancy, D.apps] = await Promise.all([or404(api('GET', '/api/vacancies/' + encodeURIComponent(arg))), api('GET', '/api/vacancies/applications/mine')]); S.applyNote = ''; S.applyErr = null; }
     else if (page === 'applications') D.apps = await api('GET', '/api/vacancies/applications/mine');
@@ -2443,6 +2489,10 @@ const CONFIRM = {
     // отзыв обработки гасит и внешние данные на сервере — перечитываем и достижения
     await loadMe(); await reloadAch(); S.confirm = null; toast('Согласие отозвано: профиль скрыт'); rerender();
   },
+  async fspUnlink() {
+    await api('POST', '/api/auth/fsp/unlink');
+    S.confirm = null; toast('ФСП ID отвязан'); await refresh();
+  },
   async revokeExt() {
     await api('POST', '/api/achievements/consent', { value: false });
     await reloadAch(); await loadMe(); S.confirm = null; rerender();
@@ -2470,6 +2520,8 @@ const ACT = {
     toast(d.who === 'newco' ? 'Вход: «Новый Стартап» (компания не прошла проверку)' : 'Демо-вход выполнен');
     go(d.who === 'c' ? '/c/home' : '/e/picks');
   },
+  'fsp-login': () => fspStart('login'),
+  'fsp-link': () => fspStart('link'),
   async 'otp-send'() {
     if (!S.signup.email) throw new Error('Укажите почту');
     const r = await api('POST', '/api/auth/email', { email: S.signup.email, role: 'candidate' }, 'c');
@@ -2839,7 +2891,7 @@ document.addEventListener('submit', async e => {
 });
 
 addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
-show();
+fspReturn().catch(fail).finally(() => show());
 </script>
 </body>
 </html>

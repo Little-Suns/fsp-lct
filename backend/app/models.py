@@ -20,7 +20,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16))  # candidate | employer | admin
     token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)  # sha256 токена, сам токен не храним
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    fsp_id: Mapped[str | None] = mapped_column(String(32), unique=True)
+    fsp_id: Mapped[str | None] = mapped_column(String(64), unique=True)  # sub из ФСП ID (в Keycloak — UUID, 36 символов)
     created_at: Mapped[datetime] = _now()
 
 
@@ -401,6 +401,21 @@ class LoginChallenge(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class FspLogin(Base):
+    """Вход или привязка через ФСП ID (OIDC) от /start до /exchange. Секреты — только sha256: state, кука браузера,
+    одноразовый билет. PKCE-верификатор и nonce не хранятся вовсе — выводятся HMAC(SECRET_KEY, state)."""
+
+    __tablename__ = "fsp_logins"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    state_hash: Mapped[str | None] = mapped_column(String(64), unique=True)  # None — callback уже был (повтор не пройдёт)
+    browser_hash: Mapped[str] = mapped_column(String(64))  # sha256 куки fsp_flow: callback и обмен — только в том же браузере
+    mode: Mapped[str] = mapped_column(String(8))  # login | link
+    # link — кому привязываем ФСП ID (выбрал вошедший пользователь); login после callback — кто вошёл
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    ticket_hash: Mapped[str | None] = mapped_column(String(64), unique=True)  # билет на обмен в наш токен, живёт минуту
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class RetiredPublicId(Base):

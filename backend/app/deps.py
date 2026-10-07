@@ -1,4 +1,5 @@
-"""Авторизация: Bearer-токен, в БД — только его sha256. Вход — код на почту (в демо код возвращается в ответе) или ФСП ID."""
+"""Авторизация: Bearer-токен, в БД — только его sha256. Вход — код на почту (в демо код возвращается в ответе)
+или ФСП ID по OpenID Connect (routers/fsp_id.py)."""
 
 import hashlib
 import hmac
@@ -87,10 +88,6 @@ class VerifyIn(BaseModel):
     otp: str = Field(max_length=16)
 
 
-class FspIn(BaseModel):
-    fsp_id: str
-
-
 def _issue(user: User, db: Session) -> dict:
     return {"token": issue_token(db, user), "role": user.role}
 
@@ -110,6 +107,12 @@ def _issue_demo(user: User, db: Session) -> dict:
         user.token, user.token_expires_at = hash_secret(token), now + TOKEN_TTL
     db.commit()  # без изменений — пустая транзакция; у verify здесь же фиксируется удаление кода
     return {"token": token, "role": user.role}
+
+
+def login_token(user: User, db: Session) -> dict:
+    """Токен входа (по коду почты или ФСП ID). Демо-персонаж в DEMO получает общий токен: иначе вход одного зрителя
+    отозвал бы токен у остальных, вошедших за того же персонажа."""
+    return _issue_demo(user, db) if config.DEMO and user.email in DEMO_PERSONAS.values() else _issue(user, db)
 
 
 @router.post("/email")
@@ -175,7 +178,7 @@ def verify(body: VerifyIn, db: Session = Depends(get_db)):
         user.role = role  # роль меняется, пока нет ни профиля кандидата, ни компании
     # один commit: код удалён, пользователь создан, токен выдан — или ничего. В демо вход по почте персонажа даёт общий
     # токен: код там приходит в ответе, и любой зритель иначе выбил бы остальных
-    return _issue_demo(user, db) if config.DEMO and user.email in DEMO_PERSONAS.values() else _issue(user, db)
+    return login_token(user, db)
 
 
 def _has_profile(db: Session, user: User) -> bool:
@@ -183,17 +186,6 @@ def _has_profile(db: Session, user: User) -> bool:
         db.scalar(select(Candidate.id).where(Candidate.user_id == user.id))
         or db.scalar(select(Company.id).where(Company.user_id == user.id))
     )
-
-
-@router.post("/fsp")
-def fsp_login(body: FspIn, db: Session = Depends(get_db)):
-    # ponytail: заглушка OAuth ФСП ID — пускает любого с известным fsp_id, поэтому только в DEMO; Keycloak OIDC, когда дадут доступ
-    if not config.DEMO:
-        raise HTTPException(501, "Вход через ФСП ID ещё не подключён")
-    user = db.scalar(select(User).where(User.fsp_id == body.fsp_id))
-    if not user:
-        raise HTTPException(404, "ФСП ID не найден")
-    return _issue_demo(user, db)
 
 
 @router.post("/demo/{role}")
@@ -220,4 +212,4 @@ def logout(user: User = Depends(current_user), db: Session = Depends(get_db)):
 
 @router.get("/me")
 def me(user: User = Depends(current_user)):
-    return {"id": user.id, "email": user.email, "role": user.role}
+    return {"id": user.id, "email": user.email, "role": user.role, "fsp_id": user.fsp_id}

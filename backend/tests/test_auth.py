@@ -211,7 +211,7 @@ def test_token_ttl_logout_and_revoke(client):
     assert client.get("/api/vacancies", headers={"Authorization": "Bearer nope"}).status_code == 200
 
 
-def test_demo_and_fsp_logins(client, monkeypatch):
+def test_demo_logins(client, monkeypatch):
     # засеянных персонажей нет — 404
     assert client.post("/api/auth/demo/candidate").status_code == 404
     assert client.post("/api/auth/demo/admin").status_code == 404
@@ -221,13 +221,13 @@ def test_demo_and_fsp_logins(client, monkeypatch):
     r = client.post("/api/auth/demo/candidate")
     assert r.status_code == 200 and r.json()["role"] == "candidate"
     assert client.post("/api/auth/demo/employer").json()["role"] == "employer"
-    assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).json()["role"] == "candidate"
-    assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-0000"}).status_code == 404
+    # заглушки «ФСП ID без OAuth» больше нет: вход только через OIDC (tests/test_fsp_id.py)
+    assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).status_code in (404, 405)
     # за персонажа входят десятки зрителей сразу: токен общий, вход и выход одного не выбивают остальных
     t1 = client.post("/api/auth/demo/candidate").json()["token"]
     exp = _user("d.orlov@example.ru").token_expires_at
     t2 = client.post("/api/auth/demo/candidate").json()["token"]
-    assert t1 == t2 == client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).json()["token"]
+    assert t1 == t2  # второй зритель — тот же токен; вход через ФСП ID за персонажа — тоже (tests/test_fsp_id.py)
     assert _user("d.orlov@example.ru").token == hash_secret(t1)  # в БД — только хеш
     assert _user("d.orlov@example.ru").token_expires_at == exp  # повторный вход в течение суток строку не пишет (нет очереди на блокировке)
     h = {"Authorization": f"Bearer {t1}"}
@@ -248,11 +248,10 @@ def test_demo_and_fsp_logins(client, monkeypatch):
     own = {"Authorization": f"Bearer {client.post('/api/auth/verify', json={'email': 'own@example.ru', 'otp': otp}).json()['token']}"}
     assert client.post("/api/auth/logout", headers=own).status_code == 200
     assert client.get("/api/auth/me", headers=own).status_code == 401
-    # DEMO=0: демо-вход и ФСП ID закрыты, код в ответе не возвращается, выданный ранее общий демо-токен не действует
+    # DEMO=0: демо-вход закрыт, код в ответе не возвращается, выданный ранее общий демо-токен не действует
     monkeypatch.setattr(config, "DEMO", False)
     assert client.get("/api/auth/me", headers=h).status_code == 401
     assert client.post("/api/auth/demo/candidate").status_code == 404
-    assert client.post("/api/auth/fsp", json={"fsp_id": "FSP-1042"}).status_code == 501
     assert client.post("/api/auth/email", json={"email": "prod@example.ru"}).status_code == 503  # без SMTP входа нет
     sent = []
     monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.ru")
