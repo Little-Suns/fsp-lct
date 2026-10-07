@@ -46,6 +46,7 @@ jobs:
           uv run python -m app.services.parsing
           uv run python -m app.services.lottery
           uv run python -m app.services.irt
+          uv run python -m app.services.autocheck
           uv run python -m seed.gold
           # нагрузочный сценарий locust хотя бы импортируется (сам прогон — вручную, см. докстринг)
           uv run python -c "import importlib.util as u; s = u.spec_from_file_location('locustfile', 'loadtest/locustfile.py'); s.loader.exec_module(u.module_from_spec(s))"

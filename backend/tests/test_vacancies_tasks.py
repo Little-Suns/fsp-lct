@@ -16,7 +16,7 @@ from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
 from app.models import Application, AuditLog, Candidate, Company, Invitation, Need, User, Vacancy
-from app.routers import tasks, vacancies
+from app.routers import candidate, tasks, vacancies
 
 config.LLM_BASE_URL = ""
 NOW = datetime.now(UTC)
@@ -79,7 +79,7 @@ def client():
         for k, u in users.items():
             H[k] = {"Authorization": f"Bearer {issue_token(db, u)}"}
     app = FastAPI()
-    for r in (deps, vacancies, tasks):
+    for r in (deps, vacancies, tasks, candidate):
         app.include_router(r.router)
     yield TestClient(app)
 
@@ -260,4 +260,123 @@ def test_tasks_flow(client):
     assert {s["review"] for s in cs} == {"strong", None}
     assert client.get("/api/tasks/showcase", headers=H["cand"]).json()[0]["review"] == "strong"
     with SessionLocal() as db:
-        assert tasks.task_signal(db, IDS["cand"]) == {"days_ago": 0, "review": "strong", "review_text": "сильное решение", "company_verified": False, "domain_confirmed": False, "inn_checksum_valid": True}
+        assert tasks.task_signal(db, IDS["cand"]) == {"days_ago": 0, "source": "employer", "review": "strong", "review_text": "сильное решение", "auto_ok": None,
+                                                      "company_verified": False, "domain_confirmed": False, "inn_checksum_valid": True}
+
+
+SECRET = "секретный-эталон-42"
+REF_TASKS = {
+    "text": {"answer_type": "text", "reference": {"answers": ["Read Committed", SECRET]}},
+    "number": {"answer_type": "number", "reference": {"value": 1234.5, "tolerance": 0.5}},
+    "choice": {"answer_type": "choice", "options": ["Read Uncommitted", "Serializable", "Read Committed"], "reference": {"correct": [1]}},
+    "multi": {"answer_type": "multi", "options": ["B-tree", "Hash", "GIN", "Heap"], "reference": {"correct": [0, 2]}},
+    "regex": {"answer_type": "regex", "reference": {"pattern": r"(a|aa)+|секрет-\d+"}},
+}
+
+
+def _no_reference(r):
+    """Ответ API кандидату: ни ключа reference, ни значений эталона."""
+    body = r.json()
+    for it in body if isinstance(body, list) else [body]:
+        assert "reference" not in it.get("task", it), it
+    assert SECRET not in r.text and "1234.5" not in r.text and "(a|aa)" not in r.text and "correct" not in r.text
+
+
+def test_reference_task_validation(client):
+    bad = [{"answer_type": "essay"},
+           {"answer_type": "text", "reference": {"answers": []}},
+           {"answer_type": "text", "reference": {"answers": ["  "]}},
+           {"answer_type": "text", "options": ["a", "b"], "reference": {"answers": ["x"]}},
+           {"answer_type": "number", "reference": {"value": None}},
+           {"answer_type": "number", "reference": {"value": 1, "tolerance": -1}},
+           {"answer_type": "choice", "options": ["a"], "reference": {"correct": [0]}},
+           {"answer_type": "choice", "options": ["a", "b"], "reference": {"correct": [0, 1]}},
+           {"answer_type": "choice", "options": ["a", "b"], "reference": {"correct": [5]}},
+           {"answer_type": "multi", "options": ["a", " A "], "reference": {"correct": [0]}},
+           {"answer_type": "multi", "options": ["a", "b"], "reference": {}},
+           {"answer_type": "regex", "reference": {"pattern": "(["}},
+           {"answer_type": "regex", "reference": {"pattern": "x" * 301}},
+           {"answer_type": "regex", "reference": {"pattern": "((((a{20}){20}){20}){20})"}},  # раздувается при компиляции
+           {"answer_type": "regex", "reference": {"pattern": r"(((a\\{100}){100}){100}){100}"}}]  # «\\{» — не экранированная скобка
+    for b in bad:
+        assert client.post("/api/tasks", json={**TASK, **b}, headers=H["emp"]).status_code == 422, b
+    # открытое задание: варианты и эталон не сохраняются
+    r = client.post("/api/tasks", json={**TASK, "title": "Открытое", "options": ["a", "b"], "reference": {"answers": ["x"]}}, headers=H["emp"]).json()
+    assert r["answer_type"] == "open" and r["options"] is None and r["reference"] is None
+
+
+def test_reference_tasks_autocheck(client):
+    made = {k: client.post("/api/tasks", json={**TASK, "title": f"Эталон {k}", "kind": "solve", **v}, headers=H["emp"]).json() for k, v in REF_TASKS.items()}
+    assert made["text"]["reference"] == {"answers": ["Read Committed", SECRET], "exact": False}  # автору эталон виден
+    assert made["choice"]["options"] == REF_TASKS["choice"]["options"]
+    ids = {k: t["id"] for k, t in made.items()}
+
+    # кандидату эталон не уходит — ни в витрине, ни в задании, ни в ответе на отправку
+    _no_reference(client.get("/api/tasks/showcase", headers=H["cand"]))
+    for k, tid in ids.items():
+        r = client.get(f"/api/tasks/{tid}", headers=H["cand"])
+        _no_reference(r)
+        assert r.json()["answer_type"] == k and r.json()["auto_ok"] is None
+    assert client.get(f"/api/tasks/{ids['multi']}", headers=H["cand"]).json()["options"] == ["B-tree", "Hash", "GIN", "Heap"]
+    # и другой компании тоже: её списки и чужие решения закрыты
+    assert all(t["id"] not in ids.values() for t in client.get("/api/tasks/mine", headers=H["emp2"]).json())
+    assert client.get(f"/api/tasks/{ids['text']}/submissions", headers=H["emp2"]).status_code == 404
+
+    def sub(k, who="cand", **b):
+        return client.post(f"/api/tasks/{ids[k]}/submit", json=b, headers=H[who])
+
+    assert sub("number", answer="двенадцать").status_code == 422  # не число — попытка не сгорает
+    assert sub("number", answer="   ").status_code == 422
+    assert sub("choice", answer="Serializable").status_code == 422  # выбор — только через choices
+    assert sub("choice", choices=[0, 1]).status_code == 422
+    assert sub("multi", choices=[7]).status_code == 422
+
+    r = sub("text", answer="  read committed. ")
+    assert r.status_code == 200 and r.json()["auto_ok"] is True and r.json()["auto_feedback"] == "Ответ совпал с эталоном"
+    _no_reference(r)
+    assert sub("number", answer="1 234,9").json()["auto_ok"] is True
+    r = sub("choice", choices=[2])
+    assert r.json()["auto_ok"] is False and r.json()["answer"] == "Read Committed" and r.json()["auto_feedback"] == "Ответ не совпал с эталоном"
+    _no_reference(r)
+    assert sub("multi", choices=[2, 0]).json()["auto_ok"] is True
+    assert sub("multi", choices=[0]).status_code == 409  # попытка одна
+    r = sub("regex", answer="a" * 3000 + "!")  # катастрофический возврат обрывается таймаутом — оценит работодатель
+    assert r.status_code == 200 and r.json()["auto_ok"] is None and "работодатель" in r.json()["auto_feedback"]
+    assert sub("regex", who="busy", answer="СЕКРЕТ-7").json()["auto_ok"] is True
+    assert sub("number", who="busy", answer="1236").json()["auto_ok"] is False
+    assert sub("text", who="shy", answer="Read Committed").json()["auto_ok"] is True  # карточку не публикует
+
+    mine = client.get("/api/tasks/submissions/mine", headers=H["cand"])
+    _no_reference(mine)
+    by = {s["task"]["id"]: s for s in mine.json()}
+    assert by[ids["multi"]]["auto_ok"] is True and by[ids["multi"]]["answer"] == "B-tree; GIN"
+    show = {t["id"]: t for t in client.get("/api/tasks/showcase", headers=H["cand"]).json()}
+    assert show[ids["choice"]]["submitted"] and show[ids["choice"]]["auto_ok"] is False
+
+    # работодатель: результат в списке решений и в сводке; эталон — в своём задании
+    subs = client.get(f"/api/tasks/{ids['number']}/submissions", headers=H["emp"]).json()
+    assert subs["task"]["reference"] == {"value": 1234.5, "tolerance": 0.5}
+    assert sorted(i["auto_ok"] for i in subs["items"]) == [False, True]
+    hidden = [i for i in client.get(f"/api/tasks/{ids['text']}/submissions", headers=H["emp"]).json()["items"] if i["hidden"]]
+    assert len(hidden) == 1 and hidden[0]["auto_ok"] is None and hidden[0]["auto_feedback"] is None  # скрытый — без результата
+    st = {t["id"]: t for t in client.get("/api/tasks/mine", headers=H["emp"]).json()}
+    assert (st[ids["number"]]["auto_checked"], st[ids["number"]]["auto_passed"], st[ids["number"]]["reviewed"]) == (2, 1, 0)
+    assert (st[ids["regex"]]["auto_checked"], st[ids["regex"]]["auto_passed"]) == (1, 1)  # таймаут — не проверено
+    timed_out = next(i for i in client.get(f"/api/tasks/{ids['regex']}/submissions", headers=H["emp"]).json()["items"] if i["auto_ok"] is None)
+    r = client.post(f"/api/tasks/submissions/{timed_out['id']}/review", json={"review": "strong"}, headers=H["emp"])
+    assert r.json()["review"] == "strong" and r.json()["auto_ok"] is None  # не сработавшую автопроверку оценивает работодатель
+
+    # сигнал: последняя автопроверка; ручная оценка работодателя главнее
+    with SessionLocal() as db:
+        busy_sig = tasks.task_signal(db, db.scalar(select(Candidate.id).where(Candidate.public_id == "B-0001")))
+    assert busy_sig["source"] == "auto" and busy_sig["auto_ok"] is True  # неверный ответ позже верного в сигнал не идёт
+    # выгрузка своих данных (152-ФЗ): своё решение и результат — да, эталон — нет
+    ex = client.get("/api/candidate/me/export", headers=H["cand"])
+    assert ex.status_code == 200 and any(s.get("auto_ok") is True for s in ex.json()["task_submissions"])
+    assert SECRET not in ex.text and "reference" not in ex.text and "1234.5" not in ex.text
+    wrong = next(i for i in client.get(f"/api/tasks/{ids['choice']}/submissions", headers=H["emp"]).json()["items"] if i["candidate"])
+    r = client.post(f"/api/tasks/submissions/{wrong['id']}/review", json={"review": "ok", "comment": "Тоже допустимо"}, headers=H["emp"]).json()
+    assert r["review"] == "ok" and r["auto_ok"] is False  # переоценка не стирает автопроверку
+    with SessionLocal() as db:
+        sig = tasks.task_signal(db, IDS["cand"])
+    assert sig["source"] == "employer" and sig["review"] == "ok" and sig["auto_ok"] is False

@@ -344,6 +344,10 @@ class Task(Base):
     kind: Mapped[str] = mapped_column(String(8), default="approach")  # solve | approach
     minutes: Mapped[int] = mapped_column(Integer, default=45)
     public: Mapped[bool] = mapped_column(Boolean, default=True)  # на витрине для всех кандидатов специализации
+    # open — оценивает работодатель; text | number | choice | multi | regex — автопроверка по эталону (services/autocheck)
+    answer_type: Mapped[str] = mapped_column(String(8), default="open", server_default="open")
+    options: Mapped[list[str] | None] = mapped_column(JSON)  # варианты для choice / multi — публичная часть задания
+    reference: Mapped[dict | None] = mapped_column(JSON)  # эталон: только серверу и компании-автору, кандидату не уходит
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = _now()
 
@@ -362,6 +366,7 @@ class TaskSubmission(Base):
     answer: Mapped[str] = mapped_column(Text)
     review: Mapped[str | None] = mapped_column(String(8))  # strong | ok | weak
     review_comment: Mapped[str | None] = mapped_column(Text)
+    auto_ok: Mapped[bool | None] = mapped_column(Boolean)  # автопроверка по эталону; None — открытый ответ или проверка не сработала
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = _now()
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
