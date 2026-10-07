@@ -7,7 +7,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app import catalog, config, deps
 from app.db import init_db
-from app.routers import achievements, candidate, chat, employer, lottery, quest, tasks, vacancies, validation
+from app.integrations import fsp_id as fsp_id_client
+from app.routers import achievements, candidate, chat, employer, fsp_id, lottery, mock_fsp_id, quest, tasks, vacancies, validation
 from app.services import sandbox
 
 
@@ -28,7 +29,7 @@ async def limit_body(request: Request, call_next):
         return JSONResponse({"detail": "Слишком большой запрос"}, status_code=413)
     return await call_next(request)
 
-for r in (deps, candidate, employer, quest, achievements, lottery, validation, vacancies, tasks, chat):
+for r in (deps, fsp_id, mock_fsp_id, candidate, employer, quest, achievements, lottery, validation, vacancies, tasks, chat):
     app.include_router(r.router)
 
 
@@ -56,6 +57,7 @@ def meta():
         "invite_ttl_days": catalog.INVITE_TTL_DAYS,
         "fork_max_width": catalog.FORK_MAX_WIDTH,
         "code_tasks": sandbox.enabled(),  # в тесте есть задача на код (песочница настроена)
+        "fsp_id": fsp_id_client.enabled(),  # кнопка «Войти через ФСП ID»
     }
 
 

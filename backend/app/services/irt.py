@@ -24,6 +24,14 @@ CODE_AT = 4
 
 def is_code(it) -> bool:
     return getattr(it, "kind", None) == "code"
+# экспресс-режим (знакомство за 3–5 минут): 5 заданий — контент-баланс next_item даёт по одному на 5 разных компетенций,
+# остановки по SE нет, поэтому SE честно больше (≈ 0,45 против ≈ 0,33); грейд — тем же правилом θ − SE ≥ порог
+EXPRESS_ITEMS = 5
+# ревью с комментарием в минуту не укладывается; задача на код (kind = code) — тоже: написать и отладить функцию за 60 с
+# нельзя (её лимит — 15 минут), а растягивать экспресс ради неё — терять смысл «знакомства за 3–5 минут». Слот choose
+# в экспрессе не срабатывает: банк для выбора заранее отфильтрован по EXPRESS_KINDS (quest._serve, simulate_session)
+EXPRESS_KINDS = ("choice", "mark")
+SPEC_SE_MAX = 0.37  # самопроверка: средняя SE полного теста на банке любой специализации (цель — ≤ 0,35, у Backend ≈ 0,33)
 
 
 def prob(theta, a, b):
@@ -93,7 +101,9 @@ def choose(theta: float, bank, seen_ids: set, seen_families: set, rng: random.Ra
     return next_item(theta, bank, seen_ids, seen_families, rng, focus=focus)
 
 
-def should_stop(n: int, se: float) -> bool:
+def should_stop(n: int, se: float, express: bool = False) -> bool:
+    if express:
+        return n >= EXPRESS_ITEMS
     return n >= MAX_ITEMS or (n >= MIN_ITEMS and se < SE_STOP)
 
 
@@ -157,11 +167,11 @@ def decide_grade(prev: str | None, theta: float, se: float, upgrade_allowed: boo
     return down if gi(down) < gi(prev) else prev
 
 
-def simulate_session(bank, true_theta: float, rng: random.Random, prior_mean: float = 0.0) -> tuple[float, float, int]:
-    """Прогон адаптивной сессии симулированным кандидатом (без пилотных заданий, со слотом задачи на код)."""
+def simulate_session(bank, true_theta: float, rng: random.Random, prior_mean: float = 0.0, express: bool = False) -> tuple[float, float, int]:
+    """Прогон адаптивной сессии симулированным кандидатом (без пилотных заданий; задача на код — своим слотом, если она есть в банке)."""
     seen_ids, seen_fam, resp = set(), set(), []
     theta, se = prior_mean, 1.0
-    while not should_stop(len(resp), se):
+    while not should_stop(len(resp), se, express):
         it = choose(theta, bank, seen_ids, seen_fam, rng, len(resp))
         if it is None:
             break
@@ -178,8 +188,13 @@ if __name__ == "__main__":
 
     from app.services.items import generate_bank
 
-    bank = [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "kind", "a", "b", "pilot")})
-            for i, r in enumerate(generate_bank()) if r["spec"] == "Backend"]
+    rows = generate_bank()
+
+    def spec_bank(spec: str, kinds=None) -> list:
+        return [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "kind", "a", "b", "pilot")})
+                for i, r in enumerate(rows) if r["spec"] == spec and (kinds is None or r["kind"] in kinds)]
+
+    bank = spec_bank("Backend")
     rng = random.Random(7)
     true = np.array([rng.gauss(0, 1) for _ in range(200)])
     s1 = [simulate_session(bank, t, rng) for t in true]
@@ -200,4 +215,21 @@ if __name__ == "__main__":
     assert corr > 0.85, corr
     assert ses.mean() < 0.35, ses.mean()
     assert hyst >= raw
+
+    # каждая специализация: полный тест и экспресс (5 заданий). Честность экспресса: SE больше, а грейд выше истинного
+    # (по правде θ синтетического кандидата) он ставит не чаще полного теста — правило θ − SE с большой SE осторожнее
+    gi = catalog.GRADES.index
+    print("средняя SE и доля грейдов выше истинного: полный тест / экспресс")
+    for spec in catalog.SPECS:
+        full_bank, exp_bank = spec_bank(spec), spec_bank(spec, EXPRESS_KINDS)
+        tt = [rng.gauss(0, 1) for _ in range(300)]
+        full = [simulate_session(full_bank, t, rng) for t in tt]
+        exp = [simulate_session(exp_bank, t, rng, express=True) for t in tt]
+        se_full, se_exp = float(np.mean([s[1] for s in full])), float(np.mean([s[1] for s in exp]))
+        over = [float(np.mean([gi(catalog.grade_from_theta(s[0], s[1])) > gi(catalog.grade_from_theta(t, 0)) for s, t in zip(runs, tt)]))
+                for runs in (full, exp)]
+        print(f"  {spec}: SE {se_full:.3f} / {se_exp:.3f}; выше истинного {over[0]:.0%} / {over[1]:.0%}")
+        assert se_full <= SPEC_SE_MAX, (spec, se_full)
+        assert se_exp > se_full and all(e[2] == EXPRESS_ITEMS for e in exp), spec
+        assert over[1] <= over[0] + 0.03, (spec, over)
     print("ok")

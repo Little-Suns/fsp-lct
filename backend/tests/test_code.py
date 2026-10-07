@@ -39,7 +39,7 @@ def env():
     with SessionLocal() as db:
         seed_items(db)
         items = {it.id: it for it in db.scalars(select(Item).where(Item.spec == "Backend"))}
-        users = [User(email=f"code{i}-{tag}@example.ru", role="candidate") for i in range(8)]
+        users = [User(email=f"code{i}-{tag}@example.ru", role="candidate") for i in range(9)]
         db.add_all(users)
         db.flush()
         cands = [Candidate(public_id=f"K{i}-{tag}", user_id=u.id, name="Код", email=u.email, **MK) for i, u in enumerate(users)]
@@ -185,6 +185,24 @@ def test_no_code_without_sandbox(env, monkeypatch):
     monkeypatch.setattr(config, "SANDBOX_TOKEN", "secret")
     plan = plan_for_need("Backend", ["Python"], [], "Junior")
     assert any(f["kind"] == "code" for f in plan["families"]) and plan["items_total"] <= irt.MAX_ITEMS
+
+
+def test_express_has_no_code(env, box):
+    """Экспресс (5 заданий по 60 с) задач на код не выдаёт даже с живой песочницей: код за минуту не написать."""
+    client, items = env["clients"][8], env["items"]
+    r = client.post("/api/quest/start", json={"mode": "express", "story": False}).json()
+    seen = []
+    while r["item"]:
+        it = r["item"]
+        seen.append(it["kind"])
+        item = items[it["id"]]
+        keys = item.payload["key"] if isinstance(item.payload["key"], list) else [item.payload["key"]]
+        r = client.post("/api/quest/answer", json={"item_id": it["id"], "response": keys[0], "ms": 20000}).json()
+    assert len(seen) == irt.EXPRESS_ITEMS > irt.CODE_AT and set(seen) <= set(irt.EXPRESS_KINDS), seen
+    assert not box  # песочница не вызывалась
+    bank = [SimpleNamespace(id=i, **{k: r[k] for k in ("family", "competency", "kind", "a", "b", "pilot")})
+            for i, r in enumerate(generate_bank()) if r["spec"] == "Backend" and r["kind"] in irt.EXPRESS_KINDS]
+    assert irt.simulate_session(bank, 0.5, random.Random(1), express=True)[2] == irt.EXPRESS_ITEMS
 
 
 # ---------- поток ответа ----------

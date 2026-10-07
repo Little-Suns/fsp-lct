@@ -21,8 +21,8 @@ test('задача на код: редактор, запуск на пример
   await page.getByLabel('Имя и фамилия').fill('Кира Кодова');
   await page.getByLabel('Минимальная зарплата на руки').fill('150000');
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
-  await expect(page.getByText(/Одна за тест, на Python или TypeScript/)).toBeVisible();  // песочница включена — вводная говорит о задаче на код
-  await page.getByRole('button', { name: 'Начать смену' }).click();
+  await expect(page.getByText('Одна за полный тест (в экспресс-тесте её нет), на Python или TypeScript')).toBeVisible();  // песочница включена — вводная говорит о задаче на код
+  await page.getByRole('button', { name: 'Полный тест (~40 мин)' }).click();  // в экспресс-тесте задачи на код нет
 
   // обычные задания до задачи на код: она идёт после четырёх рабочих (слот irt.CODE_AT), пилотная — раньше
   const ed = page.locator('#code-ed');

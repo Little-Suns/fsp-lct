@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.deps import hash_secret
 from app.integrations import common
-from app.integrations.scoring import place_weight, rating_weight
+from app.integrations.scoring import place_weight, rating_weight, result_of
 from app.models import Achievement, ExternalAccount
 
 API = "https://codeforces.com/api/"
@@ -84,14 +84,12 @@ def code_found(info: dict, code_hash: str) -> bool:
     return any(hmac.compare_digest(hash_secret(tok.upper()), code_hash) for tok in CODE_RE.findall(text))
 
 
-def contest_level(name: str) -> str:
-    """Уровень раунда для place_weight: Div. 1 / Global — сильнейшее поле, Div. 3/4 — слабейшее."""
-    # ponytail: эвристика по названию; точнее — число участников из contest.standings (дорого по лимиту API)
-    if re.search(r"Div\.\s*[34]|Educational", name):
-        return "regional"
-    if re.search(r"Div\.\s*2", name):
-        return "national"
-    return "international"
+def contest_result(rank: int) -> str:
+    """Место в раунде → результативность. В достижения попадает только топ-NOTABLE_PLACE общего зачёта раунда
+    с тысячами участников (≈ топ-1–5 %), поэтому всё ниже призовых — «финалист», а не «участник».
+    Div. 1 и Div. 4 не различаем: иерархии соревнований нет (QA с постановщиками).
+    """
+    return result_of(rank, None) if rank <= 3 else "finalist"
 
 
 def fetch(handle: str, info: dict | None = None) -> tuple[dict, list[dict]]:
@@ -121,17 +119,17 @@ def apply(db: Session, acc: ExternalAccount, info: dict, history: list[dict]) ->
 
     notable = sorted((h for h in history if h.get("rank") and h["rank"] <= NOTABLE_PLACE), key=lambda h: h["rank"])
     for h in notable[:NOTABLE_MAX]:
-        level = contest_level(h["contestName"])
+        result = contest_result(h["rank"])
         ev = common.upsert_event(
-            db, SOURCE, str(h["contestId"]), title=h["contestName"][:255], level=level,
+            db, SOURCE, str(h["contestId"]), title=h["contestName"][:255],
             date=common.ts(h.get("ratingUpdateTimeSeconds")), url=f"https://codeforces.com/contest/{h['contestId']}",
             tags=["Алгоритмы"],
         )
         ach, _ = common.upsert_achievement(
             db, cand, SOURCE, ev,
             title=f"{h['contestName']}: {h['rank']} место",
-            place=h["rank"], team=None, role=None, verified=True,
-            weight=place_weight(h["rank"], None, level),
+            place=h["rank"], team=None, role=None, result=result, verified=True,
+            weight=place_weight(h["rank"], None, result),
             data={"kind": "contest", "old_rating": h.get("oldRating"), "new_rating": h.get("newRating")},
         )
         keep.append(ach.id)

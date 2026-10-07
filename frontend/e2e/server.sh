@@ -13,6 +13,8 @@ c = psycopg.connect(sys.argv[2].replace("+psycopg", "") + "/fsp", autocommit=Tru
 if not c.execute("SELECT 1 FROM pg_database WHERE datname = %s", (sys.argv[1],)).fetchone():
     c.execute(f'CREATE DATABASE "{sys.argv[1]}"')
 PY
-export DATABASE_URL="$PG/$DB" DEMO=1 LLM_BASE_URL=
-uv run python -m seed.generate --reset --candidates 200 --needs 20 > /dev/null
+# PUBLIC_URL — issuer мок-провайдера ФСП ID и redirect_uri: браузер и бэкенд ходят по одному адресу
+export DATABASE_URL="$PG/$DB" DEMO=1 LLM_PROVIDER=none LLM_BASE_URL= PUBLIC_URL="http://127.0.0.1:$PORT"
+# --today now: API считает сроки приглашений и неделю квоты по реальным часам, сид — тоже от них
+uv run python -m seed.generate --reset --candidates 200 --needs 20 --today now > /dev/null
 exec uv run uvicorn app.main:app --host 127.0.0.1 --port "$PORT"

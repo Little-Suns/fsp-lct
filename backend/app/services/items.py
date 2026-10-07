@@ -492,7 +492,7 @@ def _(rng):
 
 
 # ============================== остальные специализации ==============================
-# ponytail: по одному простому семейству на компетенцию (≈6 заданий за сессию); расширять банк по образцу Backend
+# по одному простому семейству на компетенцию; сценарные семейства с панелями — в пакете bank/
 
 
 def _fill(s, v: dict):
@@ -659,6 +659,8 @@ for _spec in code_items.SPECS:
     for _f in code_items.FAMILIES.values():
         FAMILIES.append({"family": _f["name"], "spec": _spec, "competency": code_items.COMPETENCY, "kind": "code", "a": _f["a"], "b": _f["b"],
                          "pilot": _f["pilot"], "render": lambda rng, name=_f["name"]: code_items.render(name, rng)})
+# сценарные семейства остальных специализаций (логи, графики, код) — по 3 на компетенцию сверх простых, см. bank/
+from app.services import bank  # noqa: F401
 
 # уникальные имена семейств для простых шаблонов
 for i, f in enumerate(FAMILIES):
@@ -682,13 +684,15 @@ def generate_bank() -> list[dict]:
 
 
 def seed_items(db: Session) -> int:
-    """Засеять банк: добавить семейства, которых в нём ещё нет (пустой банк — целиком; на старом стенде — новые семейства,
-    например задачи на код). Уже засеянные задания не трогаются: на них ссылаются ответы в сессиях. Возвращает число добавленных."""
+    """Засеять банк: добавить семейства, которых ещё нет в базе (пустой банк — целиком; на старом стенде — новые семейства,
+    например задачи на код и сценарные банки). Ключ — (семейство, специализация): задачи на код с одним именем есть у
+    нескольких специализаций. Уже засеянные задания не трогаются: на них ссылаются ответы в сессиях; изменённый текст
+    семейства — через seed.generate --reset. Возвращает число добавленных заданий."""
     have = {tuple(r) for r in db.execute(select(Item.family, Item.spec).distinct())}
-    bank = [row for row in generate_bank() if (row["family"], row["spec"]) not in have]
-    db.add_all(Item(**row) for row in bank)
+    rows = [row for row in generate_bank() if (row["family"], row["spec"]) not in have]
+    db.add_all(Item(**row) for row in rows)
     db.commit()
-    return len(bank)
+    return len(rows)
 
 
 # ============================== план теста под вакансию ==============================
@@ -752,3 +756,14 @@ def plan_for_need(spec: str, must: list[str], nice: list[str], grade: str) -> di
         "minutes": round(items_total * avg_limit * SHARE_OF_LIMIT / 60),
         "focus": {n: round(w[n], 2) for n in names},
     }
+
+
+if __name__ == "__main__":
+    # доложить новые семейства в уже засеянную базу (обновление стенда без --reset): python -m app.services.items
+    # под __main__ модуль — копия: bank/ зарегистрировал семейства в импортированном app.services.items, берём его seed_items
+    from app.db import SessionLocal, init_db
+    from app.services import items
+
+    init_db()
+    with SessionLocal() as db:
+        print(f"Банк заданий: добавлено {items.seed_items(db)} заданий")

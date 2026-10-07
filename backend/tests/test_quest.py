@@ -1,11 +1,14 @@
 """Тест-квест: сессия с симулированным кандидатом, ключ не утекает, кулдаун, тест на заявленный грейд,
 история попыток, план теста под вакансию и фокус по приглашению."""
 
+import io
 import json
 import os
 import random
+import runpy
 import secrets
 import threading
+import warnings
 from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_quest")
@@ -15,6 +18,7 @@ os.environ.setdefault("LLM_BASE_URL", "")  # разбор вакансии — �
 import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from pypdf import PdfReader  # noqa: E402
 from sqlalchemy import delete, select  # noqa: E402
 from sqlalchemy.exc import IntegrityError  # noqa: E402
 
@@ -22,8 +26,8 @@ from app import catalog  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.deps import issue_token  # noqa: E402
 from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession, User  # noqa: E402
-from app.routers import quest  # noqa: E402
-from app.services import irt  # noqa: E402
+from app.routers import candidate, quest  # noqa: E402
+from app.services import irt, matching, profile_pdf  # noqa: E402
 from app.services.items import generate_bank, plan_for_need, seed_items  # noqa: E402
 
 NEED_TEXT = "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. Уровень — мидл, до 300 на руки. Гибрид, Москва."
@@ -31,6 +35,7 @@ MK = dict(spec="Backend", track="Python", grade_claimed="Middle", min_salary=200
 
 app = FastAPI()
 app.include_router(quest.router)
+app.include_router(candidate.router)  # /me — пометка экспресс-оценки в кабинете
 
 
 def _client(token: str | None = None) -> TestClient:
@@ -44,6 +49,20 @@ def env():
     with SessionLocal() as db:
         seed_items(db)
         assert seed_items(db) == 0  # повторный сид ничего не добавляет
+        # новое семейство в уже засеянной базе докладывается (обновление стенда без --reset), остальные не трогаются
+        fam = db.scalar(select(Item.family).where(Item.family.like("sec\\_%")))  # семейство из bank/
+        n_fam = len(db.execute(delete(Item).where(Item.family == fam).returning(Item.id)).all())
+        db.commit()
+        assert seed_items(db) == n_fam > 0 and seed_items(db) == 0
+        # то же через CLI (python -m app.services.items): семейства bank/ видны и из __main__
+        n_fam = len(db.execute(delete(Item).where(Item.family == fam).returning(Item.id)).all())
+        db.commit()
+    with pytest.MonkeyPatch.context() as mp, warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # «found in sys.modules»
+        mp.setattr("app.db.init_db", lambda: None)  # схема набора — create_all, миграции здесь не нужны
+        runpy.run_module("app.services.items", run_name="__main__")
+    with SessionLocal() as db:
+        assert len(db.scalars(select(Item.id).where(Item.family == fam)).all()) == n_fam
         items = {it.id: it for it in db.scalars(select(Item).where(Item.spec == "Backend"))}
         users = [User(email=f"{r}-{tag}@example.ru", role=role) for r, role in (("q", "candidate"), ("qcf", "candidate"), ("emp", "employer"), ("emp2", "employer"))]
         db.add_all(users)
@@ -175,6 +194,86 @@ def test_quest_flow(env):
         rows = db.scalars(select(QuestSession).where(QuestSession.candidate_id == cand_id).order_by(QuestSession.id.desc())).all()
         assert [r.applied for r in rows] == [h["applied"] for h in hist] and [r.grade for r in rows] == [h["grade"] for h in hist]
         assert rows[0].grade == up2["category"]["grade"]
+
+
+def test_express_mode(env):
+    """Экспресс: 5 заданий по минуте без ревью и пилота; предварительная категория с пометкой, только если грейда ещё нет;
+    кулдаун не запускает, полный тест после него — первое присвоение; существующий грейд не меняет ни вверх, ни вниз."""
+    items = env["items"]
+    with SessionLocal() as db:
+        u = User(email=f"ex-{secrets.token_hex(4)}@example.ru", role="candidate")
+        db.add(u)
+        db.flush()
+        c = Candidate(public_id=f"E-{secrets.token_hex(4)}", user_id=u.id, name="Э", email=u.email, **MK)
+        db.add(c)
+        db.commit()
+        cid, uid, client = c.id, u.id, _client(issue_token(db, u))
+    try:
+        assert client.post("/api/quest/start", json={"mode": "turbo"}).status_code == 422
+        st = client.post("/api/quest/start", json={"mode": "express", "story": False}).json()
+        assert st["mode"] == "express" and st["progress"]["total"] == irt.EXPRESS_ITEMS
+        assert st["time_limit_s"] == quest.EXPRESS_TIME_LIMIT_S == st["item"]["time_limit_s"] and st["remaining_s"] <= 60
+        resumed = client.post("/api/quest/start", json={"story": False}).json()  # режим продолжаемой сессии не меняется
+        assert resumed["resumed"] and resumed["mode"] == "express" and resumed["session_id"] == st["session_id"]
+
+        rng = random.Random(3)
+        first = _run(client, items, lambda it: rng.random() < irt.prob(0.8, it.a, it.b), {"mode": "express", "story": False})
+        res = first["result"]
+        assert first["progress"]["n"] == irt.EXPRESS_ITEMS and first["done"]
+        assert res["applied"] and res["express"] and res["mode"] == "express" and res["assessment_label"] == "экспресс-оценка"
+        assert res["category"]["grade"] == catalog.grade_from_theta(res["theta"], res["se"]) and res["se"] > 0.35
+        assert res["skills_confirmed"] == [] and res["upgrade"]["allowed_at"] is None
+        with SessionLocal() as db:
+            s = db.get(QuestSession, first["session_id"])
+            assert s.mode == "express" and not any(a["pilot"] for a in s.answers)
+            assert all(items[a["item_id"]].kind in irt.EXPRESS_KINDS for a in s.answers)
+            c = db.get(Candidate, cid)
+            assert c.grade_express and c.next_upgrade_at is None and c.tested_at
+            assert matching.card(c)["express"] and matching.card(c)["grade"] == res["category"]["grade"]
+            pdf = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(profile_pdf.render(c))).pages)
+            assert "экспресс-оценка" in pdf and "тест пройден" not in pdf
+            express_grade, express_se = c.grade, c.se
+        assert client.get("/api/candidate/me").json()["grade_express"] is True
+
+        # повторный экспресс (всё верно) предварительную категорию не повышает
+        again = _run(client, items, lambda it: True, {"mode": "express", "story": False})["result"]
+        assert not again["applied"] and "повторный экспресс" in again["note"] and again["category"]["grade"] == express_grade
+        assert again["attempt"]["theta"] > res["theta"]
+
+        # полный тест после экспресса — первое присвоение: без кулдауна и гистерезиса от экспресса, пометка снимается
+        full = _run(client, items, lambda it: rng.random() < irt.prob(0.8, it.a, it.b))["result"]
+        assert full["applied"] and not full["express"] and full["mode"] == "full" and full["assessment_label"] is None
+        assert full["se"] < express_se and full["category"]["grade"] == catalog.grade_from_theta(full["theta"], full["se"])
+        with SessionLocal() as db:
+            c = db.get(Candidate, cid)
+            assert not c.grade_express and (c.next_upgrade_at - datetime.now(UTC)).days in (89, 90)
+            assert not matching.card(c)["express"] and "тест пройден" in "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(profile_pdf.render(c))).pages)
+            full_grade, full_theta = c.grade, c.theta
+
+        # экспресс после полного теста не меняет категорию даже вниз; ответ после лимита 60 с + запас — неверный
+        st = client.post("/api/quest/start", json={"mode": "express", "story": False}).json()
+        it = items[st["item"]["id"]]
+        with SessionLocal() as db:
+            s = db.get(QuestSession, st["session_id"])
+            s.answers = [*s.answers[:-1], {**s.answers[-1], "served_at": (datetime.now(UTC) - timedelta(seconds=95)).isoformat()}]
+            db.commit()
+        key = it.payload["key"][0] if isinstance(it.payload["key"], list) else it.payload["key"]
+        assert client.post("/api/quest/answer", json={"item_id": it.id, "response": key}).status_code == 200
+        with SessionLocal() as db:
+            a0 = db.get(QuestSession, st["session_id"]).answers[0]
+            assert a0["timeout"] and not a0["correct"]
+        low = _run(client, items, lambda it: False, {"mode": "express", "story": False})["result"]
+        assert not low["applied"] and "полным тестом" in low["note"] and low["category"]["grade"] == full_grade and low["theta"] == round(full_theta, 2)
+        assert not low["express"] and low["mode"] == "express"
+
+        hist = client.get("/api/quest/history").json()
+        assert [h["mode"] for h in hist] == ["express", "full", "express", "express"]
+        assert [h["applied"] for h in hist] == [False, True, False, True] and [h["items"] for h in hist][2:] == [irt.EXPRESS_ITEMS] * 2
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(Candidate).where(Candidate.id == cid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
 
 
 def test_cf_and_focus_do_not_change_grade(env):

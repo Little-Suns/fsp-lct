@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text, true
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, text, true
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,7 +20,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16))  # candidate | employer | admin
     token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)  # sha256 токена, сам токен не храним
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    fsp_id: Mapped[str | None] = mapped_column(String(32), unique=True)
+    fsp_id: Mapped[str | None] = mapped_column(String(64), unique=True)  # sub из ФСП ID (в Keycloak — UUID, 36 символов)
     created_at: Mapped[datetime] = _now()
 
 
@@ -70,6 +70,8 @@ class Candidate(Base):
     skills_confirmed: Mapped[list[str]] = mapped_column(JSON, default=list)
     tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_upgrade_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # грейд — предварительная экспресс-оценка (routers/quest.py): помечается в карточке, кулдаун не запускает
+    grade_express: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     review_passed: Mapped[bool] = mapped_column(Boolean, default=False)  # «разбор решения» для Senior+
     employer_confirmed: Mapped[int] = mapped_column(Integer, default=0)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
@@ -117,7 +119,8 @@ class Event(Base):
     source: Mapped[str] = mapped_column(String(16))  # fsp | hackathon | ctftime | codeforces
     external_id: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(String(255))
-    level: Mapped[str | None] = mapped_column(String(32))  # international | national | regional | local
+    level: Mapped[str | None] = mapped_column(String(32))  # international | national | regional | local — факт, на вес не влияет
+    discipline: Mapped[str | None] = mapped_column(String(64))  # дисциплина ФСП (catalog.DISCIPLINES), факт
     date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     participants: Mapped[int | None] = mapped_column(Integer)
     url: Mapped[str | None] = mapped_column(String(512))
@@ -136,13 +139,15 @@ class Achievement(Base):
     place: Mapped[int | None] = mapped_column(Integer)
     team: Mapped[str | None] = mapped_column(String(128))
     role: Mapped[str | None] = mapped_column(String(64))  # роль в команде: backend, ML, капитан…
+    result: Mapped[str | None] = mapped_column(String(16))  # winner | prize | finalist | participant (scoring.RESULT_WEIGHT)
+    sport_rank: Mapped[str | None] = mapped_column(String(32))  # разряд/звание по протоколу ФСП (catalog.SPORT_RANKS), факт
     weight: Mapped[float] = mapped_column(Float, default=0.0)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     data: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = _now()
 
     candidate: Mapped[Candidate] = relationship(back_populates="achievements")
-    event: Mapped[Event | None] = relationship()
+    event: Mapped[Event | None] = relationship(lazy="selectin")  # дисциплина в бейджах карточек — без N+1
 
 
 class Company(Base):
@@ -274,6 +279,7 @@ class QuestSession(Base):
     prior_mean: Mapped[float] = mapped_column(Float, default=0.0)  # стартовая оценка (например, из рейтинга CF)
     target_grade: Mapped[str | None] = mapped_column(String(16))  # заявленный грейд, на который проходит тест
     focus: Mapped[dict | None] = mapped_column(JSON)  # веса компетенций из описания вакансии {competency: weight}
+    mode: Mapped[str] = mapped_column(String(8), default="full", server_default="full")  # full | express
     grade: Mapped[str | None] = mapped_column(String(16))  # грейд, измеренный этой попыткой
     applied: Mapped[bool | None] = mapped_column(Boolean)  # попал ли результат в профиль (во время кулдауна — только понижение)
     flags: Mapped[list[str]] = mapped_column(JSON, default=list)  # подозрения: inconsistent, too_fast…
@@ -341,6 +347,10 @@ class Task(Base):
     kind: Mapped[str] = mapped_column(String(8), default="approach")  # solve | approach
     minutes: Mapped[int] = mapped_column(Integer, default=45)
     public: Mapped[bool] = mapped_column(Boolean, default=True)  # на витрине для всех кандидатов специализации
+    # open — оценивает работодатель; text | number | choice | multi | regex — автопроверка по эталону (services/autocheck)
+    answer_type: Mapped[str] = mapped_column(String(8), default="open", server_default="open")
+    options: Mapped[list[str] | None] = mapped_column(JSON)  # варианты для choice / multi — публичная часть задания
+    reference: Mapped[dict | None] = mapped_column(JSON)  # эталон: только серверу и компании-автору, кандидату не уходит
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = _now()
 
@@ -359,6 +369,7 @@ class TaskSubmission(Base):
     answer: Mapped[str] = mapped_column(Text)
     review: Mapped[str | None] = mapped_column(String(8))  # strong | ok | weak
     review_comment: Mapped[str | None] = mapped_column(Text)
+    auto_ok: Mapped[bool | None] = mapped_column(Boolean)  # автопроверка по эталону; None — открытый ответ или проверка не сработала
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = _now()
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -401,6 +412,21 @@ class LoginChallenge(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class FspLogin(Base):
+    """Вход или привязка через ФСП ID (OIDC) от /start до /exchange. Секреты — только sha256: state, кука браузера,
+    одноразовый билет. PKCE-верификатор и nonce не хранятся вовсе — выводятся HMAC(SECRET_KEY, state)."""
+
+    __tablename__ = "fsp_logins"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    state_hash: Mapped[str | None] = mapped_column(String(64), unique=True)  # None — callback уже был (повтор не пройдёт)
+    browser_hash: Mapped[str] = mapped_column(String(64))  # sha256 куки fsp_flow: callback и обмен — только в том же браузере
+    mode: Mapped[str] = mapped_column(String(8))  # login | link
+    # link — кому привязываем ФСП ID (выбрал вошедший пользователь); login после callback — кто вошёл
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    ticket_hash: Mapped[str | None] = mapped_column(String(64), unique=True)  # билет на обмен в наш токен, живёт минуту
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class RetiredPublicId(Base):

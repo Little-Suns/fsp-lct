@@ -86,6 +86,10 @@ test('профиль и результат теста демо-кандидат�
   await expect(card).toContainText('Перцентиль 78');
   await expect(card.getByText('не подтверждено')).toBeVisible();
   await expect(card.locator('.chip', { hasText: 'ФСП' })).toBeVisible();
+  // данные ФСП из протокола: результат, дисциплина и разряд — факты; разряд — и чипом в превью карточки
+  await expect(page.getByText('Спортивный разряд: 1 разряд')).toBeVisible();
+  await expect(page.getByText(/финалист · продуктовое программирование · 1 разряд/)).toBeVisible();
+  await expect(card.locator('.chip', { hasText: '1 разряд' })).toBeVisible();
   // роли и софт-скиллы из сида: отмечены в форме и видны в превью карточки
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Ментор' })).toHaveClass(/on/);
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Работа в команде' })).toHaveClass(/on/);
@@ -224,6 +228,39 @@ test('витрина задач: свои решения с оценкой, от
   await expect(toast(page)).toHaveText('Решение отправлено. Оценка появится в «Моих решениях»');
   await expect(page.getByRole('heading', { name: 'Ваше решение' })).toBeVisible();
   await expect(page.getByText('ждёт оценки')).toBeVisible();
+
+  // задание с эталоном, один вариант: кнопки выбора, проверяет система, эталон не приходит
+  await page.locator('nav.chips').getByRole('button', { name: 'Задачи' }).click();
+  const iso = page.locator('button.cand', { hasText: 'Уровень изоляции для двух счетов' });
+  await expect(iso).toContainText('проверяет система');
+  const got = api(page, 'GET', /^\/api\/tasks\/\d+$/);
+  await iso.click();
+  const tj = await (await got).json();
+  expect(tj).not.toHaveProperty('reference');
+  expect(tj).toMatchObject({ answer_type: 'choice', options: ['Read Committed', 'Repeatable Read', 'Serializable'] });
+  await expect(page.getByRole('heading', { name: 'Ответ', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Отправить решение' }).click();
+  await expect(toast(page)).toHaveText('Выберите вариант ответа');
+  await page.getByRole('button', { name: 'Read Committed' }).click();
+  await page.getByRole('button', { name: 'Serializable' }).click();  // один вариант: выбор заменяется
+  await expect(page.getByRole('button', { name: 'Read Committed' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'Serializable' })).toHaveAttribute('aria-pressed', 'true');
+  const isoSub = api(page, 'POST', `/api/tasks/${tj.id}/submit`);
+  await page.getByRole('button', { name: 'Отправить решение' }).click();
+  expect((await isoSub).request().postDataJSON()).toEqual({ choices: [2], invitation_id: null });
+  await expect(toast(page)).toHaveText('Решение отправлено. Ответ совпал с эталоном');
+  await expect(page.locator('.chip', { hasText: 'верно · автопроверка' })).toBeVisible();
+  await expect(page.getByText('Ответ совпал с эталоном', { exact: true })).toBeVisible();
+
+  // число: неверный ответ — «не совпало», без подсказки эталона
+  await page.locator('nav.chips').getByRole('button', { name: 'Задачи' }).click();
+  await page.locator('button.cand', { hasText: 'Сколько соединений занято' }).click();
+  await page.getByPlaceholder('Число, например 42 или 3,14').fill('16');
+  await page.getByRole('button', { name: 'Отправить решение' }).click();
+  await expect(toast(page)).toHaveText('Решение отправлено. Ответ не совпал с эталоном');
+  await expect(page.locator('.chip', { hasText: 'неверно · автопроверка' })).toBeVisible();
+  await page.locator('nav.chips').getByRole('button', { name: 'Задачи' }).click();
+  await expect(page.locator('aside')).toContainText('неверно · автопроверка');
 
   await open(page, '/c/task/999999');
   await expect(page.getByText('Задача не найдена.')).toBeVisible();

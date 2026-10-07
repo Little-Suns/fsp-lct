@@ -46,6 +46,8 @@ def test_revision_ids():
     for rev in SCRIPT.walk_revisions():
         assert re.fullmatch(r"\d{4}_[a-z0-9_]+", rev.revision) and len(rev.revision) <= 32, rev.revision
     assert list(SCRIPT.get_bases()) == [BASELINE]
+    # после мёржа параллельных веток головы сводятся ревизией NNNN_merge_… — на main голова одна
+    assert len(SCRIPT.get_heads()) == 1, SCRIPT.get_heads()
 
 
 def _cfg(conn) -> Config:
@@ -126,6 +128,37 @@ def test_0002_candidate_profile_on_existing_candidates():
     with engine.connect() as c:
         got = c.execute(text("SELECT roles::text, soft_skills::text, pdf_experience FROM candidates")).one()
     assert tuple(got) == ("[]", "[]", True) and _diff() == []
+
+
+def test_0004_reweights_existing_achievements():
+    # старые веса с иерархией уровней → результативность без уровня; рейтинг CF не трогается
+    with engine.begin() as c:
+        command.upgrade(_cfg(c), "0003_merge_chat_profile")
+        c.execute(text("INSERT INTO users (id, email, role, created_at) VALUES (1, 'u@example.ru', 'candidate', now())"))
+        cand = Table("candidates", MetaData(), autoload_with=c)
+        filler = {String: "x", Integer: 0, Float: 0.0, Boolean: False, JSON: [], DateTime: datetime.now(UTC)}
+        row = {col.name: next(v for t, v in filler.items() if isinstance(col.type, t)) for col in cand.columns
+               if not col.nullable and col.server_default is None and not col.primary_key}
+        cid = c.execute(cand.insert().values(**row).returning(cand.c.id)).scalar()
+        c.execute(text("INSERT INTO events (id, source, external_id, title, level, participants, tags) VALUES "
+                       "(1, 'fsp', 'reg', 'Этап', 'regional', 100, '[]'), (2, 'codeforces', '7', 'Round', 'national', NULL, '[]'),"
+                       "(3, 'ctftime', '9', 'CTF', 'international', 900, '[]')"))
+        rows = [  # (id, event_id, source, place, verified, data, старый вес)
+            (1, 1, "fsp", 1, True, '{"kind": "protocol"}', 0.5), (2, 1, "fsp", 8, True, '{"kind": "protocol"}', 0.25),
+            (3, 1, "fsp", None, True, '{"kind": "protocol"}', 0.075), (4, 2, "codeforces", 12, True, '{"kind": "contest"}', 0.2),
+            (5, None, "codeforces", None, True, '{"kind": "rating"}', 0.396), (6, 3, "ctftime", 2, False, '{"kind": "ctf"}', 0.425),
+            (7, 3, "ctftime", 90, True, '{"kind": "ctf"}', 0.5), (8, 3, "ctftime", 91, False, '{"kind": "ctf"}', 0.125),
+        ]
+        for aid, eid, src, place, ver, data, w in rows:
+            c.execute(text("INSERT INTO achievements (id, candidate_id, event_id, source, title, place, weight, verified, data, created_at) "
+                           "VALUES (:id, :c, :e, :s, 't', :p, :w, :v, CAST(:d AS json), now())"),
+                      {"id": aid, "c": cid, "e": eid, "s": src, "p": place, "w": w, "v": ver, "d": data})
+    migrate()
+    with engine.connect() as c:
+        got = dict((i, (r, w)) for i, r, w in c.execute(text("SELECT id, result, weight FROM achievements")))
+    assert got == {1: ("winner", 0.8), 2: ("finalist", 0.35), 3: ("participant", 0.05), 4: ("finalist", 0.35),
+                   5: (None, 0.396), 6: ("prize", 0.3), 7: ("finalist", 0.35), 8: ("participant", 0.025)}
+    assert _diff() == []
 
 
 def test_chat_table_already_created_on_branch():
