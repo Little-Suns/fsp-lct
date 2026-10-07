@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session, defer, selectinload
 
 from app import catalog
 from app.db import get_db
-from app.deps import current_company, current_user
+from app.deps import active_company, current_company, current_user
 from app.models import Candidate, Company, Invitation, Lottery, Need, Task, User, Vacancy
 from app.services import lottery as lottery_svc
-from app.services import matching
+from app.services import matching, reputation
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, extract_skills, parse_need
 
@@ -91,16 +91,22 @@ def _accepted_share(db: Session, company_id: int, before: datetime | None = None
 
 def quota(db: Session, co: Company) -> dict:
     """Недельная квота (сброс в понедельник 00:00 МСК). Лимит растёт до QUOTA_BONUS, если в прошлые недели
-    принято ≥ 50 % закрытых приглашений. Неподтверждённая компания — UNVERIFIED_QUOTA без бонуса. Оплата — только за принятые."""
+    принято ≥ 50 % закрытых приглашений. Неподтверждённая компания — UNVERIFIED_QUOTA без бонуса. Много плохих отзывов
+    кандидатов за окно — FEEDBACK_PENALTY_QUOTA без бонуса, блок — 0 (services/reputation.py). Оплата — только за принятые."""
     start = _week_start(datetime.now(UTC))
     used = db.scalar(select(func.count()).select_from(Invitation).where(Invitation.company_id == co.id, Invitation.sent_at >= start))
     bonus = lambda share: max(co.quota_max, catalog.QUOTA_BONUS) if share is not None and share >= catalog.QUOTA_BONUS_AT else co.quota_max
     share = _accepted_share(db, co.id)
     if not co.verified:
         bonus = lambda share: catalog.UNVERIFIED_QUOTA  # noqa: E731
+    rep = reputation.summary(db, co)
+    if rep["penalty"]:
+        bonus = lambda share, b=bonus: min(b(share), catalog.FEEDBACK_PENALTY_QUOTA)  # noqa: E731
+    if rep["blocked"]:
+        bonus = lambda share: 0  # noqa: E731
     mx = bonus(_accepted_share(db, co.id, before=start))
     paid = db.scalar(select(func.count()).select_from(Invitation).where(Invitation.company_id == co.id, Invitation.status == "accepted"))
-    return {"used": used, "max": mx, "left": max(0, mx - used), "resets_at": start + timedelta(days=7), "accepted_share": share, "next_max": bonus(share), "paid_accepts": paid}
+    return {"used": used, "max": mx, "left": max(0, mx - used), "resets_at": start + timedelta(days=7), "accepted_share": share, "next_max": bonus(share), "paid_accepts": paid, "reputation": rep}
 
 
 # ---------- компания ----------
@@ -537,6 +543,8 @@ def _row(inv: Invitation) -> dict:
     if inv.status == "accepted":
         if may_talk(c, inv.company):  # согласие на обработку действует и компания не в «скрыть от» — как и чат
             contact = {"name": c.name, "email": c.email, "tg": c.tg, "text": " · ".join(x for x in (c.name, c.email, c.tg) if x)}
+        elif inv.company.blocked_at:
+            reason = "компания заблокирована до ручной проверки"
         else:
             reason = "кандидат отозвал согласие" if not matching.consent_ok(c, "processing") else "кандидат закрыл доступ к контактам"
     sent = inv.sent_at.astimezone(MSK)
@@ -566,7 +574,7 @@ def _locked(db: Session, model, pk: int):
 
 
 @router.post("/invites")
-def send_invite(body: InviteIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     cid = db.scalar(select(Candidate.id).where(Candidate.public_id == body.candidate_id))
     if not cid:
         raise HTTPException(404, "Кандидат не найден")
@@ -651,7 +659,7 @@ class FeedbackIn(BaseModel):
 
 
 @router.post("/invites/{invite_id}/feedback")
-def feedback(invite_id: int, body: FeedbackIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def feedback(invite_id: int, body: FeedbackIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     if body.value not in catalog.FEEDBACK:
         raise HTTPException(422, f"Отметка: одна из {', '.join(catalog.FEEDBACK)}")
     inv = db.get(Invitation, invite_id)

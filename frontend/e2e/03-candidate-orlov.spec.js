@@ -73,6 +73,23 @@ test('приглашения: открыть → просмотрено, отк�
   await expect(page.getByText('Приглашение не найдено.')).toBeVisible();
 });
 
+test('отзыв о компании через неделю после принятия: по желанию, один раз', async ({ page }) => {
+  await demo(page, 'c');
+  const old = page.locator('button.inv', { hasText: 'Python-разработчик, внутренние сервисы' });
+  await expect(old).toContainText('принято');
+  await old.click();
+  await expect(page.getByRole('heading', { name: 'Как прошло общение с компанией?' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Отправить отзыв' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Не вышли на связь' }).click();
+  await expect(page.getByRole('button', { name: 'Не вышли на связь' })).toHaveClass(/on/);
+  const sent = api(page, 'POST', '/api/candidate/invites/' + page.url().split('/').pop() + '/company-feedback');
+  await page.getByRole('button', { name: 'Отправить отзыв' }).click();
+  expect((await sent).request().postDataJSON()).toEqual({ value: 'no_contact' });
+  await expect(toast(page)).toHaveText('Спасибо! Отзыв учтён');
+  await expect(page.getByText('Спасибо, отзыв о компании учтён.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Как прошло общение с компанией?' })).toHaveCount(0);
+});
+
 test('профиль и результат теста демо-кандидата', async ({ page }) => {
   await demo(page, 'c');
   await open(page, '/c/profile');

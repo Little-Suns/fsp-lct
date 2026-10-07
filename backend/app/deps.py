@@ -71,6 +71,16 @@ def current_company(user: User = Depends(current_user), db: Session = Depends(ge
     return comp
 
 
+BLOCKED = "Компания заблокирована до ручной проверки: кандидаты сообщили, что вакансии не было. Напишите в поддержку платформы"
+
+
+def active_company(comp: Company = Depends(current_company)) -> Company:
+    """Для действий, которые доходят до кандидатов (приглашения, вакансии, задания, лотерея): блок по отзывам их закрывает."""
+    if comp.blocked_at:
+        raise HTTPException(403, BLOCKED)
+    return comp
+
+
 def current_verified_company(comp: Company = Depends(current_company)) -> Company:
     """Для действий, которые нельзя доверить неподтверждённой компании."""
     if not comp.verified:
