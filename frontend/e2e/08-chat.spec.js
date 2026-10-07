@@ -33,9 +33,13 @@ test('Чат: сообщение, бейдж, прочитано, ответ', a
   await demo(page, 'c');
   const chip = page.locator('nav.chips').getByRole('button', { name: /^Чат/ });
   await expect(chip).toContainText('1');
+  // цифра помещается в бейдж: раньше .dot таймлайна (14×14 с рамкой) перебивал стиль бейджа
+  const fits = el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight && el.clientWidth >= 18;
+  expect(await chip.locator('.unread').evaluate(fits)).toBe(true);
   await chip.click();
   await settled(page);
   await expect(page.locator('.chat-peer', { hasText: 'Ладога Пэй' })).toContainText('Здравствуйте!');
+  expect(await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
   await expect(page.locator('.chat-box')).toContainText('выберите диалог', { ignoreCase: true });
   await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).click();
   await settled(page);
