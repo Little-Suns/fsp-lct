@@ -46,7 +46,7 @@ class FspIdError(Exception):
 
 def enabled() -> bool:
     """Клиент настроен; у боевого issuer redirect_uri — только https: иначе код и кука потока ходили бы открытым текстом."""
-    mock = config.FSP_ID_ISSUER == config.MOCK_FSP_ID_ISSUER
+    mock = config.FSP_ID_MOCK and config.FSP_ID_ISSUER == config.MOCK_FSP_ID_ISSUER
     return bool(config.FSP_ID_ISSUER and config.FSP_ID_CLIENT_ID and config.FSP_ID_CLIENT_SECRET
                 and (mock or config.FSP_ID_REDIRECT_URI.startswith("https://")))
 
@@ -140,7 +140,7 @@ def _signing_key(kid: str | None):
     def load(force: bool = False) -> jwt.PyJWKSet:
         try:
             return _cached("jwks:" + url, lambda: jwt.PyJWKSet.from_dict(_get(url)), force)
-        except jwt.PyJWTError as e:
+        except (jwt.PyJWTError, TypeError, AttributeError) as e:  # битый JWKS провайдера — отказ, а не 500
             raise FspIdError(f"JWKS: {type(e).__name__}") from e
 
     for force in (False, True):

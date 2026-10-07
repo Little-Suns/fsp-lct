@@ -110,8 +110,8 @@ def _login_user(db: Session, ident: dict) -> User:
         user.fsp_id = ident["sub"]
         db.add(AuditLog(actor_user_id=user.id, action="fsp_id_linked", detail=None))
     if user.role != "candidate":
-        if _has_profile(db, user):
-            raise Fail("role")
+        if user.role == "admin" or _has_profile(db, user):
+            raise Fail("role")  # организатора в кандидата не превращаем
         user.role = "candidate"  # как во входе по коду: роль меняется, пока нет ни профиля, ни компании
     return user
 
@@ -120,6 +120,8 @@ def _link_user(db: Session, user_id: int | None, sub: str) -> User:
     user = db.scalar(select(User).where(User.id == user_id).with_for_update()) if user_id else None
     if not user:
         raise Fail("state")
+    if user.role != "candidate":
+        raise Fail("role")  # роль могла смениться за время потока
     if user.fsp_id != sub:
         if user.fsp_id:
             raise Fail("other")  # сначала отвязать прежний

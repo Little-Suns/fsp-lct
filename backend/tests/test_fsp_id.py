@@ -225,6 +225,10 @@ def test_login_links_existing_email_account_and_role_rules(client):
         db.commit()
     assert flow(client, account("FSP-T-hr", "hr@company.example")) == {"fsp": "error", "e": "role"}
     assert _user(id=eid).role == "employer"
+    # организатор — никогда; роль без профиля меняется, как во входе по коду
+    aid, _ = make_candidate("admin@fsp.example", role="admin", fsp="FSP-T-admin")
+    assert flow(client, account("FSP-T-admin", "admin@fsp.example")) == {"fsp": "error", "e": "role"}
+    assert _user(id=aid).role == "admin"
     # роль без профиля меняется, как во входе по коду
     nid, _ = make_candidate("noprofile@company.example", role="employer")
     assert login(client, account("FSP-T-np", "noprofile@company.example"))["role"] == "candidate" and _user(id=nid).role == "candidate"
@@ -312,9 +316,17 @@ def test_link_unlink_and_consent(client):
     with SessionLocal() as db:
         assert [a.action for a in db.scalars(select(AuditLog).where(AuditLog.actor_user_id == uid).order_by(AuditLog.id))
                 if a.action.startswith("fsp_id")] == ["fsp_id_linked", "fsp_id_unlinked"]
-    # работодатель привязать не может
-    _, he = make_candidate("emp@company.example", role="employer")
+    # работодатель привязать не может; роль сменилась за время потока — тоже отказ
+    eid, he = make_candidate("emp@company.example", role="employer")
     assert client.post("/api/auth/fsp/start", json={"mode": "link"}, headers=he).status_code == 403
+    _, q = authorize(client, "link", h2)
+    with SessionLocal() as db:
+        db.get(User, db.scalar(select(FspLogin.user_id).where(FspLogin.state_hash.is_not(None)))).role = "employer"
+        db.commit()
+    assert back(client, to_callback(client, q, account("FSP-T-link4", "x4@example.ru"))) == {"fsp": "error", "e": "role"}
+    with SessionLocal() as db:
+        db.query(User).filter(User.email == "link2@example.ru").update({"role": "candidate"})
+        db.commit()
     # удалённый за время потока пользователь
     _, q = authorize(client, "link", h2)
     with SessionLocal() as db:
@@ -431,6 +443,10 @@ def test_http_failures(client, monkeypatch):
     monkeypatch.setattr(fsp_id.HTTP, "post", lambda *a, **k: type("R", (), {"status_code": 200, "json": not_json})())
     with pytest.raises(FspIdError, match="JSON"):
         fsp_id.exchange("code", "st")
+    # битый JWKS (ключ — не объект) — отказ, а не 500
+    monkeypatch.setattr(fsp_id, "_get", lambda url, **k: {"keys": ["x"]} if url.endswith("/jwks") else fsp_id.discovery())
+    with pytest.raises(FspIdError, match="JWKS"):
+        _verify(mock.sign(_claims()))
     # JWKS без пригодных ключей
     monkeypatch.setattr(fsp_id, "_get", lambda url, **k: {"keys": []} if url.endswith("/jwks") else fsp_id.discovery())
     with pytest.raises(FspIdError, match="JWKS"):
