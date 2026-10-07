@@ -10,7 +10,7 @@
   - `seed/` — генератор синтетики и эталонная релевантность (`gold.py`).
   - `tests/` — pytest, у каждого набора своя база.
 - `sandbox/` — песочница задач на код: HTTP-сервис на stdlib Python, каждый тест — отдельный nsjail (Python 3.11, TypeScript на Node 22); банк задач — `backend/app/services/code_items.py`, клиент — `services/sandbox.py`. Модель безопасности и ограничения — README «Песочница».
-- `docker-compose.yml` — `db` + `api` + `sandbox` (privileged, только внутренняя сеть), всё поднимается `docker compose up -d --build`; без `SANDBOX_TOKEN` тест идёт без задач на код.
+- `docker-compose.yml` — `db` + `api` + `sandbox` (privileged, только внутренняя сеть), всё поднимается `docker compose up -d --build`; без `SANDBOX_TOKEN` тест идёт без задач на код. При `DEMO=1` `api` перед стартом засевает пустую базу (`seed.generate --if-empty --today now`), засеянную не трогает.
 - **API — строго один процесс uvicorn** (`WEB_CONCURRENCY=1` в `backend/Dockerfile` и compose): SSE чата (`chat.Hub`), троттлинг Codeforces/CTFtime, случайный по умолчанию `SECRET_KEY`, одна проверка кода на сессию (`quest._one_check`), кэш `/health` песочницы и мок ФСП ID живут в памяти процесса — второй воркер их ломает. Запас одного процесса — нагрузочный прогон `backend/loadtest/` (README, `table.md`).
 
 ## Правила

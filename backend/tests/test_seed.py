@@ -82,6 +82,10 @@ def test_generate_cli(seeded, capsys):
     try:
         with pytest.raises(SystemExit, match="уже засеяна"):
             generate.main()
+        n = db.scalar(select(func.count()).select_from(Candidate))
+        sys.argv = ["seed.generate", "--if-empty", "--candidates", "5", "--needs", "1"]  # автозасев стенда при каждом старте
+        generate.main()
+        assert db.scalar(select(func.count()).select_from(Candidate)) == n
     finally:
         sys.argv = argv
 
