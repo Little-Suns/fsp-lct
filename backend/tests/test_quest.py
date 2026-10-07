@@ -54,6 +54,16 @@ def env():
         n_fam = len(db.execute(delete(Item).where(Item.family == fam).returning(Item.id)).all())
         db.commit()
         assert seed_items(db) == n_fam > 0 and seed_items(db) == 0
+        # изменённый шаблон: засеянные клоны обновляются на месте по номеру клона, id не меняются (на них ссылаются ответы)
+        old = db.scalars(select(Item).where(Item.family == "be_inc_pool").order_by(Item.id)).all()
+        ids = [it.id for it in old]
+        want = [(r["payload"], r["b"]) for r in generate_bank() if r["family"] == "be_inc_pool"]
+        old[0].payload, old[1].b = {"story": "текст прошлой версии шаблона"}, 0.0
+        db.commit()
+        assert seed_items(db) == 2 and seed_items(db) == 0
+        db.expire_all()
+        fresh = db.scalars(select(Item).where(Item.family == "be_inc_pool").order_by(Item.id)).all()
+        assert [it.id for it in fresh] == ids and [(it.payload, it.b) for it in fresh] == want
         # то же через CLI (python -m app.services.items): семейства bank/ видны и из __main__
         n_fam = len(db.execute(delete(Item).where(Item.family == fam).returning(Item.id)).all())
         db.commit()
