@@ -2,6 +2,7 @@
 БД не нужна."""
 
 import random
+import re
 from collections import Counter, defaultdict
 from types import SimpleNamespace
 
@@ -14,7 +15,6 @@ from app.services.items import FAMILIES, TIME_LIMIT, generate_bank
 
 BANK = generate_bank()
 PANELS = {"logs", "chart", "code"}
-BANK_PREFIXES = ("be_", "fe_", "mob_", "mlds_", "dea_", "ops_", "qae_", "sec_", "an_", "pm_", "ux_", "adm_")  # семейства services/bank/
 
 
 def test_family_names_unique():
@@ -80,15 +80,67 @@ def _content(it) -> str:
 
 
 def test_bank_deterministic_and_clones_differ():
-    """Клоны сценарных семейств (Backend и bank/) отличаются данными: утечка одного не раскрывает остальные.
-    # ponytail: «простые» шаблоны items.simple с одной-двумя подстановками сюда не входят — см. table.md"""
+    """Клоны каждого семейства (кроме задач на код — у них свои проверки в test_code.py) попарно различаются."""
     assert generate_bank() == BANK
-    by_fam = defaultdict(set)
+    by_fam, n = defaultdict(set), Counter()
     for it in BANK:
         by_fam[it["family"]].add(_content(it))
-    scenic = {f["family"] for f in FAMILIES if f["spec"] == "Backend" or f["family"].startswith(BANK_PREFIXES)}
-    poor = sorted(f for f in scenic if len(by_fam[f]) < (2 if f.startswith("be_") else 3))
+        n[it["family"]] += 1
+    poor = sorted(f["family"] for f in FAMILIES if f["kind"] != "code" and len(by_fam[f["family"]]) < n[f["family"]])
     assert not poor, poor
+
+
+def _words(s: str) -> set[str]:
+    return set(re.findall(r"[\w#]+", re.sub(r"\d+", "#", s.lower())))
+
+
+def _sim(a: str, b: str) -> float:
+    a, b = _words(a), _words(b)
+    return len(a & b) / max(len(a | b), 1)
+
+
+def _answer(it) -> str:
+    """Текст ответа клона: правильный вариант или размеченные строки кода."""
+    p = it["payload"]
+    if it["kind"] == "choice":
+        return p["options"][p["key"]]
+    return " ".join(p["panel"]["lines"][k - 1] for k in (p["key"] if isinstance(p["key"], list) else [p["key"]]))
+
+
+def _leak(seen, it) -> float:
+    """Решает ли клон it тот, кто запомнил ответ клона seen: выбирает самый похожий на запомненный вариант (строку кода).
+    Ничья делится поровну между лучшими кандидатами; если похожего нет (сходство слов ниже LEAK_SIM), запомненное
+    не помогает — дальше только угадывание, это не утечка."""
+    p, m = it["payload"], _answer(seen)
+    if it["kind"] == "choice":
+        cands, ok = list(enumerate(p["options"])), {p["key"]}
+    else:
+        cands, ok = list(enumerate(p["panel"]["lines"], 1)), set(p["key"] if isinstance(p["key"], list) else [p["key"]])
+    sims = {i: _sim(m, t) for i, t in cands}
+    if max(sims.values()) < LEAK_SIM:
+        return 0.0
+    top = {i for i, s in sims.items() if s == max(sims.values())}
+    return len(top & ok) / len(top)
+
+
+LEAK_SIM, LEAK_MAX = 0.4, 0.35
+
+
+def test_clone_answer_does_not_leak():
+    """Утечка одного клона не раскрывает остальные: у семейства несколько вариантов механики (разный дефект, разная ситуация),
+    правильные ответы других вариантов стоят среди дистракторов. Метрика — доля пар клонов (запомнил ответ одного — решил
+    другой, выбрав самый похожий вариант или строку). Один вариант на семейство даёт 1,0; три варианта на 5 клонов — около 0,2,
+    два — 0,4; порог LEAK_MAX требует не меньше трёх (у числовых ответов ничья между похожими числами — до 1/3)."""
+    by_fam = defaultdict(list)
+    for it in BANK:
+        if it["kind"] != "code":
+            by_fam[(it["family"], it["spec"])].append(it)
+    bad = {}
+    for (fam, _spec), its in by_fam.items():
+        leak = sum(_leak(a, b) for a in its for b in its if a is not b) / (len(its) * (len(its) - 1))
+        if leak > LEAK_MAX:
+            bad[fam] = round(leak, 2)
+    assert not bad, bad
 
 
 def _key_longest(it) -> bool:
@@ -97,16 +149,15 @@ def _key_longest(it) -> bool:
 
 
 def test_key_not_systematically_longest():
-    """Правильный вариант не выдаёт себя длиной: в новых банках он строго самый длинный не больше чем в 40 % клонов
-    специализации и не больше чем в 60 % клонов каждого семейства (стратегия «выбери самый длинный» не решает задание)."""
-    new = {f["family"] for f in FAMILIES if f["render"].__module__.startswith("app.services.bank.")}
-    for prefix in BANK_PREFIXES:
-        items = [it for it in BANK if it["family"].startswith(prefix) and it["family"] in new and it["kind"] == "choice"]
-        assert sum(map(_key_longest, items)) <= 0.4 * len(items), (prefix, f"{sum(map(_key_longest, items))}/{len(items)}")
+    """Правильный вариант не выдаёт себя длиной: строго самый длинный не больше чем в 40 % клонов специализации и не больше
+    чем в 60 % клонов каждого семейства (стратегия «выбери самый длинный» не решает задание)."""
+    choice = [it for it in BANK if it["kind"] == "choice"]
+    for spec in catalog.SPECS:
+        items = [it for it in choice if it["spec"] == spec]
+        assert sum(map(_key_longest, items)) <= 0.4 * len(items), (spec, f"{sum(map(_key_longest, items))}/{len(items)}")
     by_fam = defaultdict(list)
-    for it in BANK:
-        if it["family"] in new and it["kind"] == "choice":
-            by_fam[it["family"]].append(_key_longest(it))
+    for it in choice:
+        by_fam[it["family"]].append(_key_longest(it))
     bad = sorted(f for f, v in by_fam.items() if sum(v) > 0.6 * len(v))
     assert not bad, bad
 

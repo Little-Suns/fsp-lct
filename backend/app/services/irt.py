@@ -224,7 +224,7 @@ if __name__ == "__main__":
     print("средняя SE и доля грейдов выше истинного: полный тест / экспресс")
     for spec in catalog.SPECS:
         full_bank, exp_bank = spec_bank(spec), spec_bank(spec, EXPRESS_KINDS)
-        tt = [rng.gauss(0, 1) for _ in range(300)]
+        tt = [rng.gauss(0, 1) for _ in range(1000)]  # при 300 разница долей ±3 п. п. — шум, порог ниже срабатывал от любой правки банка
         full = [simulate_session(full_bank, t, rng) for t in tt]
         exp = [simulate_session(exp_bank, t, rng, express=True) for t in tt]
         se_full, se_exp = float(np.mean([s[1] for s in full])), float(np.mean([s[1] for s in exp]))
