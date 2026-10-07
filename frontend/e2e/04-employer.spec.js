@@ -148,6 +148,9 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(soft).toContainText('Ментор');
   await expect(soft).toContainText('в оценке не участвуют');
   await expect(page.getByText(/ФСП|Codeforces 1912/).first()).toBeVisible();
+  // разряд ФСП — фактом в карточке: чип и строка с дисциплиной и результатом
+  await expect(page.locator('.chips .chip', { hasText: '1 разряд' }).first()).toBeVisible();
+  await expect(page.getByText(/продуктовое программирование · финалист · .*спортивный разряд: 1 разряд/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Уже приглашён — к статусам' })).toBeVisible();
   // повторное приглашение — блокирующая ошибка от сервера прямо в форме
   await open(page, '/e/invite/A-1042');
@@ -279,9 +282,13 @@ test('Ладога: поиск по банку — фасеты, флаги, т�
   await page.locator('button.chip[data-act=sf-flag]', { hasText: 'ФСП' }).click();
   expect((await q).url()).toContain('fsp=true');
   await expect(page.locator('button.chip[data-act=sf-flag]', { hasText: 'ФСП' })).toHaveClass(/on/);
+  q = api(page, 'GET', '/api/employer/search');
   await page.locator('button.chip[data-act=sf-flag]', { hasText: 'ФСП' }).click();
+  await q;  // иначе поздний ответ перерисует форму поверх заполненных ниже полей
   // повторный клик по фасету снимает его
+  q = api(page, 'GET', '/api/employer/search');
   await page.locator('button.chip[data-k=grade]', { hasText: 'Middle' }).click();
+  await q;
   await expect(page.locator('button.chip[data-k=grade].on')).toHaveCount(0);
 
   // форма: трек, навыки, текст, формат, город
@@ -290,8 +297,7 @@ test('Ладога: поиск по банку — фасеты, флаги, т�
   await page.getByLabel('Текст').fill('платежи');
   await page.getByLabel('Формат').selectOption('Гибрид');
   await page.getByLabel('Город').fill('Москва');
-  // ждём ответ именно на этот поиск: под нагрузкой иначе ловится ответ предыдущего запроса
-  q = page.waitForResponse(r => { const u = new URL(r.url()); return u.pathname === '/api/employer/search' && u.searchParams.get('track') === 'Python'; });
+  q = api(page, 'GET', '/api/employer/search');
   await page.getByRole('button', { name: 'Найти' }).click();
   const url = new URL((await q).url());
   expect(Object.fromEntries(url.searchParams)).toMatchObject({ spec: 'Backend', track: 'Python', skills: 'PostgreSQL, Kafka', format: 'Гибрид', city: 'Москва' });

@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
-from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, ExternalAccount, Invitation, RetiredPublicId, User, Vacancy
+from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, RetiredPublicId, User, Vacancy
 from app.routers import candidate, employer, lottery
 from app.services import profile_pdf
 
@@ -52,7 +52,10 @@ def client():
             "A-1042", user_id=cu.id, consent_external=True, consent_external_version=catalog.CONSENT_VERSION, name="Дмитрий Орлов", email="d.orlov@example.ru", tg="@dorlov_dev", theta=1.12, se=0.18, percentile=78,
             formats=["Гибрид", "Удалённо"], skills_confirmed=["Python", "PostgreSQL", "Kafka", "asyncio"], skills_claimed=["Python", "PostgreSQL", "Kafka", "Kubernetes"],
         )
-        a.achievements = [Achievement(source="fsp", title="Финал Кубка России ФСП 2025", weight=0.8, verified=True)]
+        cup = Event(source="fsp", external_id="cup-2025", title="Финал Кубка России ФСП 2025", discipline="продуктовое программирование")
+        a.achievements = [Achievement(source="fsp", event=cup, title=cup.title, weight=0.8, result="winner", sport_rank="КМС", verified=True),
+                          # неподтверждённый разряд выше — не показывается
+                          Achievement(source="fsp", title="Этап ФСП", weight=0.05, result="participant", sport_rank="МС", verified=False)]
         a.accounts = [ExternalAccount(provider="codeforces", handle="dorlov", verify_code="FSP-7Q2K", verified_at=NOW, rating=1912, rank="Candidate Master")]
         busy = _cand("B-2318", theta=1.31, se=0.16, percentile=85, min_salary=280000, formats=["Удалённо"], skills_confirmed=["Python", "PostgreSQL", "Kafka", "Kubernetes"])
         db.add_all([
@@ -102,6 +105,8 @@ def test_demo_flow(client):
     ids = [c["id"] for c in picks["items"]]
     assert ids[0] == "A-1042" and set(ids) == {"A-1042", "B-2318", "J-0003", "G-0005", "S-0006"}, ids
     a = picks["items"][0]
+    assert a["sport_rank"] == "КМС" and a["badges"] == [{"source": "fsp", "title": "Финал Кубка России ФСП 2025", "place": None,
+                                                          "result": "winner", "discipline": "продуктовое программирование", "rank": "КМС"}]
     assert a["fsp"] and a["cf"] == 1912 and a["gaps"] == ["Kubernetes не подтверждён тестом"] and a["fmtOk"] and a["theta"] == "1.12 ± 0.18"
     assert abs(a["score"] - a["match"] * (0.5 + 0.5 * a["accept"]) * 1.0) < 0.01
     b = next(c for c in picks["items"] if c["id"] == "B-2318")

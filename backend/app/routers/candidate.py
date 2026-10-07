@@ -248,10 +248,12 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
         "review_passed": c.review_passed,
         "employer_confirmed": c.employer_confirmed,
         "achievements": [
-            {"id": a.id, "source": a.source, "title": a.title, "place": a.place, "role": a.role, "weight": a.weight, "verified": a.verified}
+            {"id": a.id, "source": a.source, "title": a.title, "place": a.place, "role": a.role, "result": a.result,
+             "sport_rank": a.sport_rank, "weight": a.weight, "verified": a.verified}
             for a in c.achievements
         ],
         "fsp": matching.fsp_title(c),
+        "sport_rank": matching.sport_rank(c.achievements),
         "cf": {"handle": cf.handle, "rating": cf.rating, "rank": cf.rank} if cf else None,
         "consent_152": c.consent_152,
         "consent_152_at": c.consent_152_at,

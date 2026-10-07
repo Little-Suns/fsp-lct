@@ -1,19 +1,21 @@
 """Синтетические данные: демо-персонажи из макета + ~1500 кандидатов, ~60 компаний, 250 потребностей, приглашения.
 
-Запуск: uv run python -m seed.generate [--reset] [--candidates 1500] [--needs 250] [--seed 42]
+Запуск: uv run python -m seed.generate [--reset] [--candidates 1500] [--needs 250] [--seed 42] [--today 2026-10-05|now]
 
 Сначала структура, потом текст (сессия, §8): специализация/трек/истинный θ → наблюдаемый θ ± SE → грейд,
 навыки (истинные ⊇ подтверждённые тестом; заявленные ⊇ подтверждённых, у ~10% — завышены), достижения,
 Codeforces, зарплата по рынку, формат, город; резюме и тексты потребностей — из шаблонов с шумом
 (синонимы из catalog.SKILLS, опечатки). Скрытая правда — в Candidate.truth, для seed/gold.py.
-Детерминировано по --seed (время — относительно «сейчас»).
+Детерминировано по --seed и --today: все даты — относительно «сейчас» синтетики (полдень МСК дня --today,
+по умолчанию DEMO_TODAY; `now` — реальное время, для живого показа и e2e). Сдвиг даты сдвигает все даты целиком.
 """
 
 import argparse
 import inspect
 import time
 from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -21,16 +23,36 @@ from sqlalchemy import func, select
 
 from app import catalog as C
 from app.db import SessionLocal, engine, init_db, reset_schema
-from app.integrations.scoring import place_weight
+from app.integrations.scoring import place_weight, result_of
 from app.services import autocheck
 from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Message, Need, Task,
                         TaskSubmission, User, Vacancy)
 
-NOW = datetime.now(UTC)
-# неделя квоты — с понедельника 00:00 МСК, как в employer.quota; в UTC с вс 21:00 до пн 00:00 неделя была бы прошлой
-_NOW_MSK = NOW.astimezone(ZoneInfo("Europe/Moscow"))
-WEEK_START = (_NOW_MSK - timedelta(days=_NOW_MSK.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+MSK = ZoneInfo("Europe/Moscow")
+DEMO_TODAY = date(2026, 10, 5)  # дата макета (пн) — «сегодня» синтетики по умолчанию: цифры валидации не плывут от дня ко дню
 DAY = timedelta(days=1)
+
+
+def anchor(today: date | None) -> datetime:
+    """«Сейчас» синтетики: полдень МСК дня today; None — реальное время."""
+    return datetime.now(UTC) if today is None else datetime.combine(today, dtime(12), MSK).astimezone(UTC)
+
+
+def parse_today(s: str) -> date | None:
+    """--today: YYYY-MM-DD или now (реальное время)."""
+    return None if s == "now" else date.fromisoformat(s)
+
+
+def set_clock(today: date | None) -> None:
+    """NOW — от него все относительные даты; WEEK_START — неделя квоты с понедельника 00:00 МСК, как в employer.quota
+    (в UTC с вс 21:00 до пн 00:00 неделя была бы прошлой)."""
+    global NOW, WEEK_START
+    NOW = anchor(today)
+    msk = NOW.astimezone(MSK)
+    WEEK_START = (msk - timedelta(days=msk.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+set_clock(None)
 
 # ───────────────────────── справочники генератора ─────────────────────────
 
@@ -166,11 +188,23 @@ EVENTS = [  # (source, external_id, title, level, participants, months_ago, tags
     ("ctftime", "ctf-fsp-2025", "CTF Кубка ФСП по информационной безопасности 2025", "national", 400, 5, ["security"]),
     ("ctftime", "ctf-uni-2024", "Университетский CTF 2024", "regional", 200, 11, ["security"]),
 ]
+# дисциплина ФСП по направлению этапа (факт карточки, на вес не влияет)
+FSP_DISCIPLINE = {"product": "продуктовое программирование", "algo": "алгоритмическое программирование",
+                  "security": "программирование систем информационной безопасности"}
 SPEC_TAGS = {"ML / DS": ["ml", "product", "algo"], "Mobile": ["mobile", "product"], "Security": ["security"],
              "Data Eng / Analytics": ["ml", "product"]}
 
 assert all(s in C.SKILLS for v in (*CORE.values(), *EXTRA.values(), *TRACK_EXTRA.values()) for s in v)
 assert set(CORE) == {t for ts in C.TRACKS.values() for t in ts} and len(CITIES) == 41
+
+
+def fsp_rank(source: str, result: str, level: str | None) -> str | None:
+    """Синтетический разряд по протоколу ФСП: детерминированно по результату и статусу этапа, без rng —
+    чтобы поток случайных чисел синтетики не сдвигался. Иерархия здесь — только правдоподобие факта, в вес не входит."""
+    if source != "fsp" or result == "participant":
+        return None
+    top = result in ("winner", "prize")
+    return ("КМС" if top else "1 разряд") if level == "national" else ("1 разряд" if top else "2 разряд")
 
 
 def inn_ok(inn: str) -> bool:
@@ -326,12 +360,14 @@ class Gen:
             n = ev.participants
             place = (int(self.rng.integers(1, 4)) if perf > 2.4 else int(self.rng.integers(4, max(5, n // 10))) if perf > 1.6
                      else int(self.rng.integers(n // 10, n // 2)) if perf > 0.6 else None)
-            title = ev.title + (f", {place} место" if place and place <= 3 else ", финалист" if place else ", участник")
+            result = result_of(place, n)
+            title = ev.title + (f", {place} место" if result in ("winner", "prize") else ", финалист" if result == "finalist" else ", участник")
             cand.consent_external = True  # внешние данные — только с отдельным согласием
             cand.achievements.append(Achievement(
                 event=ev, source=ev.source, title=title, place=place, team=f"Команда «{self.pick(CO_A)}»",
                 role=self.pick(["backend", "frontend", "ML", "капитан", "аналитик", "mobile"]),
-                weight=place_weight(place, n, ev.level), verified=bool(self.rng.random() < 0.85),
+                result=result, sport_rank=fsp_rank(ev.source, result, ev.level),
+                weight=place_weight(place, n, result), verified=bool(self.rng.random() < 0.85),
             ))
 
     def company(self, name=None, **kw) -> Company:
@@ -452,10 +488,13 @@ def persona(g: Gen, pid, pct, theta, se, skills, months, *, claimed=None, name=N
     return c
 
 
-def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
+def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -> dict:
+    """today=None — от реального времени (наборы тестов с API на живых часах); CLI по умолчанию — DEMO_TODAY."""
+    set_clock(today)
     g = Gen(seed)
     r = g.rng
-    events = [Event(source=s, external_id=x, title=t, level=lv, participants=n, date=NOW - DAY * 30 * m, tags=tg)
+    events = [Event(source=s, external_id=x, title=t, level=lv, participants=n, date=NOW - DAY * 30 * m, tags=tg,
+                    discipline=FSP_DISCIPLINE.get(tg[0]) if s == "fsp" else None)
               for s, x, t, lv, n, m, tg in EVENTS]
     ev = {e.external_id: e for e in events}
     db.add_all(events)
@@ -474,8 +513,10 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
     orlov.roles, orlov.soft_skills = ["Ментор", "Капитан команды"], ["Коммуникация", "Работа в команде", "Самостоятельность"]
     orlov.truth["skills_true"] = orlov.skills_confirmed + ["Docker"]  # Kubernetes заявлен, но не подтверждён тестом
     cup = ev["cup-2025-prod"]
+    res = result_of(12, cup.participants)
     orlov.achievements.append(Achievement(event=cup, source="fsp", title=cup.title, place=12, team="Команда «Сапсан»",
-                                          role="backend", weight=place_weight(12, cup.participants, cup.level), verified=True))
+                                          role="backend", result=res, sport_rank=fsp_rank("fsp", res, cup.level),
+                                          weight=place_weight(12, cup.participants, res), verified=True))
     orlov.accounts.append(ExternalAccount(provider="codeforces", handle="dorlov", verify_code="", verified_at=NOW - DAY * 60,
                                           rating=1912, rank="Candidate Master", fetched_at=NOW - DAY))
     g.handles.add("dorlov")
@@ -485,8 +526,10 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
                     consent_external=cf is not None or fsp is not None)
         if fsp:
             title, eid, place = fsp
+            res = result_of(place, ev[eid].participants)
             c.achievements.append(Achievement(event=ev[eid], source="fsp", title=title, place=place, role="backend",
-                                              weight=place_weight(place, ev[eid].participants, ev[eid].level), verified=True))
+                                              result=res, sport_rank=fsp_rank("fsp", res, ev[eid].level),
+                                              weight=place_weight(place, ev[eid].participants, res), verified=True))
         if cf:
             c.accounts.append(ExternalAccount(provider="codeforces", handle=g.handle(c.name), verify_code="",
                                               verified_at=NOW - DAY * 90, rating=cf, rank=cf_rank(cf), fetched_at=NOW - DAY))
@@ -618,12 +661,16 @@ def build(db, n_cand: int, n_needs: int, seed: int) -> dict:
         reason = "stack" if status == "declined" else None
         add(invitation(ladoga, c, lad_need, status, NOW - DAY * float(r.uniform(21, 70)), role=pay,
                        reason=reason, feedback="confirmed" if status == "accepted" and r.random() < .5 else None))
-    # квота «Ладога Пэй»: 6 из 10 на этой неделе
+    # квота «Ладога Пэй»: 6 из 10 на этой неделе. Сколько демо-приглашений попало в неделю, зависит от дня недели,
+    # поэтому выборка всегда из 5, а лишние — за минуты до начала недели (ещё открыты): нагрузка и поток rng от даты
+    # не зависят, и валидация на засеве от любой --today даёт те же цифры
+    # ponytail: --today now в пн 00:00–00:05 МСК приглашение Орлову ещё в прошлой неделе — квота 5 из 10; полдень даты демо не задевает
     used = sum(1 for i in invs if i.company is ladoga and i.sent_at >= WEEK_START)
     lad_seen = {id(i.candidate) for i in invs if i.company is ladoga}
     fresh = [c for c in pool_bp if not load[id(c)] and id(c) not in lad_seen]
-    for k, c in enumerate(g.sample(fresh, max(0, 6 - used)), 1):
-        add(invitation(ladoga, c, lad_need, "sent", max(WEEK_START + timedelta(minutes=1), NOW - timedelta(minutes=7 * k)), role=pay))
+    for k, c in enumerate(g.sample(fresh, 5), 1):
+        at = max(WEEK_START + timedelta(minutes=1), NOW - timedelta(minutes=7 * k)) if k <= 6 - used else WEEK_START - timedelta(minutes=k)
+        add(invitation(ladoga, c, lad_need, "sent", at, role=pay))
     # нагрузка персонажей из макета (B-2318 — у потолка)
     for pid, n in PERSONA_LOAD.items():
         for co in g.sample(companies, n):
@@ -927,6 +974,8 @@ def main():
     ap.add_argument("--candidates", type=int, default=1500)
     ap.add_argument("--needs", type=int, default=250)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--today", type=parse_today, default=DEMO_TODAY,
+                    help=f"«сегодня» синтетики, YYYY-MM-DD (по умолчанию {DEMO_TODAY}) или now — реальное время")
     a = ap.parse_args()
     if a.reset:
         print(f"--reset: пересоздаю схему в {engine.url.render_as_string(hide_password=True)}")
@@ -936,7 +985,7 @@ def main():
     with SessionLocal() as db:
         if db.scalar(select(User).where(User.email == "d.orlov@example.ru")):
             raise SystemExit("База уже засеяна — запустите с --reset")
-        res = build(db, a.candidates, a.needs, a.seed)
+        res = build(db, a.candidates, a.needs, a.seed, a.today)
         secs = time.time() - t0
         try:
             from app.services.items import seed_items
