@@ -512,18 +512,28 @@ async function verifyLogin(role, email, otp) {
 
 // ФСП ID (OIDC): сервер отдаёт адрес провайдера и ставит куку потока; браузер уходит туда целиком
 // согласия, отмеченные на экране регистрации, переживают уход к провайдеру (страница перезагрузится)
-async function fspStart(mode) {
-  const r = await api('POST', '/api/auth/fsp/start', { mode }, 'c');
-  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
+// role — c | e (сторона входа), idp — alias стороннего провайдера через брокер Keycloak (kc_idp_hint)
+async function fspStart(mode, role = 'c', idp = '') {
+  const side = mode === 'link' ? 'c' : role;
+  const r = await api('POST', '/api/auth/fsp/start', { mode, role: side === 'e' ? 'employer' : 'candidate', ...(idp ? { idp } : {}) }, side);
+  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
   location.assign(r.url);
 }
+// кнопки входа через Keycloak: кандидату — «ФСП ID» (подтянем достижения), компании — SSO; плюс сторонние провайдеры брокера (META.fsp_idps)
+const fspButtons = side => {
+  const mark = '<img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px">';
+  const main = side === 'e'
+    ? `<button class="btn ghost block" data-act="fsp-login" data-side="e" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через SSO (Keycloak)</button>`
+    : `<button class="btn ghost block" data-act="fsp-login" data-side="c" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через ФСП ID <span class="muted small" style="margin-left:auto">подтянем достижения</span></button>`;
+  return main + ((META && META.fsp_idps) || []).map(i => `<button class="btn ghost block" data-act="fsp-login" data-side="${side}" data-idp="${esc(i.alias)}" style="justify-content:flex-start">Войти через ${esc(i.label)}</button>`).join('');
+};
 const FSP_ERR = {
   state: 'Вход через ФСП ID устарел или открыт в другом браузере — начните заново',
   denied: 'Вход через ФСП ID отменён',
   provider: 'ФСП ID недоступен или отклонил запрос — попробуйте позже',
   token: 'ФСП ID прислал неподтверждённые данные — вход отклонён',
   email: 'В ФСП ID не подтверждена почта — подтвердите её или войдите по коду',
-  role: 'Эта почта зарегистрирована как работодатель — войдите по коду',
+  role: 'Этот аккаунт уже зарегистрирован с другой ролью (кандидат или работодатель) — войдите по коду',
   taken: 'Этот ФСП ID уже привязан к другому аккаунту',
   other: 'К аккаунту уже привязан другой ФСП ID — сначала отвяжите его в настройках',
   link: 'Аккаунт с этой почтой уже есть — войдите по коду и привяжите ФСП ID в настройках',
@@ -533,18 +543,25 @@ const fspAch = a => a === 'consent' ? 'Достижения ФСП подтян�
 async function fspReturn() {
   if (!location.hash.startsWith('#fsp=')) return;
   const p = new URLSearchParams(location.hash.slice(1));
-  const kind = p.get('fsp');  // login | linked | error; ошибка у вошедшего — это привязка из настроек
-  history.replaceState(null, '', location.pathname + '#/c/' + (kind === 'linked' || (kind === 'error' && TOK.c) ? 'settings' : 'signup'));
+  const kind = p.get('fsp');  // login | linked | error; ошибка у вошедшего кандидата — это привязка из настроек
+  let side = 'c';  // сторона входа запомнена при старте (sessionStorage); без неё — кандидат
+  try { side = (JSON.parse(sessionStorage.getItem('fsp.signup')) || {}).side === 'e' ? 'e' : 'c'; } catch { /* приватный режим */ }
+  history.replaceState(null, '', location.pathname + (side === 'e' ? '#/e/signup' : '#/c/' + (kind === 'linked' || (kind === 'error' && TOK.c) ? 'settings' : 'signup')));
   if (kind === 'error') {
     try { sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
     return toast(Object.hasOwn(FSP_ERR, p.get('e')) ? FSP_ERR[p.get('e')] : 'Не удалось войти через ФСП ID');
   }
   if (kind === 'linked') return toast('ФСП ID привязан. ' + fspAch(p.get('ach')));
-  const r = await api('POST', '/api/auth/fsp/exchange', { ticket: p.get('t') || '' }, 'c');
-  if (r.role !== 'candidate') throw new Error('Эта почта зарегистрирована как работодатель');
-  clearSide('c');
-  setTok('c', r.token);
-  try { Object.assign(S.signup, JSON.parse(sessionStorage.getItem('fsp.signup')) || {}); sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+  const r = await api('POST', '/api/auth/fsp/exchange', { ticket: p.get('t') || '' }, side);
+  const want = side === 'e' ? 'employer' : 'candidate';
+  if (r.role !== want) throw new Error(want === 'employer' ? 'Эта почта зарегистрирована как кандидат' : 'Эта почта зарегистрирована как работодатель');
+  clearSide(side);
+  setTok(side, r.token);
+  try { const { side: _, ...form } = JSON.parse(sessionStorage.getItem('fsp.signup')) || {}; Object.assign(S.signup, form); sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+  if (side === 'e') {
+    history.replaceState(null, '', location.pathname + (r.has_profile ? '#/e/picks' : '#/e/signup'));
+    return toast(r.has_profile ? 'Вход через SSO' : 'Вход через SSO: укажите данные компании');
+  }
   history.replaceState(null, '', location.pathname + (r.has_profile ? '#/c/home' : '#/c/profile'));
   toast(r.has_profile ? 'Вход через ФСП ID. ' + fspAch(p.get('ach')) : 'Вход через ФСП ID: заполните профиль');
 }
@@ -723,9 +740,7 @@ V['/c/signup'] = () => `
       <h1>Создайте профиль</h1>
       <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений.</p>
       ${TOK.c ? '<div class="alert ok"><span>✓</span><span>Вы уже вошли. <button class="btn ghost small" data-go="/c/home">В кабинет</button></span></div>' : ''}
-      <button class="btn ghost block" data-act="fsp-login" style="justify-content:flex-start;padding:14px 16px">
-        <img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px"> Войти через ФСП ID <span class="muted small" style="margin-left:auto">подтянем достижения</span>
-      </button>
+      ${fspButtons('c')}
       <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
       <label class="field"><span>Почта</span><input class="input" id="su-mail" type="email" autocomplete="email" placeholder="you@example.ru" value="${esc(S.signup.email)}"></label>
       <label class="check"><input type="checkbox" id="su-152" ${S.signup.c152 ? 'checked' : ''}> Согласен на обработку персональных данных по 152-ФЗ (обязательно). Работодатели не видят ФИО и контакты, пока я не приму приглашение.</label>
@@ -1533,6 +1548,8 @@ V['/e/signup'] = () => {
     <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
       <h1>Вход для компаний</h1>
       <p class="prose">Войдите по рабочей почте. Если компании ещё нет — после входа заполните ИНН и данные рекрутера.</p>
+      ${fspButtons('e')}
+      <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
       <label class="field"><span>Рабочая почта</span><input class="input" id="es-mail" type="email" autocomplete="email" placeholder="hr@company.ru" value="${esc(f.email)}"></label>
       ${f.sent ? `
       <label class="field"><span>Код из письма</span><input class="input num" id="es-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="${esc(f.otp)}" style="max-width:200px"></label>
@@ -2678,7 +2695,7 @@ const ACT = {
     toast(d.who === 'newco' ? 'Вход: «Новый Стартап» (компания не прошла проверку)' : 'Демо-вход выполнен');
     go(d.who === 'c' ? '/c/home' : '/e/picks');
   },
-  'fsp-login': () => fspStart('login'),
+  'fsp-login': (a, d) => fspStart('login', d.side, d.idp),
   'fsp-link': () => fspStart('link'),
   async 'otp-send'() {
     if (!S.signup.email) throw new Error('Укажите почту');

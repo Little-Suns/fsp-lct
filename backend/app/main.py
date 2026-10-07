@@ -58,6 +58,7 @@ def meta():
         "fork_max_width": catalog.FORK_MAX_WIDTH,
         "code_tasks": sandbox.enabled(),  # в тесте есть задача на код (песочница настроена)
         "fsp_id": fsp_id_client.enabled(),  # кнопка «Войти через ФСП ID»
+        "fsp_idps": [{"alias": a, "label": l} for a, l in config.FSP_ID_IDPS.items()] if fsp_id_client.enabled() else [],  # брокер Keycloak
     }
 
 

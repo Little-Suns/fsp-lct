@@ -1,6 +1,6 @@
 // ФСП ID (OIDC, code + PKCE) против встроенного мок-провайдера «ФСП ID (демо)»: отмена, вход Орловым,
 // отвязка и привязка в настройках с подтягиванием достижений, новый человек → профиль → согласие → достижения,
-// устаревший билет и ошибки возврата. Идёт последним: меняет привязку ФСП ID Орлова и возвращает её.
+// устаревший билет и ошибки возврата; затем вход компании (SSO) и сторонние провайдеры брокера. Идёт последним: меняет привязку ФСП ID Орлова и возвращает её.
 const { test, expect, open, toast, api } = require('./fixtures');
 const { uniq } = require('./helpers');
 
@@ -82,4 +82,58 @@ test('ФСП ID: устаревший билет и ошибки возврат�
   await expect(toast(page)).toHaveText('Этот ФСП ID уже привязан к другому аккаунту');
   await page.goto('/?n=3#fsp=error&e=constructor');
   await expect(toast(page)).toHaveText('Не удалось войти через ФСП ID');
+});
+
+test('SSO компании: Белов входит через мок Keycloak и попадает к данным компании', async ({ page }) => {
+  await open(page, '/e/signup');
+  await page.getByRole('button', { name: 'Войти через SSO (Keycloak)' }).click();
+  await provider(page);
+  // аккаунты на странице провайдера разделены на кандидатов и компании
+  await expect(page.getByRole('heading', { name: 'Компании' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Кандидаты' })).toBeVisible();
+  const ex = api(page, 'POST', '/api/auth/fsp/exchange');
+  await page.getByRole('button', { name: /Игорь Белов/ }).click();
+  const r = await ex;
+  expect(r.status()).toBe(200);
+  expect(await r.json()).toMatchObject({ role: 'employer', has_profile: false });
+  await expect(toast(page)).toHaveText('Вход через SSO: укажите данные компании');
+  await expect(page.getByRole('heading', { name: 'Компания', exact: true })).toBeVisible();
+  expect(page.url()).not.toContain('fsp=');
+  await page.locator('#app').getByRole('button', { name: 'Выйти' }).click();
+  await expect(toast(page)).toHaveText('Вы вышли');
+
+  // демо-работодатель из сида привязан к мок-аккаунту: сразу кабинет компании
+  await page.getByRole('button', { name: 'Войти через SSO (Keycloak)' }).click();
+  await provider(page);
+  await page.getByRole('button', { name: /Мария Ковалёва/ }).click();
+  await expect(toast(page)).toHaveText('Вход через SSO');
+  await expect(page).toHaveURL(/#\/e\/picks$/);
+  await expect(page.locator('#app .crumbs')).toContainText('Ладога Пэй');  // кабинет компании из сида
+});
+
+test('SSO компании: вход через провайдера брокера — kc_idp_hint виден на странице мока', async ({ page }) => {
+  await open(page, '/e/signup');
+  const start = api(page, 'POST', '/api/auth/fsp/start');
+  await page.getByRole('button', { name: 'Войти через Яндекс ID' }).click();
+  expect((await start).request().postDataJSON()).toMatchObject({ role: 'employer', idp: 'yandex' });
+  await provider(page);
+  await expect(page.getByText('Вход через yandex (демо, брокер Keycloak)')).toBeVisible();
+  expect(page.url()).toContain('kc_idp_hint=yandex');
+  await page.getByRole('button', { name: 'Отмена' }).click();
+  await expect(toast(page)).toHaveText('Вход через ФСП ID отменён');
+  await expect(page).toHaveURL(/#\/e\/signup$/);  // возврат — на сторону компании
+
+  // у кандидата те же провайдеры рядом с «Войти через ФСП ID»
+  await open(page, '/c/signup');
+  await page.getByRole('button', { name: 'Войти через Корпоративный SSO' }).click();
+  await expect(page.getByText('Вход через corp (демо, брокер Keycloak)')).toBeVisible();
+});
+
+test('SSO компании: кандидат не входит через компанию, ошибка роли понятна', async ({ page }) => {
+  await open(page, '/e/signup');
+  await page.getByRole('button', { name: 'Войти через SSO (Keycloak)' }).click();
+  await provider(page);
+  await page.getByRole('button', { name: /Дмитрий Орлов/ }).click();  // Орлов — кандидат с профилем
+  await expect(toast(page)).toHaveText('Этот аккаунт уже зарегистрирован с другой ролью (кандидат или работодатель) — войдите по коду');
+  await expect(page).toHaveURL(/#\/e\/signup$/);
 });

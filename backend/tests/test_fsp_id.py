@@ -72,8 +72,8 @@ def make_candidate(email: str, fsp: str | None = None, external: bool = True, ro
         return user.id, {"Authorization": f"Bearer {issue_token(db, user)}"}
 
 
-def authorize(client, mode: str = "login", headers=None) -> tuple[str, dict]:
-    r = client.post("/api/auth/fsp/start", json={"mode": mode}, headers=headers or {})
+def authorize(client, mode: str = "login", headers=None, **extra) -> tuple[str, dict]:
+    r = client.post("/api/auth/fsp/start", json={"mode": mode, **extra}, headers=headers or {})
     assert r.status_code == 200, r.text
     url = r.json()["url"]
     assert url.startswith(config.MOCK_FSP_ID_ISSUER + "/authorize?") and "fsp_flow" in client.cookies
@@ -86,7 +86,7 @@ def authorize(client, mode: str = "login", headers=None) -> tuple[str, dict]:
 
 def to_callback(client, q: dict, sub: str) -> str:
     """Пользователь выбрал аккаунт на странице мока → адрес callback с code и state."""
-    form = {k: q[k] for k in ("client_id", "redirect_uri", "state", "nonce", "code_challenge")} | {"account": sub}
+    form = {k: q[k] for k in ("client_id", "redirect_uri", "state", "nonce", "code_challenge", "kc_idp_hint") if k in q} | {"account": sub}
     r = client.post("/mock-fsp-id/authorize", data=form, follow_redirects=False)
     assert r.status_code == 303
     return r.headers["location"]
@@ -98,13 +98,13 @@ def back(client, callback_url: str) -> dict:
     return dict(parse_qsl(urlsplit(r.headers["location"]).fragment))
 
 
-def flow(client, sub: str, mode: str = "login", headers=None) -> dict:
-    _, q = authorize(client, mode, headers)
+def flow(client, sub: str, mode: str = "login", headers=None, **extra) -> dict:
+    _, q = authorize(client, mode, headers, **extra)
     return back(client, to_callback(client, q, sub))
 
 
-def login(client, sub: str) -> dict:
-    frag = flow(client, sub)
+def login(client, sub: str, **extra) -> dict:
+    frag = flow(client, sub, **extra)
     assert frag["fsp"] == "login", frag
     r = client.post("/api/auth/fsp/exchange", json={"ticket": frag["t"]})
     assert r.status_code == 200, r.text
@@ -471,3 +471,96 @@ def test_account_deletion_drops_pending_flows(client):
     assert client.delete("/api/candidate/me", headers=h).json() == {"deleted": True}
     with SessionLocal() as db:
         assert db.scalar(select(FspLogin).where(FspLogin.user_id == uid)) is None
+
+
+# ---------- компания и брокер IdP ----------
+
+
+def token_claims(client, q: dict, sub: str) -> dict:
+    """Claims id_token, выданного моком за выбранный аккаунт (без проверки подписи — смотрим только состав)."""
+    code = parse_qs(urlsplit(to_callback(client, q, sub)).query)["code"][0]
+    tok = client.post("/mock-fsp-id/token", data={
+        "grant_type": "authorization_code", "code": code, "redirect_uri": config.FSP_ID_REDIRECT_URI,
+        "code_verifier": fsp_id.verifier(q["state"]), "client_id": config.FSP_ID_CLIENT_ID,
+        "client_secret": config.FSP_ID_CLIENT_SECRET}).json()
+    return jwt.decode(tok["id_token"], options={"verify_signature": False})
+
+
+def test_employer_login_creates_company_side_user_without_achievements(client):
+    """Новый сотрудник новой компании: роль employer, достижения не импортируются, карточка компании — после входа."""
+    r = login(client, "KC-seversoft-0001", role="employer")
+    assert r["role"] == "employer" and r["has_profile"] is False and r["ach"] == "0"
+    u = _user(fsp_id="KC-seversoft-0001")
+    assert u.email == "i.belov@sever-soft.example" and u.role == "employer"
+    h = {"Authorization": f"Bearer {r['token']}"}
+    assert client.get("/api/auth/me", headers=h).json()["role"] == "employer"
+    with SessionLocal() as db:
+        assert db.scalar(select(Candidate.id).where(Candidate.user_id == u.id)) is None
+        assert db.scalar(select(FspLogin).where(FspLogin.user_id == u.id)) is None
+
+
+def test_employer_login_by_linked_sub_and_demo_persona(client):
+    email = DEMO_PERSONAS["employer"]
+    eid, _ = make_candidate(email, role="employer", fsp=account("KC-demo-emp", email))
+    with SessionLocal() as db:
+        db.add(Company(user_id=eid, name="Ладога", inn="7700000002", recruiter_name="М", recruiter_email=email))
+        db.commit()
+    shared = client.post("/api/auth/demo/employer").json()["token"]
+    r = login(client, "KC-demo-emp", role="employer")
+    assert r["role"] == "employer" and r["has_profile"] is True and r["token"] == shared  # общий демо-токен, как у входа по коду
+    # тот же аккаунт с данными компании не войдёт кандидатом
+    assert flow(client, "KC-demo-emp") == {"fsp": "error", "e": "role"}
+    assert _user(id=eid).role == "employer"
+
+
+def test_role_switch_rules_for_employer_login(client):
+    # кандидат с профилем, ФСП ID привязан: через вход компании — отказ, роль не меняется
+    cid, _ = make_candidate("cand.emp@example.ru", fsp=account("KC-c1", "cand.emp@example.ru"))
+    assert flow(client, "KC-c1", role="employer") == {"fsp": "error", "e": "role"} and _user(id=cid).role == "candidate"
+    # по почте: аккаунт с данными — «link», как и раньше
+    make_candidate("cand.emp2@example.ru")
+    assert flow(client, account("KC-c2", "cand.emp2@example.ru"), role="employer") == {"fsp": "error", "e": "link"}
+    # кандидат без профиля превращается в компанию — как во входе по коду
+    nid, _ = make_candidate("empty.cand@example.ru", profile=False)
+    assert login(client, account("KC-c3", "empty.cand@example.ru"), role="employer")["role"] == "employer" and _user(id=nid).role == "employer"
+    # организатор не превращается ни в кого
+    aid, _ = make_candidate("adm2@fsp.example", role="admin", fsp=account("KC-adm", "adm2@fsp.example"))
+    assert flow(client, "KC-adm", role="employer") == {"fsp": "error", "e": "role"} and _user(id=aid).role == "admin"
+
+
+def test_link_ignores_role_and_start_validates_role(client):
+    uid, h = make_candidate("linkrole@example.ru")
+    frag = flow(client, account("KC-lr", "linkrole@example.ru"), mode="link", headers=h, role="employer")
+    assert frag["fsp"] == "linked" and _user(id=uid).fsp_id == "KC-lr"  # привязка — кандидатская, роль из тела не важна
+    assert client.post("/api/auth/fsp/start", json={"mode": "login", "role": "admin"}).status_code == 422
+
+
+def test_idp_hint_in_authorize_url_and_unknown_idp(client, monkeypatch):
+    assert config.FSP_ID_IDPS == {"yandex": "Яндекс ID", "corp": "Корпоративный SSO"}
+    assert client.get("/api/meta").json()["fsp_idps"] == [
+        {"alias": "yandex", "label": "Яндекс ID"}, {"alias": "corp", "label": "Корпоративный SSO"}]
+    url, q = authorize(client, idp="yandex")
+    assert q["kc_idp_hint"] == "yandex"
+    plain_url, plain_q = authorize(client)
+    assert "kc_idp_hint" not in plain_q  # без idp подсказки нет
+    assert client.post("/api/auth/fsp/start", json={"mode": "login", "idp": "evil"}).status_code == 422
+    assert client.post("/api/auth/fsp/start", json={"mode": "login", "idp": "x" * 40}).status_code == 422
+    # страница мока показывает брокер и делит аккаунты на кандидатов и компании; hint уходит дальше через форму
+    page = client.get(url).text
+    assert "Вход через yandex" in page and "брокер Keycloak" in page and 'name="kc_idp_hint" value="yandex"' in page
+    assert "Кандидаты" in page and "Компании" in page and "Игорь Белов" in page and "Мария Ковалёва" in page
+    assert "Вход через" not in client.get(plain_url).text
+    # claim identity_provider — как protocol mapper Keycloak; без подсказки его нет
+    assert token_claims(client, q, "FSP-1042")["identity_provider"] == "yandex"
+    assert "identity_provider" not in token_claims(client, plain_q, "FSP-1042")
+    # вход через брокер полностью проходит нашим клиентом
+    assert login(client, "KC-seversoft-0001", role="employer", idp="corp")["role"] == "employer"
+    # провайдеров нет — список пуст, hint отклоняется
+    monkeypatch.setattr(config, "FSP_ID_IDPS", {})
+    assert client.get("/api/meta").json()["fsp_idps"] == []
+    assert client.post("/api/auth/fsp/start", json={"mode": "login", "idp": "yandex"}).status_code == 422
+
+
+def test_idps_config_parsing():
+    assert config._parse_idps("yandex:Яндекс ID, corp:SSO ,Bad Alias:x,:y,ok") == {"yandex": "Яндекс ID", "corp": "SSO", "ok": "ok"}
+    assert config._parse_idps("") == {}

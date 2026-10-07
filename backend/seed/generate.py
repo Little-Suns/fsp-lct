@@ -631,7 +631,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
                                           rank=cf_rank(rt), fetched_at=NOW - DAY * float(r.uniform(0, 7))))
 
     # ── компании ──
-    u_lad = User(email="m.kovaleva@ladoga-pay.example", role="employer")
+    u_lad = User(email="m.kovaleva@ladoga-pay.example", role="employer", fsp_id="KC-ladoga-0001")  # вход через мок Keycloak
     ladoga = Company(inn=LADOGA_INN, name="Ладога Пэй", about="Финтех, платёжный процессинг, 420 сотрудников",
                      color="#402FFF", site_domain="ladoga-pay.example", recruiter_name="Мария Ковалёва",
                      recruiter_email="m.kovaleva@ladoga-pay.example", recruiter_tg="@mkovaleva", verified=True, quota_max=10)
