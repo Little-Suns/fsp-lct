@@ -619,6 +619,16 @@ function subnav(side) {
   const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
   return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
 }
+const fbSummary = (r) => r && r.counts ? Object.entries((META && META.company_feedback) || {}).map(([k, t]) => `${t.toLowerCase()} — ${r.counts[k] || 0}`).join(' · ') : '';
+// отзывы кандидатов после принятия: штраф квоты и блок до ручной проверки (services/reputation.py); кандидату это не показывается
+const repBanner = () => {
+  const r = D.co && D.co.quota && D.co.quota.reputation;
+  if (!r) return '';
+  if (r.blocked) return `<div class="alert bad" style="margin-bottom:16px"><span>!</span><span><b>Компания заблокирована до ручной проверки.</b> Кандидаты сообщили, что вакансии не было. Приглашения, вакансии, задания и переписка недоступны — напишите в поддержку платформы.</span></div>`;
+  if (r.penalty) return `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Квота снижена до ${D.co.quota.max} приглашений в неделю.</b> За ${r.window_days} дней кандидаты оставили ${r.total} отзывов после принятия, из них ${r.bad} — о проблемах: ${esc(fbSummary(r))}. Квота вернётся сама, когда за ${r.window_days} дней плохих отзывов станет меньше половины или их оставят меньше трёх разных кандидатов.</span></div>`;
+  return '';
+};
+const coBanners = () => repBanner() + unverifiedBanner();
 // плашка неподтверждённой компании (квота урезана, кандидаты видят предупреждение)
 const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/signup">Данные компании</button></span></div>` : '';
 // инлайн-подтверждение вместо confirm(): показывается, когда S.confirm === key
@@ -1223,6 +1233,19 @@ V['/c/home'] = () => {
   </div>`;
 };
 
+// отзыв о компании через неделю после принятия: по желанию, один раз; компания не узнаёт автора
+function companyFeedback(inv) {
+  if (inv.company_feedback) return `<div class="alert info"><span>✓</span><span>Спасибо, отзыв о компании учтён.</span></div>`;
+  if (!inv.feedback_open) return '';
+  const opts = Object.entries((META && META.company_feedback) || {});
+  return `<div class="panel stack">
+    <h3>Как прошло общение с компанией?</h3>
+    <p class="small muted">По желанию. Отзыв не подписан: компания видит только общую сводку. Он помогает отсеивать работодателей, которые не выходят на связь или зовут на несуществующие вакансии.</p>
+    <div class="chips">${opts.map(([k, x]) => `<button class="chip ${S.coFb === k ? 'on' : ''}" data-act="co-fb" data-v="${k}">${esc(x)}</button>`).join('')}</div>
+    <div class="row"><button class="btn primary" ${S.coFb ? '' : 'disabled'} data-act="co-fb-send" data-id="${inv.id}">Отправить отзыв</button></div>
+  </div>`;
+}
+
 function inviteView() {
   const inv = D.inv;
   if (!inv) return `${crumbs([['Кабинет', '/c/home'], ['Приглашение']])}<div class="panel">Приглашение не найдено.</div>`;
@@ -1235,7 +1258,7 @@ function inviteView() {
     actions = `<div class="panel stack" style="border-color:var(--ok)">
       <div class="alert ok"><b>Вы приняли приглашение.</b> Ваши контакты открыты компании.</div>
       <dl class="kv"><dt>Компания видит</dt><dd>${[me.name, me.email, me.tg].filter(Boolean).map(esc).join(', ')}</dd></dl>
-    </div>`;
+    </div>${companyFeedback(inv)}`;
   } else if (inv.status === 'declined') {
     actions = `<div class="alert bad">Вы отклонили приглашение. Причина «${esc(inv.reason)}» передана компании без ваших контактов.</div>`;
   } else if (inv.status === 'expired') {
@@ -1662,7 +1685,7 @@ V['/e/need'] = () => {
   const addBox = k => S.needAdd === k ? `<span class="row" style="gap:6px"><input class="input" id="need-skill" list="skills-list" style="max-width:160px;padding:6px 10px" placeholder="навык"><button class="btn primary small" data-act="need-add-ok" data-k="${k}">Добавить</button><button class="btn ghost small" data-act="need-add" data-k="">×</button></span>` : `<button class="chip dim" data-act="need-add" data-k="${k}">+ навык</button>`;
   return `
   ${crumbs([['Подборки', '/e/picks'], ['Новая потребность']])}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <datalist id="skills-list">${((META && META.skills) || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>
   <div class="grid side fade">
     <div class="stack">
@@ -1745,7 +1768,7 @@ function lotteryPanel(n) {
 
 V['/e/picks'] = () => {
   const P = D.picks;
-  if (!P) return `${crumbs([['Компания', '/e/signup'], ['Подборка']])}${subnav('e')}${unverifiedBanner()}<div class="panel stack"><h2>Потребностей пока нет</h2><p class="prose small">Опишите, кого ищете, — подборка появится сразу.</p><div class="row"><button class="btn primary" data-go="/e/need">Новая потребность</button></div></div>`;
+  if (!P) return `${crumbs([['Компания', '/e/signup'], ['Подборка']])}${subnav('e')}${coBanners()}<div class="panel stack"><h2>Потребностей пока нет</h2><p class="prose small">Опишите, кого ищете, — подборка появится сразу.</p><div class="row"><button class="btn primary" data-go="/e/need">Новая потребность</button></div></div>`;
   const n = P.need, list = P.items, q = P.quota;
   const fl = [['fmt', 'Формат совпадает'], ['free', 'Без перегрузки'], ['fsp', 'Есть ФСП'], ['cf', 'Есть Codeforces']];
   const cats = P.categories, warnCat = cats.find(c => !c.current && !c.fork_ok && c.note);
@@ -1754,7 +1777,7 @@ V['/e/picks'] = () => {
   return `
   ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Подборка']])}
   ${subnav('e')}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="row sb fade" style="margin-bottom:16px">
     <div class="stack-s"><h2>${esc(roleTitle(n))}</h2><span class="small muted">${esc(n.must.join(', '))}${n.nice.length ? ' · желательно ' + esc(n.nice.join(', ')) : ''} · ${K(n.from)} — ${K(n.to)} на руки${n.format ? ' · ' + esc([n.format.toLowerCase(), n.city].filter(Boolean).join(', ')) : ''}</span></div>
     <div class="row"><button class="btn ghost small" data-go="/e/need">Изменить потребность</button><button class="btn ghost small" data-go="/e/pipeline">Приглашения</button></div>
@@ -1764,8 +1787,9 @@ V['/e/picks'] = () => {
       <div class="panel tight stack-s">
         <span class="label">Квота на неделю</span>
         <div class="row sb"><b class="num" style="font-size:22px">${q.used} / ${q.max}</b><span class="small muted">до ${DAYMON(q.resets_at)}</span></div>
-        <div class="meter"><i style="width:${Math.min(100, q.used / q.max * 100)}%"></i></div>
+        <div class="meter"><i style="width:${q.max ? Math.min(100, q.used / q.max * 100) : 100}%"></i></div>
         <p class="small muted">${q.accepted_share != null ? `Принято ${PCT(q.accepted_share)} ваших приглашений. ` : 'Закрытых приглашений пока нет. '}${q.accepted_share != null && q.accepted_share >= .5 ? `Это больше 50 %, поэтому лимит — ${q.next_max} в неделю.` : 'При 50 %+ лимит на следующей неделе вырастет до 12.'}</p>
+        ${q.reputation && q.reputation.counts ? `<p class="small muted">Отзывы кандидатов за ${q.reputation.window_days} дней: ${esc(fbSummary(q.reputation))}.</p>` : ''}
       </div>
       <div class="panel tight stack-s">
         <span class="label">Рекомендованные категории</span>
@@ -1977,7 +2001,7 @@ function candView() {
   const ach = [...(c.badges || []).map(badgeTitle), c.sport_rank ? 'спортивный разряд: ' + c.sport_rank : '', c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id)]])}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="grid side fade">
     <div class="stack">
       <div class="panel stack">
@@ -2062,7 +2086,7 @@ function inviteFormView() {
   const ok = !errs.length && q.used < q.max;
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id), '/e/cand/' + esc(c.id)], ['Приглашение']])}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="grid side fade">
     <form class="panel stack" id="inv-form" novalidate>
       <h2>Приглашение для ${esc(c.id)}</h2>
@@ -2085,7 +2109,7 @@ function inviteFormView() {
       <div class="panel tight stack-s">
         <span class="label">Квота</span>
         <p class="num"><b>${q.used} / ${q.max}</b> <span class="small muted">после отправки: ${q.used + 1}</span></p>
-        <div class="meter"><i style="width:${Math.min(100, q.used / q.max * 100)}%"></i></div>
+        <div class="meter"><i style="width:${q.max ? Math.min(100, q.used / q.max * 100) : 100}%"></i></div>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Рынок · ${esc(c.spec)} · ${esc(c.grade)}</span>
@@ -2144,7 +2168,7 @@ V['/e/search'] = () => {
   return `
   ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Поиск по банку']])}
   ${subnav('e')}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="grid side-l">
     <aside class="stack">
       <div class="panel tight stack-s">
@@ -2233,7 +2257,7 @@ V['/e/vacancies'] = () => {
   return `
   ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Вакансии']])}
   ${subnav('e')}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>Вакансии</h2><span class="small muted">Дополнительный путь: кандидат откликается сам, контакты видны сразу. Основной — приглашения из подборки.</span></div>${S.vform ? '' : '<button class="btn primary small" data-act="vac-new">Новая вакансия</button>'}</div>
   <div class="stack">
     ${S.vform ? vacancyForm() : ''}
@@ -2540,6 +2564,7 @@ async function load(r) {
     }
     else if (page === 'home') { D.invites = null; D.invites = await api('GET', '/api/candidate/invites'); }  // null — признак ошибки загрузки
     else if (page === 'invite') {
+      S.coFb = null;  // выбор отзыва — для конкретного приглашения
       [D.inv, D.invTasks] = await Promise.all([or404(api('GET', '/api/candidate/invites/' + encodeURIComponent(arg))), or404(api('GET', '/api/tasks/for-invitation/' + encodeURIComponent(arg)))]);
       S.declineFor = null;
     }
@@ -2865,6 +2890,11 @@ const ACT = {
   async status(a, d) { await api('PATCH', '/api/candidate/status', { status: d.v }); ME.status = d.v; rerender(); },
   async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: !(ME.notif && ME.notif[d.k]) })).notif; rerender(); },
   async accept(a, d) { D.inv = await api('POST', `/api/candidate/invites/${d.id}/accept`); toast('Приглашение принято. Компания получила ваши контакты'); rerender(); },
+  'co-fb': (a, d) => { S.coFb = d.v; rerender(); },
+  async 'co-fb-send'(a, d) {
+    D.inv = await api('POST', `/api/candidate/invites/${d.id}/company-feedback`, { value: S.coFb });
+    S.coFb = null; toast('Спасибо! Отзыв учтён'); rerender();
+  },
   'ask-decline': (a, d) => { S.declineFor = +d.id; S.declineReason = null; S.dcComment = ''; rerender(); },
   'cancel-decline': () => { S.declineFor = null; rerender(); },
   reason: (a, d) => { S.declineReason = d.v; rerender(); },

@@ -166,6 +166,8 @@ class Company(Base):
     recruiter_tg: Mapped[str | None] = mapped_column(String(64))
     verified: Mapped[bool] = mapped_column(Boolean, default=False)  # ИНН + домен почты
     quota_max: Mapped[int] = mapped_column(Integer, default=10)  # в неделю; растёт с долей принятых
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # блок по отзывам «вакансии не было», до ручной проверки
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # последняя ручная проверка: отзывы до неё блок не дают
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = _now()
 
@@ -215,6 +217,8 @@ class Invitation(Base):
     decline_reason: Mapped[str | None] = mapped_column(String(16))  # catalog.DECLINE_REASONS
     decline_comment: Mapped[str | None] = mapped_column(Text)
     feedback: Mapped[str | None] = mapped_column(String(16))  # confirmed | not_confirmed | hired
+    company_feedback: Mapped[str | None] = mapped_column(String(16))  # отзыв кандидата о компании, catalog.COMPANY_FEEDBACK
+    company_feedback_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime] = _now()
     seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -386,7 +390,7 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(primary_key=True)
     actor_user_id: Mapped[int | None] = mapped_column(Integer)  # без FK: запись переживает удаление аккаунта
-    action: Mapped[str] = mapped_column(String(32))  # contacts_revealed | data_exported | account_deleted | consent_changed
+    action: Mapped[str] = mapped_column(String(32))  # contacts_revealed | data_exported | account_deleted | consent_changed | company_blocked | company_unblocked
     subject_candidate_id: Mapped[int | None] = mapped_column(Integer)
     detail: Mapped[dict | None] = mapped_column(JSON)  # без самих ПДн: только идентификаторы и основания
     at: Mapped[datetime] = _now()

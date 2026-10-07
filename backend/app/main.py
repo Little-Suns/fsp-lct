@@ -49,6 +49,7 @@ def meta():
         "formats": catalog.FORMATS,
         "decline_reasons": catalog.DECLINE_REASONS,
         "feedback": catalog.FEEDBACK,
+        "company_feedback": catalog.COMPANY_FEEDBACK,
         "competencies": catalog.COMPETENCIES,
         "skills": sorted(catalog.SKILLS),
         "roles": list(catalog.ROLES),

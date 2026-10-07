@@ -52,8 +52,9 @@ def peers_linked(db: Session, role: str, self_id: int, peer_ids: list[int], *, a
 
 def may_talk(cand: Candidate, co: Company) -> bool:
     """Кандидат не закрыл доступ компании: действует согласие на обработку и компании нет в его «скрыть от».
-    Без этого работодатель не видит диалог, а писать не может ни одна сторона; кнопка «Написать» (chat_peer) — тоже по нему."""
-    return matching.consent_ok(cand, "processing") and co.inn not in (cand.hidden_from or [])
+    Без этого работодатель не видит диалог, а писать не может ни одна сторона; кнопка «Написать» (chat_peer) — тоже по нему.
+    Заблокированная по отзывам компания (services/reputation.py) не переписывается ни с кем."""
+    return matching.consent_ok(cand, "processing") and co.inn not in (cand.hidden_from or []) and co.blocked_at is None
 
 
 class Hub:
