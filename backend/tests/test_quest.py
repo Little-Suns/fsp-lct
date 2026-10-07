@@ -340,6 +340,12 @@ def test_plan_for_need(env):
     # план для работодателя: по своей потребности и по тексту; чужая потребность — 404; без входа — 401
     assert env["emp"].post("/api/quest/plan", json={"need_id": env["need_id"]}).json()["plan"] == plan_for_need("Backend", ["Python", "PostgreSQL", "Kafka"], ["Kubernetes"], "Middle")
     assert env["emp"].post("/api/quest/plan", json={"text": NEED_TEXT}).status_code == 200
+    # структура, поправленная на экране: категория и навыки берутся как есть, текст не разбирается
+    fixed = env["emp"].post("/api/quest/plan", json={"spec": "DevOps / SRE", "track": None, "grade": "Senior", "must": ["kubernetes"], "nice": []}).json()
+    assert fixed["need"]["spec"] == "DevOps / SRE" and fixed["need"]["must"] == ["Kubernetes"]
+    assert fixed["plan"] == plan_for_need("DevOps / SRE", ["Kubernetes"], [], "Senior")
+    assert env["emp"].post("/api/quest/plan", json={"spec": "Backend", "grade": "Гуру"}).status_code == 422
+    assert env["emp"].post("/api/quest/plan", json={"spec": "Project Manager", "grade": "Middle"}).status_code == 422
     assert env["emp2"].post("/api/quest/plan", json={"need_id": env["need_id"]}).status_code == 404
     assert _client().post("/api/quest/plan", json={"text": NEED_TEXT}).status_code == 401
     assert env["client"].post("/api/quest/plan", json={"text": NEED_TEXT}).status_code == 403  # кандидат — не работодатель

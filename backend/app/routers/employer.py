@@ -244,30 +244,49 @@ def _market_hint(salary_to: int | None, mkt: dict) -> str | None:
     return f"Верхняя граница ниже 25-го перцентиля рынка ({rub(mkt['p25'])} на руки): приглашения не пройдут проверку вилки."
 
 
+def _check_category(spec: str, track: str | None, grade: str) -> None:
+    if spec not in catalog.SPECS:
+        raise HTTPException(422, f"Специализация: одна из {', '.join(catalog.SPECS)}")
+    if track and track not in catalog.TRACKS[spec]:
+        raise HTTPException(422, f"Трек для {spec}: один из {', '.join(catalog.TRACKS[spec])}")
+    if grade not in catalog.GRADES:
+        raise HTTPException(422, f"Грейд: один из {', '.join(catalog.GRADES)}")
+
+
+def _category_info(db: Session, spec: str, track: str | None, grade: str, city: str | None, salary_to: int | None) -> dict:
+    mkt = catalog.market(spec, grade, city)
+    return {
+        "market": mkt,
+        "category": {"spec": spec, "track": track, "grade": grade, "count": _category_count(db, spec, track, grade)},
+        "market_hint": _market_hint(salary_to, mkt),
+    }
+
+
 @router.post("/needs/parse")
 def parse(body: ParseIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
     """Текст → структура для правки. Ничего не сохраняет."""
     n = parse_need(body.text)
-    mkt = catalog.market(n["spec"], n["grade"], n["city"])
-    return {
-        **n,
-        "text": body.text,
-        "from": n["salary_from"],
-        "to": n["salary_to"],
-        "market": mkt,
-        "category": {"spec": n["spec"], "track": n["track"], "grade": n["grade"], "count": _category_count(db, n["spec"], n["track"], n["grade"])},
-        "market_hint": _market_hint(n["salary_to"], mkt),
-    }
+    return {**n, "text": body.text, "from": n["salary_from"], "to": n["salary_to"], **_category_info(db, n["spec"], n["track"], n["grade"], n["city"], n["salary_to"])}
+
+
+class CategoryIn(BaseModel):
+    spec: str
+    track: str | None = None
+    grade: str
+    city: str | None = Field(default=None, max_length=64)
+    salary_to: int | None = Field(default=None, gt=0)
+
+
+@router.post("/needs/category")
+def need_category(body: CategoryIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+    """Категория, поправленная вручную после разбора → рынок и число кандидатов. Ничего не сохраняет."""
+    _check_category(body.spec, body.track, body.grade)
+    return _category_info(db, body.spec, body.track, body.grade, body.city, body.salary_to)
 
 
 @router.post("/needs")
 def create_need(body: NeedIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
-    if body.spec not in catalog.SPECS:
-        raise HTTPException(422, f"Специализация: одна из {', '.join(catalog.SPECS)}")
-    if body.track and body.track not in catalog.TRACKS[body.spec]:
-        raise HTTPException(422, f"Трек для {body.spec}: один из {', '.join(catalog.TRACKS[body.spec])}")
-    if body.grade not in catalog.GRADES:
-        raise HTTPException(422, f"Грейд: один из {', '.join(catalog.GRADES)}")
+    _check_category(body.spec, body.track, body.grade)
     if body.format and body.format not in catalog.FORMATS:
         raise HTTPException(422, f"Формат: один из {', '.join(catalog.FORMATS)}")
     if body.salary_from and body.salary_to and body.salary_from > body.salary_to:

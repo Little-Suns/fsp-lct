@@ -34,7 +34,7 @@ from app.deps import current_candidate, current_company
 from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession
 from app.services import code_items, irt, sandbox
 from app.services.items import STORY, plan_for_need
-from app.services.parsing import parse_need
+from app.services.parsing import canon_skills, parse_need
 
 router = APIRouter(prefix="/api/quest", tags=["quest"])
 
@@ -85,6 +85,12 @@ class StartIn(BaseModel):
 class PlanIn(BaseModel):
     text: str | None = None
     need_id: int | None = None
+    # структура, поправленная на экране после разбора, — без повторного разбора текста
+    spec: str | None = None
+    track: str | None = None
+    grade: str | None = None
+    must: list[str] = Field(default=[], max_length=50)
+    nice: list[str] = Field(default=[], max_length=50)
 
 
 class AnswerIn(BaseModel):
@@ -625,6 +631,10 @@ def plan(body: PlanIn, comp: Company = Depends(current_company), db: Session = D
         if not need or need.company_id != comp.id:
             raise HTTPException(404, "Потребность не найдена")
         return _plan({"spec": need.spec, "track": need.track, "grade": need.grade, "must": need.must, "nice": need.nice, "parsed_by": need.parsed_by})
+    if body.spec is not None:
+        if body.grade not in catalog.GRADES:
+            raise HTTPException(422, f"Грейд: один из {', '.join(catalog.GRADES)}")
+        return _plan({"spec": body.spec, "track": body.track, "grade": body.grade, "must": canon_skills(body.must), "nice": canon_skills(body.nice)})
     return _plan(parse_need(_clean_text(body.text, PLAN_TEXT_MAX)))
 
 
