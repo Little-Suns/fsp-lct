@@ -19,7 +19,7 @@ from sqlalchemy.orm import object_session, Session, selectinload
 
 from app import catalog
 from app.db import get_db
-from app.deps import current_candidate, current_company
+from app.deps import active_company, current_candidate, current_company
 from app.models import Candidate, Company, Invitation, Need, Task, TaskSubmission
 from app.routers.employer import company_trust  # employer импортирует tasks лениво — цикла нет
 from app.services import autocheck, matching
@@ -116,7 +116,7 @@ TaskIn.model_rebuild()
 
 
 @router.post("")
-def create_task(body: TaskIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def create_task(body: TaskIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     if body.spec not in catalog.SPECS:
         raise HTTPException(422, f"Специализация: одна из {', '.join(catalog.SPECS)}")
     if body.competency and body.competency not in catalog.COMPETENCIES[body.spec]:
@@ -209,7 +209,7 @@ class ReviewIn(BaseModel):
 
 
 @router.post("/submissions/{submission_id}/review")
-def review_submission(submission_id: int, body: ReviewIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def review_submission(submission_id: int, body: ReviewIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     if body.review not in REVIEWS:
         raise HTTPException(422, f"Оценка: одна из {', '.join(REVIEWS)}")
     s = db.get(TaskSubmission, submission_id)
@@ -234,7 +234,10 @@ def _via_invite(t: Task, inv: Invitation) -> bool:
 
 
 def _can_see(db: Session, c: Candidate, t: Task) -> bool:
-    """Публичное задание своей специализации или задание из действующего приглашения по той же потребности."""
+    """Публичное задание своей специализации или задание из действующего приглашения по той же потребности.
+    Задания заблокированной компании (services/reputation.py) не видны."""
+    if t.company.blocked_at:
+        return False
     if t.public and t.spec == c.spec:
         return True
     if t.need_id is None:
@@ -251,7 +254,7 @@ def _submitted(db: Session, c: Candidate) -> dict[int, TaskSubmission]:
 def showcase(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
     """Витрина: публичные задания своей специализации. Кандидат заходит сам — уведомлений нет."""
     ts = db.scalars(
-        select(Task).where(Task.public.is_(True), Task.spec == c.spec).options(selectinload(Task.company)).order_by(Task.created_at.desc(), Task.id.desc())
+        select(Task).join(Company).where(Task.public.is_(True), Task.spec == c.spec, Company.blocked_at.is_(None)).options(selectinload(Task.company)).order_by(Task.created_at.desc(), Task.id.desc())
     ).all()
     return _for_candidate(ts, _submitted(db, c))
 
@@ -282,7 +285,7 @@ def tasks_for_invitation(invitation_id: int, c: Candidate = Depends(current_cand
     inv = db.get(Invitation, invitation_id)
     if not inv or inv.candidate_id != c.id or not _live(inv):
         raise HTTPException(404, "Приглашение не найдено")
-    if inv.need_id is None:
+    if inv.need_id is None or inv.company.blocked_at:
         return []
     ts = db.scalars(
         select(Task).where(Task.company_id == inv.company_id, Task.need_id == inv.need_id)
@@ -308,7 +311,7 @@ class SubmitIn(BaseModel):
 @router.post("/{task_id}/submit")
 def submit(task_id: int, body: SubmitIn, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
     t = db.get(Task, task_id)
-    if not t:
+    if not t or t.company.blocked_at:
         raise HTTPException(404, "Задание не найдено")
     if body.invitation_id is not None:
         # ponytail: задание «из приглашения» = та же потребность; явная связь Invitation.task_id, если понадобится точность

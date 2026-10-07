@@ -532,7 +532,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     db.add_all(events)
 
     # ── демо: кандидат Дмитрий Орлов ──
-    u_orlov = User(email="d.orlov@example.ru", role="candidate", fsp_id="FSP-1042")
+    u_orlov = User(email="d.orlov@example.ru", role="candidate", fsp_id="FSP-1042", email_confirmed=True)
     orlov = persona(g, "A-1042", 78, 1.12, 0.18, ["Python", "PostgreSQL", "Kafka", "asyncio"], 0,
                     claimed=["Python", "PostgreSQL", "Kafka", "asyncio", "Kubernetes", "Docker"],
                     name="Дмитрий Орлов", competencies=ORLOV_COMP, min_salary=230000, formats=["Гибрид", "Удалённо"],
@@ -631,7 +631,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
                                           rank=cf_rank(rt), fetched_at=NOW - DAY * float(r.uniform(0, 7))))
 
     # ── компании ──
-    u_lad = User(email="m.kovaleva@ladoga-pay.example", role="employer")
+    u_lad = User(email="m.kovaleva@ladoga-pay.example", role="employer", fsp_id="KC-ladoga-0001", email_confirmed=True)  # вход через мок Keycloak
     ladoga = Company(inn=LADOGA_INN, name="Ладога Пэй", about="Финтех, платёжный процессинг, 420 сотрудников",
                      color="#402FFF", site_domain="ladoga-pay.example", recruiter_name="Мария Ковалёва",
                      recruiter_email="m.kovaleva@ladoga-pay.example", recruiter_tg="@mkovaleva", verified=True, quota_max=10)
@@ -696,6 +696,9 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
                    ttl=6 + 5 / 1440))  # «осталось 6 дней»
     add(invitation(kiprey, orlov, kip_need, "sent", NOW - DAY * 4, role="Python-разработчик, сервис маршрутизации",
                    frm=190000, to=225000, fmt="Удалённо", synthetic=False, description=kip_need.text))  # «осталось 3 дня»
+    # принято больше недели назад — у Орлова открыт отзыв о компании (services/reputation.py); без rng: поток засева не сдвигается
+    add(invitation(companies[0], orlov, None, "accepted", NOW - DAY * 12, role="Python-разработчик, внутренние сервисы",
+                   frm=220000, to=270000, fmt="Удалённо", synthetic=False))
     P = personas
     pay, af = "Backend (Python), платежи", "Backend (Python), антифрод"
     add(invitation(ladoga, P["F-0911"], lad_need, "accepted", NOW - DAY * 7, role=pay, frm=240000, to=300000, synthetic=False))
@@ -959,7 +962,7 @@ def extras(db, g: Gen, ladoga, kiprey, lad_need, companies, hq, orlov, cands) ->
                                        auto_ok=autocheck.check(at_, opts, ref, text_, choices)))
 
     # неподтверждённая демо-компания: работает с урезанной квотой, лотерея ей доступна
-    u_new = User(email="newco.hr@gmail.com", role="employer")
+    u_new = User(email="newco.hr@gmail.com", role="employer", email_confirmed=True)
     db.add(u_new)
     db.flush()
     newco = Company(user_id=u_new.id, inn=inn_make("773300112"), name="Новый Стартап", about="Edtech, MVP, 12 сотрудников",

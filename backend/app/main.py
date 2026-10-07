@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -49,6 +49,7 @@ def meta():
         "formats": catalog.FORMATS,
         "decline_reasons": catalog.DECLINE_REASONS,
         "feedback": catalog.FEEDBACK,
+        "company_feedback": catalog.COMPANY_FEEDBACK,
         "competencies": catalog.COMPETENCIES,
         "skills": sorted(catalog.SKILLS),
         "roles": list(catalog.ROLES),
@@ -58,6 +59,7 @@ def meta():
         "fork_max_width": catalog.FORK_MAX_WIDTH,
         "code_tasks": sandbox.enabled(),  # в тесте есть задача на код (песочница настроена)
         "fsp_id": fsp_id_client.enabled(),  # кнопка «Войти через ФСП ID»
+        "fsp_idps": [{"alias": a, "label": l} for a, l in config.FSP_ID_IDPS.items()] if fsp_id_client.enabled() else [],  # брокер Keycloak
         "demo": config.DEMO,  # кнопка «Запустить прогон» на /v
     }
 
@@ -68,6 +70,11 @@ _front = Path(config.FRONTEND_DIR)
 if (_front / "index.html").is_file():
     app.mount("/assets", StaticFiles(directory=_front / "assets"), name="assets")
 
-    @app.get("/", include_in_schema=False)
-    def index():
-        return FileResponse(_front / "index.html")
+
+# маршрут есть всегда, файл проверяется на каждый запрос: исчезнувший каталог даёт 503, а не 500 из FileResponse
+@app.get("/", include_in_schema=False)
+def index():
+    page = _front / "index.html"
+    if not page.is_file():
+        raise HTTPException(503, f"Фронт недоступен: нет файла {page}. Пересоберите образ api (docker compose up -d --build) или задайте FRONTEND_DIR.")
+    return FileResponse(page)

@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session, defer, selectinload
 
 from app import catalog
 from app.db import get_db
-from app.deps import current_company, current_user
+from app.deps import active_company, current_company, current_user
 from app.models import Candidate, Company, Invitation, Lottery, Need, Task, User, Vacancy
 from app.services import lottery as lottery_svc
-from app.services import matching
+from app.services import matching, reputation
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, extract_skills, parse_need
 
@@ -91,16 +91,22 @@ def _accepted_share(db: Session, company_id: int, before: datetime | None = None
 
 def quota(db: Session, co: Company) -> dict:
     """Недельная квота (сброс в понедельник 00:00 МСК). Лимит растёт до QUOTA_BONUS, если в прошлые недели
-    принято ≥ 50 % закрытых приглашений. Неподтверждённая компания — UNVERIFIED_QUOTA без бонуса. Оплата — только за принятые."""
+    принято ≥ 50 % закрытых приглашений. Неподтверждённая компания — UNVERIFIED_QUOTA без бонуса. Много плохих отзывов
+    кандидатов за окно — FEEDBACK_PENALTY_QUOTA без бонуса, блок — 0 (services/reputation.py). Оплата — только за принятые."""
     start = _week_start(datetime.now(UTC))
     used = db.scalar(select(func.count()).select_from(Invitation).where(Invitation.company_id == co.id, Invitation.sent_at >= start))
     bonus = lambda share: max(co.quota_max, catalog.QUOTA_BONUS) if share is not None and share >= catalog.QUOTA_BONUS_AT else co.quota_max
     share = _accepted_share(db, co.id)
     if not co.verified:
         bonus = lambda share: catalog.UNVERIFIED_QUOTA  # noqa: E731
+    rep = reputation.summary(db, co)
+    if rep["penalty"]:
+        bonus = lambda share, b=bonus: min(b(share), catalog.FEEDBACK_PENALTY_QUOTA)  # noqa: E731
+    if rep["blocked"]:
+        bonus = lambda share: 0  # noqa: E731
     mx = bonus(_accepted_share(db, co.id, before=start))
     paid = db.scalar(select(func.count()).select_from(Invitation).where(Invitation.company_id == co.id, Invitation.status == "accepted"))
-    return {"used": used, "max": mx, "left": max(0, mx - used), "resets_at": start + timedelta(days=7), "accepted_share": share, "next_max": bonus(share), "paid_accepts": paid}
+    return {"used": used, "max": mx, "left": max(0, mx - used), "resets_at": start + timedelta(days=7), "accepted_share": share, "next_max": bonus(share), "paid_accepts": paid, "reputation": rep}
 
 
 # ---------- компания ----------
@@ -117,22 +123,40 @@ class CompanyIn(BaseModel):
     recruiter_tg: str | None = Field(default=None, max_length=64)
 
 
-def _checks(co: Company, login_email: str) -> list[dict]:
+def mail_confirmed(user: User | None, site_domain: str | None) -> bool:
+    """Почта входа на домене сайта компании И подтверждена нашим кодом (users.email_confirmed): почте из Keycloak
+    и сторонних IdP не верим — «Trust Email» мог быть включён у провайдера, где адрес любой. recruiter_email не в счёт."""
+    return bool(user and user.email_confirmed and domain_match(user.email, site_domain))
+
+
+def refresh_verified(db: Session, user: User) -> None:
+    """Единственное место, где считается Company.verified: контрольные цифры ИНН + подтверждённая нашим кодом почта на домене сайта."""
+    co = db.scalar(select(Company).where(Company.user_id == user.id)) if user.id else None  # новый пользователь — компании нет
+    if co:
+        co.verified = inn_valid(co.inn) and mail_confirmed(user, co.site_domain)
+
+
+def _checks(co: Company, user: User | None) -> list[dict]:
     inn_ok = inn_valid(co.inn)
-    dom_ok = domain_match(login_email, co.site_domain)  # почта входа подтверждена кодом, recruiter_email — нет
+    dom_ok = mail_confirmed(user, co.site_domain)
+    if dom_ok:
+        dom_text = "Домен почты совпадает с сайтом компании"
+    elif user and not user.email_confirmed and domain_match(user.email, co.site_domain):
+        dom_text = f"Подтвердите рабочую почту: войдите по коду на {user.email}"  # вошли через SSO — почта ещё не подтверждена нашим кодом
+    else:
+        dom_text = "Домен почты не совпадает с сайтом компании"
     return [
         {"key": "inn", "ok": inn_ok, "text": "ИНН: контрольные цифры верны" if inn_ok else "ИНН: контрольные цифры не сходятся"},
         # ponytail: ЕГРЮЛ не запрашивается; API ФНС (egrul.nalog.ru) или DaData, когда будет ключ
         {"key": "egrul", "ok": None, "text": "ЕГРЮЛ: проверка статуса организации не выполнялась (заглушка)"},
-        {"key": "domain", "ok": dom_ok, "text": "Домен почты совпадает с сайтом компании" if dom_ok else "Домен почты не совпадает с сайтом компании"},
+        {"key": "domain", "ok": dom_ok, "text": dom_text},
     ]
 
 
 def company_trust(db: Session, co: Company) -> dict:
     """Что показываем кандидату о компании: отдельные факты, а не общий «проверена».
-    domain_confirmed — почта входа (подтверждена кодом) на домене сайта компании; inn_checksum_valid — контрольные цифры ИНН."""
-    login = db.get(User, co.user_id).email if co.user_id else ""
-    return {"domain_confirmed": domain_match(login, co.site_domain), "inn_checksum_valid": inn_valid(co.inn)}
+    domain_confirmed — почта входа подтверждена нашим кодом и стоит на домене сайта компании; inn_checksum_valid — контрольные цифры ИНН."""
+    return {"domain_confirmed": mail_confirmed(db.get(User, co.user_id) if co.user_id else None, co.site_domain), "inn_checksum_valid": inn_valid(co.inn)}
 
 
 def _company_out(db: Session, co: Company) -> dict:
@@ -148,7 +172,7 @@ def _company_out(db: Session, co: Company) -> dict:
         "recruiter_tg": co.recruiter_tg,
         "verified": co.verified,  # внутренний статус: полная квота; кандидату не отдаётся
         **company_trust(db, co),
-        "checks": _checks(co, db.get(User, co.user_id).email if co.user_id else ""),
+        "checks": _checks(co, db.get(User, co.user_id) if co.user_id else None),
         "quota": quota(db, co),
     }
 
@@ -177,7 +201,7 @@ def save_company(body: CompanyIn, user: User = Depends(current_user), db: Sessio
     co.color = body.color or co.color or "#402FFF"
     co.site_domain, co.recruiter_name = body.site_domain, body.recruiter_name
     co.recruiter_email, co.recruiter_tg = body.recruiter_email or user.email, body.recruiter_tg
-    co.verified = inn_valid(inn) and domain_match(user.email, co.site_domain)
+    refresh_verified(db, user)
     db.commit()
     return _company_out(db, co)
 
@@ -537,6 +561,8 @@ def _row(inv: Invitation) -> dict:
     if inv.status == "accepted":
         if may_talk(c, inv.company):  # согласие на обработку действует и компания не в «скрыть от» — как и чат
             contact = {"name": c.name, "email": c.email, "tg": c.tg, "text": " · ".join(x for x in (c.name, c.email, c.tg) if x)}
+        elif inv.company.blocked_at:
+            reason = "компания заблокирована до ручной проверки"
         else:
             reason = "кандидат отозвал согласие" if not matching.consent_ok(c, "processing") else "кандидат закрыл доступ к контактам"
     sent = inv.sent_at.astimezone(MSK)
@@ -566,7 +592,7 @@ def _locked(db: Session, model, pk: int):
 
 
 @router.post("/invites")
-def send_invite(body: InviteIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     cid = db.scalar(select(Candidate.id).where(Candidate.public_id == body.candidate_id))
     if not cid:
         raise HTTPException(404, "Кандидат не найден")
@@ -651,7 +677,7 @@ class FeedbackIn(BaseModel):
 
 
 @router.post("/invites/{invite_id}/feedback")
-def feedback(invite_id: int, body: FeedbackIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def feedback(invite_id: int, body: FeedbackIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     if body.value not in catalog.FEEDBACK:
         raise HTTPException(422, f"Отметка: одна из {', '.join(catalog.FEEDBACK)}")
     inv = db.get(Invitation, invite_id)

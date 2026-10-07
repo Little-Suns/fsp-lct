@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ФСП Карьера</title>
 <link rel="icon" href="assets/mark.png">
+<meta name="color-scheme" content="light dark">
+<script>
+/* тема применяется до первой отрисовки, чтобы не было вспышки: 'light' | 'dark', без выбора — по системе */
+try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th === "dark") document.documentElement.dataset.theme = th; } catch (e) { /* приватный режим */ }
+</script>
 <style>
 @font-face { font-family: "JetBrains Mono"; src: url(assets/fonts/JetBrainsMono-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "JetBrains Mono"; src: url(assets/fonts/JetBrainsMono-Medium.woff2) format("woff2"); font-weight: 500; font-display: swap; }
@@ -16,6 +21,11 @@
 :root {
   --blue: #402FFF;
   --blue-ink: #2A1FD1;
+  --blue-hover: #2A1FD1;
+  --on-dark-accent: #B9B2FF;
+  --bar-alt: #B9B2FF;
+  --on-blue-2: #B9B2FF;
+  --logo-ring: transparent;
   --blue-soft: #EDEBFF;
   --blue-line: #B9B2FF;
   --red: #EC1D35;
@@ -37,6 +47,18 @@
   --dark-line: #3A3B45;
   --on-dark: #EDEDED;
   --on-dark-2: #A3A4AE;
+  --blue-text: #402FFF;
+  --on-accent: #FFFFFF;
+  --on-red: #FFFFFF;
+  --alert-warn: #6E4200;
+  --alert-bad: #8E0F1E;
+  --alert-ok: #0B5A37;
+  --toast-bg: #1B1C21;
+  --toast-fg: #FFFFFF;
+  --shadow: rgba(27,28,33,.12);
+  --scrim: rgba(27,28,33,.45);
+  --logo-filter: none;
+  color-scheme: light;
 
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
@@ -44,6 +66,74 @@
   --r: 14px;
   --r-s: 8px;
   --gut: clamp(16px, 4vw, 40px);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --blue: #5E50FF;       /* заливка: белый текст ≥ 5,1:1 */
+  --blue-text: #8C84FF;  /* текст и рамки на тёмном: ≥ 5,8:1 на --paper */
+  --blue-ink: #B5AFFF;
+  --blue-hover: #4B3DF0;
+  --on-blue-2: #FFFFFF;
+  --logo-ring: var(--line);
+  --blue-soft: #23224A;
+  --blue-line: #4A44A8;
+  --red: #FF6B7D;
+  --on-red: #1B1C21;
+  --red-soft: #3A1219;
+  --ink: #EDEDF0;
+  --ink-2: #B4B5C0;
+  --ink-3: #9496A3;
+  --line: #3A3B45;
+  --line-2: #2A2B33;
+  --mist: #25262D;
+  --paper: #17181D;
+  --ground: #0F1013;
+  --ok: #4CC38A;
+  --ok-soft: #12301F;
+  --warn: #F2B84B;
+  --warn-soft: #3A2A0A;
+  --alert-warn: #FFD79A;
+  --alert-bad: #FFB3BC;
+  --alert-ok: #9BE3BF;
+  --toast-bg: #EDEDF0;
+  --toast-fg: #1B1C21;
+  --shadow: rgba(0,0,0,.5);
+  --scrim: rgba(0,0,0,.65);
+  --logo-filter: invert(1) hue-rotate(180deg);  /* логотип с тёмными буквами */
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --blue: #5E50FF;       /* заливка: белый текст ≥ 5,1:1 */
+  --blue-text: #8C84FF;  /* текст и рамки на тёмном: ≥ 5,8:1 на --paper */
+  --blue-ink: #B5AFFF;
+  --blue-hover: #4B3DF0;
+  --on-blue-2: #FFFFFF;
+  --logo-ring: var(--line);
+  --blue-soft: #23224A;
+  --blue-line: #4A44A8;
+  --red: #FF6B7D;
+  --on-red: #1B1C21;
+  --red-soft: #3A1219;
+  --ink: #EDEDF0;
+  --ink-2: #B4B5C0;
+  --ink-3: #9496A3;
+  --line: #3A3B45;
+  --line-2: #2A2B33;
+  --mist: #25262D;
+  --paper: #17181D;
+  --ground: #0F1013;
+  --ok: #4CC38A;
+  --ok-soft: #12301F;
+  --warn: #F2B84B;
+  --warn-soft: #3A2A0A;
+  --alert-warn: #FFD79A;
+  --alert-bad: #FFB3BC;
+  --alert-ok: #9BE3BF;
+  --toast-bg: #EDEDF0;
+  --toast-fg: #1B1C21;
+  --shadow: rgba(0,0,0,.5);
+  --scrim: rgba(0,0,0,.65);
+  --logo-filter: invert(1) hue-rotate(180deg);  /* логотип с тёмными буквами */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -56,7 +146,7 @@ body {
 }
 [hidden] { display: none !important; }
 img { max-width: 100%; display: block; }
-a { color: var(--blue); }
+a { color: var(--blue-text); }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
@@ -79,20 +169,20 @@ p { margin: 0; }
 }
 .top-in { max-width: 1240px; margin: 0 auto; padding: 10px var(--gut); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--ink); }
-.brand img { height: 30px; width: auto; }
+.brand img { height: 30px; width: auto; filter: var(--logo-filter); }
 .brand .prod { font-weight: 600; font-size: 13px; padding-left: 12px; border-left: 1px solid var(--line); line-height: 1.2; }
 .brand .prod span { display: block; font-weight: 400; color: var(--ink-3); font-size: 11px; }
 .roles { display: flex; gap: 4px; background: var(--mist); padding: 4px; border-radius: 999px; margin-left: auto; }
 .roles button { border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; color: var(--ink-2); }
-.roles button[aria-current="true"] { background: var(--paper); color: var(--blue); font-weight: 600; box-shadow: 0 1px 2px rgba(27,28,33,.12); }
+.roles button[aria-current="true"] { background: var(--paper); color: var(--blue-text); font-weight: 600; box-shadow: 0 1px 2px var(--shadow); }
 .mapbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
-.mapbtn:hover { border-color: var(--blue); color: var(--blue); }
+.mapbtn:hover { border-color: var(--blue); color: var(--blue-text); }
 
 /* ---------- каркас ---------- */
 main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 .crumbs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; font-size: 12px; color: var(--ink-3); }
 .crumbs b { color: var(--ink); font-weight: 500; }
-.crumbs button { border: 0; background: none; padding: 0; color: var(--blue); cursor: pointer; font-size: 12px; }
+.crumbs button { border: 0; background: none; padding: 0; color: var(--blue-text); cursor: pointer; font-size: 12px; }
 
 .grid { display: grid; gap: 20px; }
 .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -111,7 +201,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 .msg.me { align-self: flex-end; background: var(--blue-soft); }
 .msg p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .msg time { display: block; text-align: right; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
-.unread { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 1; vertical-align: middle; flex: none; }
+.unread { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: var(--on-red); font-size: 11px; line-height: 1; vertical-align: middle; flex: none; }
 @media (max-width: 900px) { .chat { grid-template-columns: minmax(0, 1fr); } .chat-list { max-height: 30vh; } }
 @media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -127,13 +217,13 @@ main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 
 /* ---------- кнопки и поля ---------- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 10px; padding: 11px 18px; cursor: pointer; font-weight: 500; font-size: 14px; text-decoration: none; transition: background .15s, border-color .15s, color .15s; }
-.btn.primary { background: var(--blue); color: #fff; }
-.btn.primary:hover { background: var(--blue-ink); }
+.btn.primary { background: var(--blue); color: var(--on-accent); }
+.btn.primary:hover { background: var(--blue-hover); }
 .btn.ghost { background: var(--paper); border-color: var(--line); color: var(--ink); }
-.btn.ghost:hover { border-color: var(--blue); color: var(--blue); }
+.btn.ghost:hover { border-color: var(--blue); color: var(--blue-text); }
 .btn.danger { background: var(--paper); border-color: var(--line); color: var(--red); }
 .btn.danger:hover { border-color: var(--red); }
-.btn.dark { background: var(--on-dark); color: var(--ink); }
+.btn.dark { background: var(--on-dark); color: var(--dark); }
 .btn.small { padding: 7px 12px; font-size: 13px; border-radius: 8px; }
 .btn[disabled] { opacity: .45; cursor: not-allowed; }
 .btn.block { width: 100%; }
@@ -150,7 +240,7 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; font-fam
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; flex-wrap: wrap; }
 .seg button { border: 0; background: var(--paper); padding: 8px 14px; cursor: pointer; font-size: 13px; border-right: 1px solid var(--line); }
 .seg button:last-child { border-right: 0; }
-.seg button[aria-pressed="true"] { background: var(--blue); color: #fff; }
+.seg button[aria-pressed="true"] { background: var(--blue); color: var(--on-accent); }
 
 .switch { display: inline-flex; align-items: center; gap: 10px; text-align: left; cursor: pointer; font-size: 13px; border: 0; background: none; padding: 0; }
 .switch i { width: 38px; height: 22px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s; flex: none; }
@@ -171,9 +261,9 @@ button.chip:hover { border-color: var(--blue); }
 .chip .x { opacity: .6; }
 
 .cat { display: inline-flex; align-items: center; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--blue); font-weight: 600; font-size: 13px; }
-.cat span { padding: 5px 10px; color: var(--blue); }
+.cat span { padding: 5px 10px; color: var(--blue-text); }
 .cat span + span { border-left: 1px solid var(--blue-line); }
-.cat span:last-child { background: var(--blue); color: #fff; }
+.cat span:last-child { background: var(--blue); color: var(--on-accent); }
 
 .trust { display: flex; flex-direction: column; gap: 0; }
 .trust > div { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; padding: 8px 0; border-top: 1px dashed var(--line-2); font-size: 13px; }
@@ -191,9 +281,9 @@ button.chip:hover { border-color: var(--blue); }
 
 .alert { border-radius: 10px; padding: 10px 12px; font-size: 13px; display: flex; gap: 10px; align-items: flex-start; }
 .alert b { font-weight: 600; }
-.alert.warn { background: var(--warn-soft); color: #6E4200; }
-.alert.bad { background: var(--red-soft); color: #8E0F1E; }
-.alert.ok { background: var(--ok-soft); color: #0B5A37; }
+.alert.warn { background: var(--warn-soft); color: var(--alert-warn); }
+.alert.bad { background: var(--red-soft); color: var(--alert-bad); }
+.alert.ok { background: var(--ok-soft); color: var(--alert-ok); }
 .alert.info { background: var(--blue-soft); color: var(--blue-ink); }
 
 /* ---------- полосы компетенций (θ ± SE) ---------- */
@@ -220,7 +310,7 @@ button.chip:hover { border-color: var(--blue); }
 .hero { background: var(--dark); color: var(--on-dark); border-radius: 22px; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .9fr); position: relative; }
 .hero-txt { padding: clamp(24px, 5vw, 56px); display: flex; flex-direction: column; gap: 22px; position: relative; z-index: 1; }
 .hero h1 { color: #fff; font-size: clamp(30px, 4.4vw, 52px); }
-.hero h1 em { font-style: normal; color: var(--blue-line); }
+.hero h1 em { font-style: normal; color: var(--on-dark-accent); }
 .hero .lead { font-family: var(--sans); font-size: 17px; color: var(--on-dark-2); max-width: 46ch; }
 .hero-img { position: relative; min-height: 320px; background: #16171B; }
 .hero-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .9; }
@@ -237,12 +327,12 @@ button.chip:hover { border-color: var(--blue); }
 .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--blue-line); border-radius: var(--r); background: var(--paper); overflow: hidden; }
 .steps > div { padding: 22px; border-right: 1px solid var(--blue-line); display: flex; flex-direction: column; gap: 8px; }
 .steps > div:last-child { border-right: 0; }
-.steps .n { font-size: 12px; color: var(--blue); font-weight: 600; }
+.steps .n { font-size: 12px; color: var(--blue-text); font-weight: 600; }
 @media (max-width: 820px) { .steps { grid-template-columns: 1fr; } .steps > div { border-right: 0; border-bottom: 1px solid var(--blue-line); } .steps > div:last-child { border-bottom: 0; } }
 
 .door { display: flex; flex-direction: column; gap: 14px; padding: 26px; border-radius: var(--r); background: var(--paper); border: 1px solid var(--line-2); cursor: pointer; text-align: left; transition: border-color .15s, transform .15s; }
 .door:hover { border-color: var(--blue); transform: translateY(-2px); }
-.door .go { margin-top: auto; color: var(--blue); font-weight: 600; }
+.door .go { margin-top: auto; color: var(--blue-text); font-weight: 600; }
 
 /* ---------- квест ---------- */
 .quest { background: var(--dark); color: var(--on-dark); border-radius: 22px; overflow: hidden; }
@@ -261,7 +351,7 @@ button.chip:hover { border-color: var(--blue); }
 .quest-body > div + div { border-left: 1px solid var(--dark-line); }
 @media (max-width: 900px) { .quest-body { grid-template-columns: 1fr; } .quest-body > div + div { border-left: 0; border-top: 1px solid var(--dark-line); } }
 .story { border-left: 2px solid var(--blue); padding-left: 14px; font-family: var(--sans); font-size: 15px; color: var(--on-dark); line-height: 1.6; }
-.story .t { font-family: var(--mono); font-size: 12px; color: var(--blue-line); display: block; margin-bottom: 4px; }
+.story .t { font-family: var(--mono); font-size: 12px; color: var(--on-dark-accent); display: block; margin-bottom: 4px; }
 .quest .q { font-size: 17px; font-weight: 600; color: #fff; }
 .term { background: #0F1013; border: 1px solid var(--dark-line); border-radius: 10px; padding: 14px; font-size: 12px; line-height: 1.7; overflow-x: auto; white-space: pre; color: #C9CAD3; }
 .term .e { color: #FF7A8A; }
@@ -269,7 +359,7 @@ button.chip:hover { border-color: var(--blue); }
 .term .i { color: #8EA2FF; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
 .opt { text-align: left; border: 1px solid var(--dark-line); background: var(--dark-2); color: var(--on-dark); border-radius: 10px; padding: 12px 14px; cursor: pointer; display: grid; grid-template-columns: 22px 1fr; gap: 10px; font-size: 14px; font-family: var(--sans); }
-.opt:hover { border-color: var(--blue-line); }
+.opt:hover { border-color: var(--on-dark-accent); }
 .opt .k { font-family: var(--mono); color: var(--on-dark-2); font-size: 12px; padding-top: 2px; }
 .opt[aria-pressed="true"] { border-color: var(--blue); background: rgba(64,47,255,.18); }
 .opt[aria-pressed="true"] .k { color: #fff; }
@@ -292,14 +382,14 @@ button.chip:hover { border-color: var(--blue); }
 .cand:hover { border-color: var(--blue); }
 .cand .id { font-weight: 600; font-size: 15px; }
 .cand .score { text-align: right; }
-.cand .score b { font-size: 22px; font-weight: 600; color: var(--blue); display: block; line-height: 1; }
+.cand .score b { font-size: 22px; font-weight: 600; color: var(--blue-text); display: block; line-height: 1; }
 .cand .facts { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; font-size: 12px; border-top: 1px dashed var(--line-2); padding-top: 12px; }
 .cand .facts b { display: block; font-size: 13px; font-weight: 500; color: var(--ink); }
 @media (max-width: 700px) { .cand .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .inv { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 18px; background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; text-align: left; width: 100%; }
 .inv:hover { border-color: var(--blue); }
-.logo-sq { width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 16px; }
+.logo-sq { box-shadow: inset 0 0 0 1px var(--logo-ring); width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 16px; }
 .money { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 560px) { .inv { grid-template-columns: 44px minmax(0, 1fr); } .inv > :last-child { grid-column: 2; } }
 
@@ -325,8 +415,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .bar { display: grid; grid-template-columns: minmax(130px, 200px) minmax(0, 1fr) 52px; gap: 12px; align-items: center; font-size: 13px; }
 .bar .b { height: 18px; background: var(--mist); border-radius: 4px; overflow: hidden; }
 .bar .b i { display: block; height: 100%; background: var(--blue); }
-.bar .b i.alt { background: var(--blue-line); }
-/* матрица «истинный грейд × грейд теста»: насыщенность фона — доля строки (текст всегда тёмный: контраст ≥ 4,5:1), диагональ — рамкой */
+.bar .b i.alt { background: var(--bar-alt); }
+/* матрица «истинный грейд × грейд теста»: насыщенность фона — доля строки (текст — --ink, контраст ≥ 4,5:1 в обеих темах), диагональ — рамкой */
 .tbl.heat caption { caption-side: top; text-align: left; font-size: 12px; color: var(--ink-3); padding-bottom: 6px; }
 .tbl.heat td.c { text-align: center; font-variant-numeric: tabular-nums; padding: 10px 6px; }
 .tbl.heat td.c.diag { outline: 2px solid var(--blue-ink); outline-offset: -2px; font-weight: 600; }
@@ -341,15 +431,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .demo-tag { display: inline-flex; gap: 6px; align-items: center; font-size: 11px; color: var(--warn); background: var(--warn-soft); padding: 3px 8px; border-radius: 6px; }
 
 /* ---------- карта экранов, тост ---------- */
-.overlay { position: fixed; inset: 0; background: rgba(27,28,33,.45); z-index: 50; display: flex; justify-content: flex-end; }
+.overlay { position: fixed; inset: 0; background: var(--scrim); z-index: 50; display: flex; justify-content: flex-end; }
 .drawer { background: var(--paper); width: min(440px, 100%); height: 100%; overflow-y: auto; padding: 22px 22px calc(22px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 18px; }
 .drawer .grp { display: flex; flex-direction: column; gap: 2px; }
 .drawer .grp button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; display: grid; grid-template-columns: 34px 1fr; font-size: 13px; }
 .drawer .grp button:hover { background: var(--blue-soft); }
-.drawer .grp button[aria-current="true"] { background: var(--blue); color: #fff; }
+.drawer .grp button[aria-current="true"] { background: var(--blue); color: var(--on-accent); }
 .drawer .grp button span:first-child { color: var(--ink-3); }
-.drawer .grp button[aria-current="true"] span:first-child { color: var(--blue-line); }
-.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+.drawer .grp button[aria-current="true"] span:first-child { color: var(--on-blue-2); }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--toast-bg); color: var(--toast-fg); padding: 12px 18px; border-radius: 10px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
 
 .drop { border: 1.5px dashed var(--blue-line); border-radius: var(--r); padding: 22px; display: flex; gap: 16px; align-items: center; background: var(--blue-soft); }
 .file-ico { width: 40px; height: 48px; border-radius: 6px; background: var(--paper); border: 1px solid var(--blue-line); display: grid; place-items: center; font-size: 10px; font-weight: 700; color: var(--red); flex: none; }
@@ -403,6 +493,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3h12M1 7h12M1 11h12" stroke="currentColor" stroke-width="1.5"/></svg>
       Экраны
     </button>
+    <button class="mapbtn" id="theme" data-act="theme"></button>
     <button class="mapbtn" id="logout" data-act="logout" hidden>Выйти</button>
   </div>
 </header>
@@ -512,39 +603,70 @@ async function verifyLogin(role, email, otp) {
 
 // ФСП ID (OIDC): сервер отдаёт адрес провайдера и ставит куку потока; браузер уходит туда целиком
 // согласия, отмеченные на экране регистрации, переживают уход к провайдеру (страница перезагрузится)
-async function fspStart(mode) {
-  const r = await api('POST', '/api/auth/fsp/start', { mode }, 'c');
-  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
+// role — c | e (сторона входа), idp — alias стороннего провайдера через брокер Keycloak (kc_idp_hint)
+async function fspStart(mode, role = 'c', idp = '') {
+  const side = mode === 'link' ? 'c' : role;
+  const r = await api('POST', '/api/auth/fsp/start', { mode, role: side === 'e' ? 'employer' : 'candidate', ...(idp ? { idp } : {}) }, side);
+  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
   location.assign(r.url);
 }
+// кнопки входа через Keycloak: кандидату — «ФСП ID» (подтянем достижения), компании — SSO; плюс сторонние провайдеры брокера (META.fsp_idps)
+const fspButtons = side => {
+  const mark = '<img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px">';
+  const main = side === 'e'
+    ? `<button class="btn ghost block" data-act="fsp-login" data-side="e" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через SSO (Keycloak)</button>`
+    : `<button class="btn ghost block" data-act="fsp-login" data-side="c" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через ФСП ID <span class="muted small" style="margin-left:auto">подтянем достижения</span></button>`;
+  return main + ((META && META.fsp_idps) || []).map(i => `<button class="btn ghost block" data-act="fsp-login" data-side="${side}" data-idp="${esc(i.alias)}" style="justify-content:flex-start">Войти через ${esc(i.label)}</button>`).join('');
+};
 const FSP_ERR = {
   state: 'Вход через ФСП ID устарел или открыт в другом браузере — начните заново',
   denied: 'Вход через ФСП ID отменён',
   provider: 'ФСП ID недоступен или отклонил запрос — попробуйте позже',
   token: 'ФСП ID прислал неподтверждённые данные — вход отклонён',
   email: 'В ФСП ID не подтверждена почта — подтвердите её или войдите по коду',
-  role: 'Эта почта зарегистрирована как работодатель — войдите по коду',
+  role: 'Этот аккаунт уже зарегистрирован с другой ролью (кандидат или работодатель) — войдите по коду',
   taken: 'Этот ФСП ID уже привязан к другому аккаунту',
   other: 'К аккаунту уже привязан другой ФСП ID — сначала отвяжите его в настройках',
   link: 'Аккаунт с этой почтой уже есть — войдите по коду и привяжите ФСП ID в настройках',
+};
+// у компании это SSO и привязки в настройках нет — тексты без «ФСП ID» и без отсылки к настройкам
+const FSP_ERR_E = {
+  state: 'Вход через SSO устарел или открыт в другом браузере — начните заново',
+  denied: 'Вход через SSO отменён',
+  provider: 'SSO недоступен или отклонил запрос — попробуйте позже',
+  token: 'SSO прислал неподтверждённые данные — вход отклонён',
+  email: 'В SSO не подтверждена почта — подтвердите её или войдите по коду',
+  taken: 'Этот аккаунт SSO уже привязан к другой почте',
+  other: 'К этой почте уже привязан другой аккаунт SSO — войдите по коду',
+  link: 'Аккаунт с этой почтой уже есть — войдите по коду',
+};
+const fspErr = (code, side) => {
+  const t = side === 'e' && Object.hasOwn(FSP_ERR_E, code) ? FSP_ERR_E : FSP_ERR;
+  return Object.hasOwn(t, code) ? t[code] : side === 'e' ? 'Не удалось войти через SSO' : 'Не удалось войти через ФСП ID';
 };
 const fspAch = a => a === 'consent' ? 'Достижения ФСП подтянем после согласия на внешние данные — в настройках' : +a ? `Подтверждено достижений ФСП: ${a}` : 'Новых достижений в ФСП ID нет';
 // возврат из ФСП ID: билет или код ошибки — во фрагменте (не уходит на сервер и в Referer), сразу стираем его из адреса
 async function fspReturn() {
   if (!location.hash.startsWith('#fsp=')) return;
   const p = new URLSearchParams(location.hash.slice(1));
-  const kind = p.get('fsp');  // login | linked | error; ошибка у вошедшего — это привязка из настроек
-  history.replaceState(null, '', location.pathname + '#/c/' + (kind === 'linked' || (kind === 'error' && TOK.c) ? 'settings' : 'signup'));
+  const kind = p.get('fsp');  // login | linked | error; ошибка у вошедшего кандидата — это привязка из настроек
+  let side = 'c';  // подсказка стороны из sessionStorage — только для адреса и текста ошибки; сторону входа определяет r.role
+  try { side = (JSON.parse(sessionStorage.getItem('fsp.signup')) || {}).side === 'e' ? 'e' : 'c'; } catch { /* приватный режим */ }
+  history.replaceState(null, '', location.pathname + (side === 'e' ? '#/e/signup' : '#/c/' + (kind === 'linked' || (kind === 'error' && TOK.c) ? 'settings' : 'signup')));
   if (kind === 'error') {
     try { sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
-    return toast(Object.hasOwn(FSP_ERR, p.get('e')) ? FSP_ERR[p.get('e')] : 'Не удалось войти через ФСП ID');
+    return toast(fspErr(p.get('e'), side));
   }
   if (kind === 'linked') return toast('ФСП ID привязан. ' + fspAch(p.get('ach')));
-  const r = await api('POST', '/api/auth/fsp/exchange', { ticket: p.get('t') || '' }, 'c');
-  if (r.role !== 'candidate') throw new Error('Эта почта зарегистрирована как работодатель');
-  clearSide('c');
-  setTok('c', r.token);
-  try { Object.assign(S.signup, JSON.parse(sessionStorage.getItem('fsp.signup')) || {}); sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+  const r = await api('POST', '/api/auth/fsp/exchange', { ticket: p.get('t') || '' }, side);
+  side = r.role === 'employer' ? 'e' : 'c';  // роль выдал сервер: ей же принадлежит токен
+  clearSide(side);
+  setTok(side, r.token);
+  try { const { side: _, ...form } = JSON.parse(sessionStorage.getItem('fsp.signup')) || {}; Object.assign(S.signup, form); sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+  if (side === 'e') {
+    history.replaceState(null, '', location.pathname + (r.has_profile ? '#/e/picks' : '#/e/signup'));
+    return toast(r.has_profile ? 'Вход через SSO' : 'Вход через SSO: укажите данные компании');
+  }
   history.replaceState(null, '', location.pathname + (r.has_profile ? '#/c/home' : '#/c/profile'));
   toast(r.has_profile ? 'Вход через ФСП ID. ' + fspAch(p.get('ach')) : 'Вход через ФСП ID: заполните профиль');
 }
@@ -588,6 +710,16 @@ function subnav(side) {
   const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
   return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
 }
+const fbSummary = (r) => r && r.counts ? Object.entries((META && META.company_feedback) || {}).map(([k, t]) => `${t.toLowerCase()} — ${r.counts[k] || 0}`).join(' · ') : '';
+// отзывы кандидатов после принятия: штраф квоты и блок до ручной проверки (services/reputation.py); кандидату это не показывается
+const repBanner = () => {
+  const r = D.co && D.co.quota && D.co.quota.reputation;
+  if (!r) return '';
+  if (r.blocked) return `<div class="alert bad" style="margin-bottom:16px"><span>!</span><span><b>Компания заблокирована до ручной проверки.</b> Кандидаты сообщили, что вакансии не было. Приглашения, вакансии, задания и переписка недоступны — напишите в поддержку платформы.</span></div>`;
+  if (r.penalty) return `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Квота снижена до ${D.co.quota.max} приглашений в неделю.</b> За ${r.window_days} дней кандидаты оставили ${r.total} отзывов после принятия, из них ${r.bad} — о проблемах: ${esc(fbSummary(r))}. Квота вернётся сама, когда за ${r.window_days} дней плохих отзывов станет меньше половины или их оставят меньше трёх разных кандидатов.</span></div>`;
+  return '';
+};
+const coBanners = () => repBanner() + unverifiedBanner();
 // плашка неподтверждённой компании (квота урезана, кандидаты видят предупреждение)
 const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/signup">Данные компании</button></span></div>` : '';
 // инлайн-подтверждение вместо confirm(): показывается, когда S.confirm === key
@@ -723,9 +855,7 @@ V['/c/signup'] = () => `
       <h1>Создайте профиль</h1>
       <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений.</p>
       ${TOK.c ? '<div class="alert ok"><span>✓</span><span>Вы уже вошли. <button class="btn ghost small" data-go="/c/home">В кабинет</button></span></div>' : ''}
-      <button class="btn ghost block" data-act="fsp-login" style="justify-content:flex-start;padding:14px 16px">
-        <img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px"> Войти через ФСП ID <span class="muted small" style="margin-left:auto">подтянем достижения</span>
-      </button>
+      ${fspButtons('c')}
       <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
       <label class="field"><span>Почта</span><input class="input" id="su-mail" type="email" autocomplete="email" placeholder="you@example.ru" value="${esc(S.signup.email)}"></label>
       <label class="check"><input type="checkbox" id="su-152" ${S.signup.c152 ? 'checked' : ''}> Согласен на обработку персональных данных по 152-ФЗ (обязательно). Работодатели не видят ФИО и контакты, пока я не приму приглашение.</label>
@@ -1194,6 +1324,19 @@ V['/c/home'] = () => {
   </div>`;
 };
 
+// отзыв о компании через неделю после принятия: по желанию, один раз; компания не узнаёт автора
+function companyFeedback(inv) {
+  if (inv.company_feedback) return `<div class="alert info"><span>✓</span><span>Спасибо, отзыв о компании учтён.</span></div>`;
+  if (!inv.feedback_open) return '';
+  const opts = Object.entries((META && META.company_feedback) || {});
+  return `<div class="panel stack">
+    <h3>Как прошло общение с компанией?</h3>
+    <p class="small muted">По желанию. Отзыв не подписан: компания видит только общую сводку. Он помогает отсеивать работодателей, которые не выходят на связь или зовут на несуществующие вакансии.</p>
+    <div class="chips">${opts.map(([k, x]) => `<button class="chip ${S.coFb === k ? 'on' : ''}" data-act="co-fb" data-v="${k}">${esc(x)}</button>`).join('')}</div>
+    <div class="row"><button class="btn primary" ${S.coFb ? '' : 'disabled'} data-act="co-fb-send" data-id="${inv.id}">Отправить отзыв</button></div>
+  </div>`;
+}
+
 function inviteView() {
   const inv = D.inv;
   if (!inv) return `${crumbs([['Кабинет', '/c/home'], ['Приглашение']])}<div class="panel">Приглашение не найдено.</div>`;
@@ -1206,7 +1349,7 @@ function inviteView() {
     actions = `<div class="panel stack" style="border-color:var(--ok)">
       <div class="alert ok"><b>Вы приняли приглашение.</b> Ваши контакты открыты компании.</div>
       <dl class="kv"><dt>Компания видит</dt><dd>${[me.name, me.email, me.tg].filter(Boolean).map(esc).join(', ')}</dd></dl>
-    </div>`;
+    </div>${companyFeedback(inv)}`;
   } else if (inv.status === 'declined') {
     actions = `<div class="alert bad">Вы отклонили приглашение. Причина «${esc(inv.reason)}» передана компании без ваших контактов.</div>`;
   } else if (inv.status === 'expired') {
@@ -1414,7 +1557,7 @@ function cVacancyView() {
       </div>`}
     </div>
     <aside class="stack">
-      ${v.fit != null ? `<div class="panel tight stack-s"><span class="label">Соответствие вашему профилю</span><b class="num" style="font-size:28px;color:var(--blue)">${v.fit.toFixed(2)}</b><span class="small muted">По той же формуле, что и подборка: тест, навыки, достижения × вероятность, что вилка вам подойдёт</span></div>` : ''}
+      ${v.fit != null ? `<div class="panel tight stack-s"><span class="label">Соответствие вашему профилю</span><b class="num" style="font-size:28px;color:var(--blue-text)">${v.fit.toFixed(2)}</b><span class="small muted">По той же формуле, что и подборка: тест, навыки, достижения × вероятность, что вилка вам подойдёт</span></div>` : ''}
       <div class="panel tight stack-s">
         <span class="label">Рынок · ${esc(v.spec)} · ${esc(v.grade)}</span>
         <dl class="kv small num" style="grid-template-columns:auto 1fr"><dt>25-й перцентиль</dt><dd>${RUB(v.market.p25)}</dd><dt>медиана</dt><dd>${RUB(v.market.p50)}</dd><dt>75-й перцентиль</dt><dd>${RUB(v.market.p75)}</dd></dl>
@@ -1533,6 +1676,8 @@ V['/e/signup'] = () => {
     <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
       <h1>Вход для компаний</h1>
       <p class="prose">Войдите по рабочей почте. Если компании ещё нет — после входа заполните ИНН и данные рекрутера.</p>
+      ${fspButtons('e')}
+      <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
       <label class="field"><span>Рабочая почта</span><input class="input" id="es-mail" type="email" autocomplete="email" placeholder="hr@company.ru" value="${esc(f.email)}"></label>
       ${f.sent ? `
       <label class="field"><span>Код из письма</span><input class="input num" id="es-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="${esc(f.otp)}" style="max-width:200px"></label>
@@ -1631,7 +1776,7 @@ V['/e/need'] = () => {
   const addBox = k => S.needAdd === k ? `<span class="row" style="gap:6px"><input class="input" id="need-skill" list="skills-list" style="max-width:160px;padding:6px 10px" placeholder="навык"><button class="btn primary small" data-act="need-add-ok" data-k="${k}">Добавить</button><button class="btn ghost small" data-act="need-add" data-k="">×</button></span>` : `<button class="chip dim" data-act="need-add" data-k="${k}">+ навык</button>`;
   return `
   ${crumbs([['Подборки', '/e/picks'], ['Новая потребность']])}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <datalist id="skills-list">${((META && META.skills) || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>
   <div class="grid side fade">
     <div class="stack">
@@ -1714,7 +1859,7 @@ function lotteryPanel(n) {
 
 V['/e/picks'] = () => {
   const P = D.picks;
-  if (!P) return `${crumbs([['Компания', '/e/signup'], ['Подборка']])}${subnav('e')}${unverifiedBanner()}<div class="panel stack"><h2>Потребностей пока нет</h2><p class="prose small">Опишите, кого ищете, — подборка появится сразу.</p><div class="row"><button class="btn primary" data-go="/e/need">Новая потребность</button></div></div>`;
+  if (!P) return `${crumbs([['Компания', '/e/signup'], ['Подборка']])}${subnav('e')}${coBanners()}<div class="panel stack"><h2>Потребностей пока нет</h2><p class="prose small">Опишите, кого ищете, — подборка появится сразу.</p><div class="row"><button class="btn primary" data-go="/e/need">Новая потребность</button></div></div>`;
   const n = P.need, list = P.items, q = P.quota;
   const fl = [['fmt', 'Формат совпадает'], ['free', 'Без перегрузки'], ['fsp', 'Есть ФСП'], ['cf', 'Есть Codeforces']];
   const cats = P.categories, warnCat = cats.find(c => !c.current && !c.fork_ok && c.note);
@@ -1723,7 +1868,7 @@ V['/e/picks'] = () => {
   return `
   ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Подборка']])}
   ${subnav('e')}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="row sb fade" style="margin-bottom:16px">
     <div class="stack-s"><h2>${esc(roleTitle(n))}</h2><span class="small muted">${esc(n.must.join(', '))}${n.nice.length ? ' · желательно ' + esc(n.nice.join(', ')) : ''} · ${K(n.from)} — ${K(n.to)} на руки${n.format ? ' · ' + esc([n.format.toLowerCase(), n.city].filter(Boolean).join(', ')) : ''}</span></div>
     <div class="row"><button class="btn ghost small" data-go="/e/need">Изменить потребность</button><button class="btn ghost small" data-go="/e/pipeline">Приглашения</button></div>
@@ -1733,8 +1878,9 @@ V['/e/picks'] = () => {
       <div class="panel tight stack-s">
         <span class="label">Квота на неделю</span>
         <div class="row sb"><b class="num" style="font-size:22px">${q.used} / ${q.max}</b><span class="small muted">до ${DAYMON(q.resets_at)}</span></div>
-        <div class="meter"><i style="width:${Math.min(100, q.used / q.max * 100)}%"></i></div>
+        <div class="meter"><i style="width:${q.max ? Math.min(100, q.used / q.max * 100) : 100}%"></i></div>
         <p class="small muted">${q.accepted_share != null ? `Принято ${PCT(q.accepted_share)} ваших приглашений. ` : 'Закрытых приглашений пока нет. '}${q.accepted_share != null && q.accepted_share >= .5 ? `Это больше 50 %, поэтому лимит — ${q.next_max} в неделю.` : 'При 50 %+ лимит на следующей неделе вырастет до 12.'}</p>
+        ${q.reputation && q.reputation.counts ? `<p class="small muted">Отзывы кандидатов за ${q.reputation.window_days} дней: ${esc(fbSummary(q.reputation))}.</p>` : ''}
       </div>
       <div class="panel tight stack-s">
         <span class="label">Рекомендованные категории</span>
@@ -1946,7 +2092,7 @@ function candView() {
   const ach = [...(c.badges || []).map(badgeTitle), c.sport_rank ? 'спортивный разряд: ' + c.sport_rank : '', c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id)]])}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="grid side fade">
     <div class="stack">
       <div class="panel stack">
@@ -2031,7 +2177,7 @@ function inviteFormView() {
   const ok = !errs.length && q.used < q.max;
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id), '/e/cand/' + esc(c.id)], ['Приглашение']])}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="grid side fade">
     <form class="panel stack" id="inv-form" novalidate>
       <h2>Приглашение для ${esc(c.id)}</h2>
@@ -2054,7 +2200,7 @@ function inviteFormView() {
       <div class="panel tight stack-s">
         <span class="label">Квота</span>
         <p class="num"><b>${q.used} / ${q.max}</b> <span class="small muted">после отправки: ${q.used + 1}</span></p>
-        <div class="meter"><i style="width:${Math.min(100, q.used / q.max * 100)}%"></i></div>
+        <div class="meter"><i style="width:${q.max ? Math.min(100, q.used / q.max * 100) : 100}%"></i></div>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Рынок · ${esc(c.spec)} · ${esc(c.grade)}</span>
@@ -2113,7 +2259,7 @@ V['/e/search'] = () => {
   return `
   ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Поиск по банку']])}
   ${subnav('e')}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="grid side-l">
     <aside class="stack">
       <div class="panel tight stack-s">
@@ -2202,7 +2348,7 @@ V['/e/vacancies'] = () => {
   return `
   ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Вакансии']])}
   ${subnav('e')}
-  ${unverifiedBanner()}
+  ${coBanners()}
   <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>Вакансии</h2><span class="small muted">Дополнительный путь: кандидат откликается сам, контакты видны сразу. Основной — приглашения из подборки.</span></div>${S.vform ? '' : '<button class="btn primary small" data-act="vac-new">Новая вакансия</button>'}</div>
   <div class="stack">
     ${S.vform ? vacancyForm() : ''}
@@ -2513,6 +2659,7 @@ async function load(r) {
     }
     else if (page === 'home') { D.invites = null; D.invites = await api('GET', '/api/candidate/invites'); }  // null — признак ошибки загрузки
     else if (page === 'invite') {
+      S.coFb = null;  // выбор отзыва — для конкретного приглашения
       [D.inv, D.invTasks] = await Promise.all([or404(api('GET', '/api/candidate/invites/' + encodeURIComponent(arg))), or404(api('GET', '/api/tasks/for-invitation/' + encodeURIComponent(arg)))]);
       S.declineFor = null;
     }
@@ -2661,7 +2808,14 @@ const CONFIRM = {
   },
 };
 
+/* тема: явный выбор в localStorage, без него — системная (см. скрипт в <head>) */
+const darkMq = matchMedia('(prefers-color-scheme: dark)');
+const isDark = () => (document.documentElement.dataset.theme || (darkMq.matches ? 'dark' : 'light')) === 'dark';
+const paintTheme = () => { document.getElementById("theme").innerHTML = isDark() ? `<span aria-hidden="true">☀</span> Светлая тема` : `<span aria-hidden="true">☾</span> Тёмная тема`; };
+darkMq.addEventListener('change', paintTheme);
+
 const ACT = {
+  theme: () => { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; LS.set('fsp.theme', t); paintTheme(); },
   map: () => openMap(),
   noop: (a, d) => toast(d.msg || 'Пока не реализовано'),
   reload: () => refresh(),
@@ -2689,7 +2843,7 @@ const ACT = {
     toast(d.who === 'newco' ? 'Вход: «Новый Стартап» (компания не прошла проверку)' : 'Демо-вход выполнен');
     go(d.who === 'c' ? '/c/home' : '/e/picks');
   },
-  'fsp-login': () => fspStart('login'),
+  'fsp-login': (a, d) => fspStart('login', d.side, d.idp),
   'fsp-link': () => fspStart('link'),
   async 'otp-send'() {
     if (!S.signup.email) throw new Error('Укажите почту');
@@ -2845,6 +2999,11 @@ const ACT = {
   async status(a, d) { await api('PATCH', '/api/candidate/status', { status: d.v }); ME.status = d.v; rerender(); },
   async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: !(ME.notif && ME.notif[d.k]) })).notif; rerender(); },
   async accept(a, d) { D.inv = await api('POST', `/api/candidate/invites/${d.id}/accept`); toast('Приглашение принято. Компания получила ваши контакты'); rerender(); },
+  'co-fb': (a, d) => { S.coFb = d.v; rerender(); },
+  async 'co-fb-send'(a, d) {
+    D.inv = await api('POST', `/api/candidate/invites/${d.id}/company-feedback`, { value: S.coFb });
+    S.coFb = null; toast('Спасибо! Отзыв учтён'); rerender();
+  },
   'ask-decline': (a, d) => { S.declineFor = +d.id; S.declineReason = null; S.dcComment = ''; rerender(); },
   'cancel-decline': () => { S.declineFor = null; rerender(); },
   reason: (a, d) => { S.declineReason = d.v; rerender(); },
@@ -3020,6 +3179,8 @@ document.addEventListener('click', e => {
   const p = ACT[a.dataset.act](a, a.dataset);
   if (p && p.then) { a.disabled = true; p.catch(fail).finally(() => { a.disabled = false; }); }
 });
+
+paintTheme();
 
 document.addEventListener('change', async e => {
   const t = e.target;

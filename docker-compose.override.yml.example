@@ -1,0 +1,5 @@
+# Правка фронта без пересборки образа: cp docker-compose.override.yml.example docker-compose.override.yml
+# Каталог frontend/ на хосте должен существовать всё время, пока контейнер жив (пересоздали каталог — перезапустите api).
+services:
+  api:
+    volumes: [./frontend:/srv/frontend:ro]
