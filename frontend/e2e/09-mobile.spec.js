@@ -23,6 +23,16 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await page.getByRole('button', { name: 'Экраны' }).click();
       await expect(page.locator('#overlay')).toContainText('Карточка кандидата');
       await noHScroll(page, 'меню экранов');
+
+      // иконка и манифест: стенд можно добавить на домашний экран телефона
+      const man = await page.evaluate(async () => {
+        const href = document.querySelector('link[rel=manifest]').href;
+        const m = await (await fetch(href)).json();
+        const icons = await Promise.all(m.icons.map(async i => (await fetch(new URL(i.src, href))).status));
+        const touch = (await fetch(document.querySelector('link[rel=apple-touch-icon]').href)).status;
+        return { display: m.display, start: m.start_url, icons, touch };
+      });
+      expect(man).toEqual({ display: 'standalone', start: '/', icons: [200, 200, 200], touch: 200 });
     });
 
     test(`${name}: кабинет кандидата`, async ({ page }) => {
