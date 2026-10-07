@@ -180,7 +180,7 @@ def _(rng):
         f"На новом пуле не хватает ресурсов: выселенные поды {svc} не могут запланироваться, и drain ждёт, пока замена не станет Ready",
         f"Поды {svc} не обрабатывают SIGTERM, и выселение ждёт весь terminationGracePeriod",
     ])
-    return {"scene_title": "Drain не идёт", "story": f"Переводите кластер на новый пул узлов. kubectl drain старого узла висит {m} минут: «Cannot evict pod as it would violate the pod's disruption budget».",
+    return {"scene_title": "Drain не идёт", "story": f"Переводите кластер на новый пул узлов. kubectl drain старого узла висит уже {m} мин: «Cannot evict pod as it would violate the pod's disruption budget».",
             "prompt": "Что мешает и как исправить?", "panel": {"type": "code", "lang": "yaml", "lines": lines}, "options": opts, "key": key}
 
 

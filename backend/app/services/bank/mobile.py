@@ -147,7 +147,7 @@ def _(rng):
         _log(t(mins, 41), "FragmentManager", "DEBUG", f"restored back stack top={frag}; SavedStateHandle keys=[{keys}]"),
         _log(t(mins, 41), "AndroidRuntime", "ERROR", f"FATAL EXCEPTION: main\nkotlin.UninitializedPropertyAccessException: lateinit property {field} has not been initialized\n"
                                                       f"  at ru.demo.app.{holder}.get{field.capitalize()}"),
-        _log(t(mins + 1, 0), "qa", "INFO", "«Don't keep activities» и поворот экрана — без падений; краши только у тех, кто возвращается через десятки минут"),
+        _log(t(mins + 1, 0), "qa", "INFO", "«Don't keep activities» и поворот экрана — без падений; краши только у тех, кто возвращается через 15 минут и позже"),
     ]
     right = rng.choice([f"Процесс убит системой в фоне: стек экранов и SavedStateHandle восстановились, а синглтон {holder} пуст — он должен подниматься из хранилища сам",
                         f"Система убила процесс в фоне; при возврате {frag} и SavedStateHandle восстановлены, а синглтон {holder} — нет: он должен уметь подниматься из хранилища"])
