@@ -1,6 +1,9 @@
 // Мобильная вёрстка: телефон 375×812 и планшет 768×1024 (сенсорный экран). Ключевые экраны обоих кабинетов без
-// горизонтальной прокрутки страницы; широкая таблица воронки на телефоне — карточки; пустая панель чата не занимает экран.
-const { test, expect, demo, open, settled } = require('./fixtures');
+// горизонтальной прокрутки страницы; шапка в одну строку, роли и выход — в меню; разделы кабинета — одной строкой
+// с прокруткой; фильтры сворачиваются, а список не уезжает под боковые панели; чат — список или диалог; тест —
+// прилипающие таймер и «Дальше»; поля не меньше 16 px (iOS не увеличивает страницу); манифест для домашнего экрана.
+const { test, expect, demo, open, settled, toast } = require('./fixtures');
+const { uniq } = require('./helpers');
 
 const C_SCREENS = ['/c/home', '/c/vacancies', '/c/applications', '/c/tasks', '/c/chat', '/c/result', '/c/settings', '/c/profile'];
 const E_SCREENS = ['/e/picks', '/e/search', '/e/need', '/e/pipeline', '/e/vacancies', '/e/tasks', '/e/chat'];
@@ -10,19 +13,35 @@ async function noHScroll(page, label) {
   const { sw, w } = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, w: document.documentElement.clientWidth }));
   expect(sw, `${label}: ширина страницы ${sw} > окна ${w}`).toBeLessThanOrEqual(w);
 }
+const box = loc => loc.evaluate(e => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, h: r.height }; });
+// все элементы — в одной строке (общий верх)
+const oneLine = loc => loc.evaluateAll(els => new Set(els.map(e => Math.round(e.getBoundingClientRect().top))).size === 1);
 
 for (const [name, viewport] of [['телефон', { width: 375, height: 812 }], ['планшет', { width: 768, height: 1024 }]]) {
+  const phone = viewport.width < 640;
   test.describe(name, () => {
     test.use({ viewport, hasTouch: true, isMobile: true });
 
-    test(`${name}: публичные экраны и меню`, async ({ page }) => {
+    test(`${name}: публичные экраны, шапка и меню`, async ({ page }) => {
       for (const r of ['/', '/c/signup', '/e/signup', '/v']) {
         await open(page, r);
         await noHScroll(page, r);
       }
-      await page.getByRole('button', { name: 'Экраны' }).click();
+      // шапка — одна строка: роли и «Выйти» спрятаны, вместо «Экраны» — «Меню»
+      expect((await box(page.locator('header.top'))).h).toBeLessThanOrEqual(64);
+      await expect(page.locator('header .roles')).toBeHidden();
+      await page.getByRole('button', { name: 'Меню' }).click();
       await expect(page.locator('#overlay')).toContainText('Карточка кандидата');
       await noHScroll(page, 'меню экранов');
+      expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).toBe('hidden');  // страница под меню не прокручивается
+      // роль переключается из меню, меню закрывается
+      const roles = page.locator('#overlay').getByRole('navigation', { name: 'Роль' });
+      await expect(roles.getByRole('button', { name: 'Валидация' })).toHaveAttribute('aria-pressed', 'true');
+      await roles.getByRole('button', { name: 'Работодатель' }).click();
+      await settled(page);
+      await expect(page.getByRole('heading', { name: 'Вход для компаний' })).toBeVisible();
+      await expect(page.locator('#overlay')).toBeEmpty();
+      expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).not.toBe('hidden');
 
       // иконка и манифест: стенд можно добавить на домашний экран телефона
       const man = await page.evaluate(async () => {
@@ -41,6 +60,19 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
         await open(page, r);
         await noHScroll(page, r);
       }
+      // разделы — одна строка с прокруткой, активный раздел виден целиком
+      await open(page, '/c/settings');
+      const nav = page.locator('nav.subnav');
+      expect(await oneLine(nav.locator('.chip'))).toBe(true);
+      const [n, on] = [await box(nav), await box(nav.locator('.chip.on'))];
+      expect(on.left).toBeGreaterThanOrEqual(n.left);
+      expect(on.right).toBeLessThanOrEqual(n.right);
+      // «Выйти» — в меню, а не в шапке
+      await expect(page.locator('#logout')).toBeHidden();
+      await page.getByRole('button', { name: 'Меню' }).click();
+      await expect(page.locator('#overlay').getByRole('button', { name: 'Выйти из кабинета кандидата' })).toBeVisible();
+      await page.locator('#overlay').getByRole('button', { name: 'Закрыть' }).click();
+
       await open(page, '/c/home');
       await page.locator('.inv').first().click();
       await settled(page);
@@ -66,13 +98,13 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await noHScroll(page, 'форма приглашения');
 
       await open(page, '/e/pipeline');
-      const head = page.locator('table.tbl.stack thead');
-      if (viewport.width < 640) {
-        await expect(head).toBeHidden();  // на телефоне строка воронки — карточка с подписями
+      const thead = page.locator('table.tbl.stack thead');
+      if (phone) {
+        await expect(thead).toBeHidden();  // на телефоне строка воронки — карточка с подписями
         const role = page.locator('table.tbl.stack tbody td[data-l="Роль"]').first();
         expect(await role.evaluate(e => getComputedStyle(e, '::before').content)).toBe('"Роль"');
       } else {
-        await expect(head).toBeVisible();
+        await expect(thead).toBeVisible();
       }
 
       await open(page, '/e/chat');
