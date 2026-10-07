@@ -30,10 +30,19 @@ services:
       SMTP_FROM: ${SMTP_FROM:-no-reply@fsp-career.local}
       # перец для HMAC кодов входа; задайте постоянный на стенде, иначе коды сгорают при рестарте
       SECRET_KEY: ${SECRET_KEY:-}
-      # локальная модель на хосте (ollama serve); недоступна → подбор на правилах
-      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
-      LLM_MODEL: ${LLM_MODEL:-qwen2.5:32b-instruct}
-      EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
+      # LLM: none — только правила (стенд жюри: без GPU и ключей); ollama — локальная модель на хосте (ollama serve);
+      # yandexgpt / gigachat — российские облачные (ключи ниже). Пустые значения = пресет провайдера, см. README
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434/v1}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      EMBED_MODEL: ${EMBED_MODEL:-}  # none — без эмбеддингов
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      YANDEX_FOLDER_ID: ${YANDEX_FOLDER_ID:-}
+      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY:-}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-}
+      LLM_CA_BUNDLE: ${LLM_CA_BUNDLE:-}
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: [./frontend:/srv/frontend:ro]
     ports: ["8000:8000"]

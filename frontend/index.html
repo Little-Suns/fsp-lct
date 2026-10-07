@@ -810,6 +810,7 @@ V['/c/profile'] = () => {
         </div>
         <div class="field"><span>Грейд, на который претендуете</span>
           <div class="seg" role="group">${((META && META.grades) || ['Intern', 'Junior', 'Middle', 'Senior', 'Lead']).map(g => `<button data-act="pgrade" data-v="${g}" aria-pressed="${g === f.grade}">${g}</button>`).join('')}</div>
+          ${S.cv && S.cv.parsed && S.cv.parsed.grade_hint ? `<p class="small" id="grade-hint">По резюме похоже на <b>${esc(S.cv.parsed.grade_hint.grade)}</b>: ${esc(S.cv.parsed.grade_hint.why)}. Это подсказка — выберите сами, тест подтвердит или нет.</p>` : ''}
           <span class="hint">Тест проверит грейд. Если он окажется ниже — категория обновится сразу, выше — через 90 дней.</span>
         </div>
         <div class="field"><span>Роли</span>
@@ -2493,7 +2494,7 @@ const ACT = {
   },
 
   // профиль, резюме, достижения
-  pgrade: (a, d) => { S.pf.grade = d.v; rerender(); },
+  pgrade: (a, d) => { S.pf.grade = d.v; S.pf.gradeSet = true; rerender(); },
   pfmt: (a, d) => { const f = S.pf.formats; f.includes(d.v) ? f.splice(f.indexOf(d.v), 1) : f.push(d.v); rerender(); },
   async pdfexp() {  // сохраняется сразу, как переключатели уведомлений: к сохранению профиля и тесту не привязано
     Object.assign(ME, await api('PATCH', '/api/candidate/pdf', { experience: ME.pdf_experience === false }));
@@ -2785,6 +2786,8 @@ document.addEventListener('change', async e => {
       if (p.years_exp != null) S.pf.years = p.years_exp;
       if (p.roles.length) S.pf.roles = p.roles;
       if (p.soft_skills.length) S.pf.soft = p.soft_skills;
+      // подсказка грейда — только предвыбор: выбранный кандидатом или сохранённый грейд не перетираем
+      if (p.grade_hint && !S.pf.gradeSet && !(ME && ME.grade_claimed)) S.pf.grade = p.grade_hint.grade;
       if (!S.pf.name && p.contacts.name) S.pf.name = p.contacts.name;  // своё не перетираем
       if (!S.pf.tg && p.contacts.tg) S.pf.tg = p.contacts.tg;
       if (ME) ME.experience = p.experience;  // профиль уже есть — сервер сохранил текст резюме, PDF возьмёт новые места работы

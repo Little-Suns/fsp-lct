@@ -19,7 +19,17 @@ docker compose exec api python -m app.services.validation    # метрики д
 
 Открыть http://localhost:8000. Документация API: http://localhost:8000/docs. Вкладки «Кандидат» и «Работодатель» в шапке входят за демо-персонажей (Дмитрий Орлов, A-1042, и «Ладога Пэй»).
 
-Локальная LLM необязательна. Если запущен `ollama serve` с моделями из `LLM_MODEL` / `EMBED_MODEL` (по умолчанию `qwen2.5:32b-instruct` и `bge-m3`), разбор потребностей и резюме и реранк топ-30 идут через неё. Если нет, всё работает на правилах и справочнике навыков.
+LLM необязательна: по умолчанию `LLM_PROVIDER=none` и всё работает на правилах и справочнике навыков — так стенд жюри обходится без GPU и ключей, а валидация (`app.services.validation`) всегда детерминирована на правилах. Модель, если включена, помогает в трёх местах: разбор текста потребности и резюме (ответ проверяется по справочникам, суммы всегда берутся из правил), реранк топ-30 подборки (только структурные поля без ФИО), эмбеддинги для поиска. Любой сбой, таймаут или мусор в ответе → правила, модель не дёргается минуту. Текст резюме и потребности уходит в модель только после маскировки ПДн (`parsing.mask_pii`: ФИО, почта, телефон, Telegram, ссылки на профили, адрес, дата рождения, гражданство → метки; это правила, а не NER — ограничения в `table.md`); контакты распознаются правилами локально.
+
+| `LLM_PROVIDER` | Что нужно | Модели по умолчанию (`LLM_MODEL` / `EMBED_MODEL`) |
+|---|---|---|
+| `none` | — | — |
+| `ollama` | `ollama serve` на хосте, `ollama pull mistral:7b bge-m3`; адрес — `OLLAMA_URL` (в compose `http://host.docker.internal:11434/v1`) | `mistral:7b` / `bge-m3` |
+| `openai_compatible` | `LLM_BASE_URL` (vLLM и т. п.), при необходимости `LLM_API_KEY` (Bearer), `LLM_MODEL`, `EMBED_MODEL` | — |
+| `yandexgpt` | Yandex AI Studio: `LLM_API_KEY` (API-ключ сервисного аккаунта с ролью `ai.languageModels.user`), `YANDEX_FOLDER_ID`; OpenAI-совместимый `https://llm.api.cloud.yandex.net/v1`, логирование запросов на стороне Yandex выключено заголовком | `yandexgpt-lite/latest` / `text-search-doc/latest` (→ `gpt://<каталог>/…`, `emb://<каталог>/…`) |
+| `gigachat` | `GIGACHAT_AUTH_KEY` (ключ авторизации из кабинета), `GIGACHAT_SCOPE` (`GIGACHAT_API_PERS` по умолчанию, для юрлиц `…_B2B` / `…_CORP`); токен OAuth получается и обновляется сам; `LLM_CA_BUNDLE` — путь к PEM «Russian Trusted Root CA» (добавляется к системным корням, проверка TLS не отключается) | `GigaChat` / `Embeddings` |
+
+Пример: `LLM_PROVIDER=ollama docker compose up -d --build` или `LLM_PROVIDER=gigachat GIGACHAT_AUTH_KEY=… LLM_CA_BUNDLE=/certs/russian_trusted_root_ca.pem docker compose up -d` (файл сертификата смонтируйте в контейнер). `EMBED_MODEL=none` выключает эмбеддинги, `LLM_TIMEOUT` — таймаут запроса, с. Векторы считаются при сохранении профиля и потребности; если у кого-то вектора нет или размерность другая (сменили модель), подбор идёт по навыкам. Ключи — только из окружения. Живой смоук: `cd backend && LIVE_LLM=1 LLM_PROVIDER=ollama uv run pytest -q -s tests/test_llm_live.py` (замеры — в `table.md`).
 
 Без Docker для API: `docker compose up -d db`, затем `cd backend && uv run python -m seed.generate --reset && DEMO=1 uv run uvicorn app.main:app --port 8000`.
 
