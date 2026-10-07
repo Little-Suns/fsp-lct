@@ -324,6 +324,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .bar .b { height: 18px; background: var(--mist); border-radius: 4px; overflow: hidden; }
 .bar .b i { display: block; height: 100%; background: var(--blue); }
 .bar .b i.alt { background: var(--blue-line); }
+/* матрица «истинный грейд × грейд теста»: насыщенность фона — доля строки (текст всегда тёмный: контраст ≥ 4,5:1), диагональ — рамкой */
+.tbl.heat caption { caption-side: top; text-align: left; font-size: 12px; color: var(--ink-3); padding-bottom: 6px; }
+.tbl.heat td.c { text-align: center; font-variant-numeric: tabular-nums; padding: 10px 6px; }
+.tbl.heat td.c.diag { outline: 2px solid var(--blue-ink); outline-offset: -2px; font-weight: 600; }
 .bar .b i.red { background: var(--red); }
 .bar .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 @media (max-width: 560px) { .bar { grid-template-columns: minmax(0, 1fr) 48px; } .bar > :first-child { grid-column: 1 / -1; } }
@@ -2114,7 +2118,7 @@ const gchip = g => `<span class="chip ${['Senior', 'Lead'].includes(g) ? 'bad' :
 
 V['/v'] = () => {
   const R = D.val;
-  const ds = R && R.dataset, Q = R && R.quality, M = R && R.market, C = R && R.cheater, St = R && R.stability;
+  const ds = R && R.dataset, Q = R && R.quality, M = R && R.market, C = R && R.cheater, St = R && R.stability, Sp = R && R.separation;
   const vs = Q ? Q.variants : [];
   const qo = M && M.rows.some(r => r.quota_only != null);
   return `
@@ -2166,8 +2170,44 @@ V['/v'] = () => {
         <div class="stat"><span class="label">Утечка: сложность клона задания</span><b>±${DEC(St.clone_b_spread)}</b><span class="small muted">разброс b внутри семейства</span></div>
       </div>` : VAL_RUN}
     </div>
+    <div class="panel stack" style="grid-column:1/-1">
+      <h3>Разделяющая сила теста</h3>
+      <p class="small muted">Отличает ли тест один грейд от другого${Sp && Sp.simulated ? `. Симуляция: ${Sp.n_per_grade} кандидатов на грейд, банки ${Sp.specs} специализаций; истинный θ взят из полосы грейда, грейд теста считается по θ − SE, как в продукте` : ''}</p>
+      ${Sp ? vsep(Sp) : VAL_RUN}
+    </div>
   </div>`;
 };
+
+// разделяющая сила: сводка, матрица «истинный × тест» (доли строки), соседние грейды, по специализациям, задания
+function vsep(Sp) {
+  const G = Sp.grades, it = Sp.items;
+  const quart = (label, q) => `<tr><td>${label}</td>${['min', 'q1', 'median', 'q3', 'max'].map(k => `<td class="num">${DEC(q[k])}</td>`).join('')}</tr>`;
+  return `<div class="grid g3" style="gap:16px">
+    <div class="stat"><span class="label">Точное совпадение грейда</span><b>${PCT(Sp.accuracy)}</b><span class="small muted">${Sp.accuracy_point != null ? `по θ̂ без запаса SE — ${PCT(Sp.accuracy_point)}` : 'грейд по θ − SE'}</span></div>
+    <div class="stat"><span class="label">В пределах ±1 грейда</span><b>${PCT(Sp.within_one)}</b><span class="small muted">из ошибок в соседний грейд — ${PCT(Sp.adjacent_error_share)}</span></div>
+    <div class="stat"><span class="label">κ с квадратичными весами</span><b>${DEC(Sp.qwk)}</b><span class="small muted">согласие истинного и тестового грейда</span></div>
+  </div>
+  <div class="tbl-wrap"><table class="tbl heat">
+    <caption>Строки — истинный грейд, столбцы — грейд по тесту; в ячейке доля строки, рамка — совпадение</caption>
+    <thead><tr><th scope="col">Истинный грейд</th>${G.map(g => `<th scope="col" class="num">${esc(g)}</th>`).join('')}<th scope="col" class="num">Точность</th></tr></thead>
+    <tbody>${Sp.confusion.map((row, i) => { const n = row.reduce((a, b) => a + b, 0) || 1; return `<tr><th scope="row">${esc(G[i])}</th>${row.map((x, j) => `<td class="c${i === j ? ' diag' : ''}" style="background:rgba(64,47,255,${(0.04 + 0.5 * x / n).toFixed(2)})"${i === j ? ` aria-label="${PCT(x / n)}, совпадение"` : ''}>${PCT(x / n)}</td>`).join('')}<td class="num"><b>${PCT(Sp.per_grade[i].accuracy)}</b></td></tr>`; }).join('')}</tbody>
+  </table></div>
+  <div class="grid g2" style="gap:16px">
+    ${Sp.adjacent ? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Соседние грейды</th><th class="num">AUC по θ̂</th><th class="num">Перекрытие θ̂</th></tr></thead>
+      <tbody>${Sp.adjacent.map(p => `<tr><td>${esc(p.lo)} | ${esc(p.hi)}</td><td class="num">${DEC(p.auc)}</td><td class="num">${PCT(p.overlap)}</td></tr>`).join('')}</tbody>
+    </table></div>` : ''}
+    ${Sp.by_spec ? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Специализация</th><th class="num">Семейств</th><th class="num">Точно</th><th class="num">±1</th><th class="num">SE</th></tr></thead>
+      <tbody>${Sp.by_spec.map(r => `<tr><td>${esc(r.spec)}</td><td class="num">${r.families}</td><td class="num">${PCT(r.accuracy)}</td><td class="num">${PCT(r.within_one)}</td><td class="num">${DEC(r.se_mean)}</td></tr>`).join('')}</tbody>
+    </table></div>` : ''}
+  </div>
+  ${it ? `<div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Дискриминативность заданий (${it.n})</th><th class="num">min</th><th class="num">Q1</th><th class="num">медиана</th><th class="num">Q3</th><th class="num">max</th></tr></thead>
+    <tbody>${quart('a — крутизна кривой 2PL', it.a)}${quart(`r<sub>pb</sub> ответа с суммой остальных, выборка ${it.calib_n}`, it.rpb)}</tbody>
+  </table></div>
+  <p class="small muted">Слабо различающих заданий (r<sub>pb</sub> &lt; 0,2): ${PCT(it.rpb_poor)} — на модельных ответах по той же 2PL, калибровки по живым ответам пока нет. AUC — вероятность, что у кандидата старшего грейда оценка θ выше, чем у младшего; 0,5 — не различает.</p>` : ''}`;
+}
 
 /* ===================== карта экранов ===================== */
 const MAP = [

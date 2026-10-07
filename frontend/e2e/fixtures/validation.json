@@ -166,5 +166,228 @@
   "cf_n": 191,
   "clone_b_spread": 0.049,
   "theta_corr": 0.939
+ },
+ "today": "2026-10-05",
+ "separation": {
+  "simulated": true,
+  "n_per_grade": 200,
+  "specs": 8,
+  "grades": [
+   "Intern",
+   "Junior",
+   "Middle",
+   "Senior",
+   "Lead"
+  ],
+  "confusion": [
+   [
+    194,
+    6,
+    0,
+    0,
+    0
+   ],
+   [
+    106,
+    92,
+    2,
+    0,
+    0
+   ],
+   [
+    18,
+    118,
+    64,
+    0,
+    0
+   ],
+   [
+    1,
+    48,
+    140,
+    11,
+    0
+   ],
+   [
+    0,
+    15,
+    161,
+    20,
+    4
+   ]
+  ],
+  "per_grade": [
+   {
+    "grade": "Intern",
+    "n": 200,
+    "accuracy": 0.97,
+    "under": 0.0,
+    "over": 0.03,
+    "theta_mean": -0.9,
+    "theta_sd": 0.5,
+    "se_mean": 0.56
+   },
+   {
+    "grade": "Junior",
+    "n": 200,
+    "accuracy": 0.46,
+    "under": 0.53,
+    "over": 0.01,
+    "theta_mean": -0.05,
+    "theta_sd": 0.49,
+    "se_mean": 0.52
+   },
+   {
+    "grade": "Middle",
+    "n": 200,
+    "accuracy": 0.32,
+    "under": 0.68,
+    "over": 0.0,
+    "theta_mean": 0.73,
+    "theta_sd": 0.55,
+    "se_mean": 0.52
+   },
+   {
+    "grade": "Senior",
+    "n": 200,
+    "accuracy": 0.055,
+    "under": 0.945,
+    "over": 0.0,
+    "theta_mean": 1.32,
+    "theta_sd": 0.43,
+    "se_mean": 0.55
+   },
+   {
+    "grade": "Lead",
+    "n": 200,
+    "accuracy": 0.02,
+    "under": 0.98,
+    "over": 0.0,
+    "theta_mean": 1.67,
+    "theta_sd": 0.41,
+    "se_mean": 0.58
+   }
+  ],
+  "accuracy": 0.365,
+  "accuracy_point": 0.489,
+  "within_one": 0.757,
+  "adjacent_error_share": 0.617,
+  "qwk": 0.599,
+  "adjacent": [
+   {
+    "lo": "Intern",
+    "hi": "Junior",
+    "auc": 0.883,
+    "overlap": 0.42
+   },
+   {
+    "lo": "Junior",
+    "hi": "Middle",
+    "auc": 0.855,
+    "overlap": 0.44
+   },
+   {
+    "lo": "Middle",
+    "hi": "Senior",
+    "auc": 0.794,
+    "overlap": 0.545
+   },
+   {
+    "lo": "Senior",
+    "hi": "Lead",
+    "auc": 0.72,
+    "overlap": 0.65
+   }
+  ],
+  "by_spec": [
+   {
+    "spec": "Backend",
+    "families": 24,
+    "accuracy": 0.584,
+    "within_one": 0.992,
+    "items": 12.0,
+    "se_mean": 0.33
+   },
+   {
+    "spec": "Frontend",
+    "families": 6,
+    "accuracy": 0.368,
+    "within_one": 0.728,
+    "items": 6.0,
+    "se_mean": 0.57
+   },
+   {
+    "spec": "Mobile",
+    "families": 6,
+    "accuracy": 0.384,
+    "within_one": 0.736,
+    "items": 6.0,
+    "se_mean": 0.57
+   },
+   {
+    "spec": "ML / DS",
+    "families": 6,
+    "accuracy": 0.32,
+    "within_one": 0.728,
+    "items": 6.0,
+    "se_mean": 0.57
+   },
+   {
+    "spec": "Data Eng / Analytics",
+    "families": 6,
+    "accuracy": 0.256,
+    "within_one": 0.688,
+    "items": 6.0,
+    "se_mean": 0.59
+   },
+   {
+    "spec": "DevOps / SRE",
+    "families": 6,
+    "accuracy": 0.368,
+    "within_one": 0.752,
+    "items": 6.0,
+    "se_mean": 0.58
+   },
+   {
+    "spec": "QA",
+    "families": 6,
+    "accuracy": 0.264,
+    "within_one": 0.704,
+    "items": 6.0,
+    "se_mean": 0.59
+   },
+   {
+    "spec": "Security",
+    "families": 6,
+    "accuracy": 0.376,
+    "within_one": 0.728,
+    "items": 6.0,
+    "se_mean": 0.57
+   }
+  ],
+  "items": {
+   "n": 402,
+   "a": {
+    "min": 1.617,
+    "q1": 1.701,
+    "median": 1.78,
+    "q3": 2.219,
+    "max": 2.618
+   },
+   "a_bins": {
+    "low": 0,
+    "moderate": 0,
+    "high": 402
+   },
+   "rpb": {
+    "min": 0.269,
+    "q1": 0.419,
+    "median": 0.499,
+    "q3": 0.551,
+    "max": 0.661
+   },
+   "rpb_poor": 0.0,
+   "calib_n": 500
+  }
  }
 }
