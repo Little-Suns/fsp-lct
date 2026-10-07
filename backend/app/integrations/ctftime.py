@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.integrations import common
-from app.integrations.scoring import place_weight
+from app.integrations.scoring import place_weight, result_of
 from app.models import Achievement, ExternalAccount
 
 API = "https://ctftime.org/api/v1/"
@@ -76,12 +76,6 @@ def event(event_id: int | str, deadline: float | None = None) -> dict:
     return data
 
 
-def level_by_weight(weight: float | None) -> str:
-    """Вес события CTFtime (0–100) → уровень для scoring.place_weight."""
-    w = weight or 0
-    return "international" if w >= 60 else "national" if w >= 30 else "regional" if w >= 15 else "local"
-
-
 def team_places(team_id: int, by_year: dict[int, dict]) -> list[dict]:
     """Из results/{year} выбрать места команды: [{event_id, title, place, participants, time}]."""
     out = []
@@ -124,21 +118,23 @@ def apply(db: Session, acc: ExternalAccount, fetched: dict) -> None:
     keep: list[int] = []
     for p in fetched["top"]:
         meta = p["meta"]
-        level = level_by_weight(meta.get("weight"))
+        # вес события CTFtime (0–100) в наш вес не входит: иерархии соревнований нет, хранится в data как факт
         # events/{id}.participants — число заявок, может быть меньше реальной таблицы
         participants = max(meta.get("participants") or 0, p["participants"])
         ev = common.upsert_event(
-            db, SOURCE, str(p["event_id"]), title=(meta.get("title") or p["title"])[:255], level=level,
+            db, SOURCE, str(p["event_id"]), title=(meta.get("title") or p["title"])[:255],
             date=_iso(meta.get("start")) or common.ts(p["time"]),
             participants=participants, url=meta.get("ctftime_url"), tags=["Security", "CTF"],
         )
         prev = db.scalar(select(Achievement).where(Achievement.candidate_id == acc.candidate_id, Achievement.event_id == ev.id))
         verified = bool(prev and prev.verified)  # подтверждение организатором не теряем при обновлении
-        w = place_weight(p["place"], participants, level)
+        # результат из протокола организатора важнее вывода по месту
+        result = prev.result if verified and prev.result else result_of(p["place"], participants)
+        w = place_weight(p["place"], participants, result)
         ach, _ = common.upsert_achievement(
             db, acc.candidate, SOURCE, ev,
             title=f"{ev.title}: {p['place']} место из {participants}",
-            place=p["place"], team=info.get("name"), role=acc.data.get("role") if not verified else prev.role,
+            place=p["place"], team=info.get("name"), role=acc.data.get("role") if not verified else prev.role, result=result,
             verified=verified, weight=w if verified else round(w * UNVERIFIED_FACTOR, 3),
             data={"kind": "ctf", "team_id": team_id, "ctftime_weight": meta.get("weight")},
         )

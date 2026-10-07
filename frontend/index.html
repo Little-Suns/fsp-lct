@@ -304,7 +304,7 @@ button.chip:hover { border-color: var(--blue); }
 .kv { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px 16px; font-size: 13px; }
 .kv dt { color: var(--ink-3); }
 .kv dd { margin: 0; }
-@media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: 2px; } .kv dd { margin-bottom: 8px; } }
+@media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: 2px 12px; } .kv dd { margin-bottom: 8px; } }
 
 .tbl-wrap { overflow-x: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -324,6 +324,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .bar .b { height: 18px; background: var(--mist); border-radius: 4px; overflow: hidden; }
 .bar .b i { display: block; height: 100%; background: var(--blue); }
 .bar .b i.alt { background: var(--blue-line); }
+/* матрица «истинный грейд × грейд теста»: насыщенность фона — доля строки (текст всегда тёмный: контраст ≥ 4,5:1), диагональ — рамкой */
+.tbl.heat caption { caption-side: top; text-align: left; font-size: 12px; color: var(--ink-3); padding-bottom: 6px; }
+.tbl.heat td.c { text-align: center; font-variant-numeric: tabular-nums; padding: 10px 6px; }
+.tbl.heat td.c.diag { outline: 2px solid var(--blue-ink); outline-offset: -2px; font-weight: 600; }
 .bar .b i.red { background: var(--red); }
 .bar .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 @media (max-width: 560px) { .bar { grid-template-columns: minmax(0, 1fr) 48px; } .bar > :first-child { grid-column: 1 / -1; } }
@@ -351,6 +355,30 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .parsed { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px 16px; align-items: center; }
 @media (max-width: 600px) { .parsed { grid-template-columns: 1fr; gap: 4px; } .parsed > .label { margin-top: 8px; } }
 
+/* ---------- телефон и планшет ---------- */
+@media (max-width: 640px) {
+  /* широкие таблицы (воронка, история тестов): строка — карточка «подпись — значение» */
+  .tbl.stack thead { display: none; }
+  .tbl.stack tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+  .tbl.stack tr:last-child { border-bottom: 0; }
+  .tbl.stack td { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; padding: 4px 0; border: 0; text-align: right; }
+  .tbl.stack td:not([data-l]) { justify-content: flex-start; flex-wrap: wrap; text-align: left; }
+  .tbl.stack td[data-l]::before { content: attr(data-l); flex: none; max-width: 45%; text-align: left; color: var(--ink-3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .tbl.stack td .chips { justify-content: flex-end; }
+  .tbl.stack td[data-l]:empty { display: none; }
+  /* категория «спец · трек · грейд» в узкой колонке карточки не обрезается, а переносится */
+  .cat { flex-wrap: wrap; max-width: 100%; }
+  .cat span { padding: 5px 8px; }
+  .scale-legend .lg span { font-size: 0; }
+  .scale-legend .lg span::before { content: attr(data-s); font-size: 10px; }
+}
+@media (max-width: 900px) { .chat-box.chat-empty { height: auto; min-height: 0; } }
+@media (pointer: coarse) {
+  /* сенсорный экран: зона нажатия не меньше 36 px */
+  .crumbs button { padding: 10px 0; margin: -10px 0; }
+  button.chip, .btn.small, .seg button, .switch { min-height: 36px; }
+  .check input { width: 20px; height: 20px; margin-top: 0; flex: none; }
+}
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .fade { animation: fade .25s ease-out; }
 @keyframes fade { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -411,7 +439,7 @@ const S = {
   questInvite: null,                 // тест по приглашению: invitation_id
   vf: { spec: '', grade: '', format: '', city: '', q: '' },   // фильтры вакансий кандидата
   sf: { spec: '', track: '', grade: '', skills: '', q: '', fsp: false, cf: false, hackathon: false, format: '', city: '', page: 1 },
-  vform: null, tform: null, applyNote: '', answer: '', hiddenEdit: false, needAdd: null, plan: null,
+  vform: null, tform: null, applyNote: '', answer: '', picks: [], hiddenEdit: false, needAdd: null, plan: null,
   appDecline: null, reviewFor: null,
   pf: null, cv: null,
   declineFor: null, declineReason: null,
@@ -479,6 +507,45 @@ async function verifyLogin(role, email, otp) {
   setTok(role, r.token);
 }
 
+// ФСП ID (OIDC): сервер отдаёт адрес провайдера и ставит куку потока; браузер уходит туда целиком
+// согласия, отмеченные на экране регистрации, переживают уход к провайдеру (страница перезагрузится)
+async function fspStart(mode) {
+  const r = await api('POST', '/api/auth/fsp/start', { mode }, 'c');
+  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
+  location.assign(r.url);
+}
+const FSP_ERR = {
+  state: 'Вход через ФСП ID устарел или открыт в другом браузере — начните заново',
+  denied: 'Вход через ФСП ID отменён',
+  provider: 'ФСП ID недоступен или отклонил запрос — попробуйте позже',
+  token: 'ФСП ID прислал неподтверждённые данные — вход отклонён',
+  email: 'В ФСП ID не подтверждена почта — подтвердите её или войдите по коду',
+  role: 'Эта почта зарегистрирована как работодатель — войдите по коду',
+  taken: 'Этот ФСП ID уже привязан к другому аккаунту',
+  other: 'К аккаунту уже привязан другой ФСП ID — сначала отвяжите его в настройках',
+  link: 'Аккаунт с этой почтой уже есть — войдите по коду и привяжите ФСП ID в настройках',
+};
+const fspAch = a => a === 'consent' ? 'Достижения ФСП подтянем после согласия на внешние данные — в настройках' : +a ? `Подтверждено достижений ФСП: ${a}` : 'Новых достижений в ФСП ID нет';
+// возврат из ФСП ID: билет или код ошибки — во фрагменте (не уходит на сервер и в Referer), сразу стираем его из адреса
+async function fspReturn() {
+  if (!location.hash.startsWith('#fsp=')) return;
+  const p = new URLSearchParams(location.hash.slice(1));
+  const kind = p.get('fsp');  // login | linked | error; ошибка у вошедшего — это привязка из настроек
+  history.replaceState(null, '', location.pathname + '#/c/' + (kind === 'linked' || (kind === 'error' && TOK.c) ? 'settings' : 'signup'));
+  if (kind === 'error') {
+    try { sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+    return toast(Object.hasOwn(FSP_ERR, p.get('e')) ? FSP_ERR[p.get('e')] : 'Не удалось войти через ФСП ID');
+  }
+  if (kind === 'linked') return toast('ФСП ID привязан. ' + fspAch(p.get('ach')));
+  const r = await api('POST', '/api/auth/fsp/exchange', { ticket: p.get('t') || '' }, 'c');
+  if (r.role !== 'candidate') throw new Error('Эта почта зарегистрирована как работодатель');
+  clearSide('c');
+  setTok('c', r.token);
+  try { Object.assign(S.signup, JSON.parse(sessionStorage.getItem('fsp.signup')) || {}); sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+  history.replaceState(null, '', location.pathname + (r.has_profile ? '#/c/home' : '#/c/profile'));
+  toast(r.has_profile ? 'Вход через ФСП ID. ' + fspAch(p.get('ach')) : 'Вход через ФСП ID: заполните профиль');
+}
+
 /* ===================== утилиты ===================== */
 const $app = document.getElementById('app');
 const esc = s => (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -494,12 +561,17 @@ const trace = (cls, w, h, d, dots) => `<svg class="trace ${cls}" width="${w}" he
 
 const catTag = (s = ME && ME.spec, t = ME && ME.track, g = ME && (ME.grade || ME.grade_claimed)) => `<span class="cat">${[s, t, g].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</span>`;
 const BADGE = { fsp: 'ФСП', hackathon: 'Хакатон', ctftime: 'CTF' };
-// бейджи достижений на анонимной карточке: ФСП / хакатон / CTF + рейтинг Codeforces
+const RESULT = { winner: 'победитель', prize: 'призёр', finalist: 'финалист', participant: 'участник отбора' };
+// подсказка бейджа: название + дисциплина и результат из протокола (факты, дисциплины не ранжируются)
+const badgeTitle = b => [b.title, b.discipline, RESULT[b.result]].filter(Boolean).join(' · ');
 // грейд категории без теста — со слов кандидата; тест показал не тот грейд, что заявлен, — видны оба
 const gradeNote = c => c.grade_tested === false ? '<span class="chip warn">грейд не подтверждён тестом</span>'
   : c.grade_claimed && c.grade_claimed !== c.grade ? `<span class="chip dim">заявлен ${esc(c.grade_claimed)}, тест — ${esc(c.grade)}</span>` : '';
 const claimedChips = c => c.grade_tested === false ? (c.claimed || []).map(s => `<span class="chip dim">${esc(s)}</span>`).join('') : '';
-const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] : [])).filter((b, i, arr) => BADGE[b.source] && arr.findIndex(x => x.source === b.source) === i).map(b => `<span class="chip ok" title="${esc(b.title)}">${BADGE[b.source]}</span>`).join('') + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
+// бейджи достижений на анонимной карточке: ФСП / хакатон / CTF + разряд ФСП + рейтинг Codeforces
+const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] : [])).filter((b, i, arr) => BADGE[b.source] && arr.findIndex(x => x.source === b.source) === i).map(b => `<span class="chip ok" title="${esc(badgeTitle(b))}">${BADGE[b.source]}</span>`).join('')
+  + (c.sport_rank ? `<span class="chip ok" title="Спортивный разряд по протоколам ФСП">${esc(c.sport_rank)}</span>` : '')
+  + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
 
 // разделы кабинета: одна строка чипов под хлебными крошками
 const NAV = {
@@ -527,6 +599,9 @@ const APP_ST = { sent: ['s-sent', 'отправлен'], seen: ['s-seen', 'пр�
 const appChip = st => `<span class="status ${(APP_ST[st] || APP_ST.sent)[0]}">${(APP_ST[st] || [0, esc(st)])[1]}</span>`;
 const REVIEW = { strong: ['ok', 'сильное решение'], ok: ['', 'нормально'], weak: ['warn', 'слабо'] };
 const reviewChip = r => r ? `<span class="chip ${REVIEW[r][0]}">${REVIEW[r][1]}</span>` : '<span class="chip dim">ждёт оценки</span>';
+// автопроверка по эталону: верно / неверно; null — открытый ответ или проверка не сработала (тогда ждёт оценки работодателя)
+const autoChip = a => a == null ? '' : `<span class="chip ${a ? 'ok' : 'warn'}">${a ? 'верно' : 'неверно'} · автопроверка</span>`;
+const resultChips = s => s.auto_ok == null ? reviewChip(s.review) : autoChip(s.auto_ok) + (s.review ? reviewChip(s.review) : '');
 // о компании — отдельные проверяемые факты, а не общее «подтверждена»: почта входа на домене сайта, контрольные цифры ИНН.
 // domain_confirmed / inn_checksum_valid приходят в приглашениях, вакансиях и задачах; verified — запасной вариант для старых ответов.
 const domainOk = co => co.domain_confirmed !== undefined ? !!co.domain_confirmed : !!co.verified;
@@ -541,7 +616,7 @@ function crumbs(items) {
 
 function compRows(list, showTh = true) {
   const pos = v => ((v + 3) / 6 * 100).toFixed(1);
-  const legend = `<div class="scale-legend"><span></span><div class="lg">${GRADE_TH.map(g => `<span style="left:${pos(g.t)}%">${g.g}</span>`).join('')}</div><span></span></div>`;
+  const legend = `<div class="scale-legend"><span></span><div class="lg">${GRADE_TH.map(g => `<span style="left:${pos(g.t)}%" data-s="${g.g.length > 4 ? g.g.slice(0, 3) : g.g}">${g.g}</span>`).join('')}</div><span></span></div>`;
   return (showTh ? legend : '') + list.map(c => `
     <div class="comp">
       <span>${esc(c.n)}</span>
@@ -642,7 +717,7 @@ V['/c/signup'] = () => `
       <h1>Создайте профиль</h1>
       <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений.</p>
       ${TOK.c ? '<div class="alert ok"><span>✓</span><span>Вы уже вошли. <button class="btn ghost small" data-go="/c/home">В кабинет</button></span></div>' : ''}
-      <button class="btn ghost block" data-act="noop" data-msg="Вход через ФСП ID (OIDC) подключится, когда ФСП выдаст доступ. Пока — по почте" style="justify-content:flex-start;padding:14px 16px">
+      <button class="btn ghost block" data-act="fsp-login" style="justify-content:flex-start;padding:14px 16px">
         <img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px"> Войти через ФСП ID <span class="muted small" style="margin-left:auto">подтянем достижения</span>
       </button>
       <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
@@ -706,7 +781,7 @@ function pdfExpField() {
 }
 
 // одна строка достижения: название, место, команда/роль, вес в сигнале, подтверждено ли
-const achRow = a => `<div class="small" style="margin-top:4px">${esc(a.title)}${a.place ? ` · <span class="num">${a.place}</span> место` : ''}${a.team ? ` · ${esc(a.team)}` : ''}${a.role ? ` · ${esc(a.role)}` : ''}
+const achRow = a => `<div class="small" style="margin-top:4px">${esc(a.title)}${a.place ? ` · <span class="num">${a.place}</span> место` : ''}${a.result && !(a.place && a.place <= 3) ? ` · ${esc(RESULT[a.result] || a.result)}` : ''}${a.discipline ? ` · ${esc(a.discipline)}` : ''}${a.sport_rank ? ` · <b>${esc(a.sport_rank)}</b>` : ''}${a.team ? ` · ${esc(a.team)}` : ''}${a.role ? ` · ${esc(a.role)}` : ''}
   <span class="muted">· ${a.verified ? 'подтверждено протоколом' : 'не подтверждено'}${a.date ? ', ' + DATE(a.date) : ''}</span></div>`;
 
 function achPanel() {
@@ -734,7 +809,8 @@ function achPanel() {
     <div class="row sb"><h3>Достижения</h3><span class="muted small">по желанию, на грейд не влияют</span></div>
     <div class="trust">
       <div><span class="dot ${A.fsp.some(a => a.verified) ? 'on' : ''}"></span><div><b>ФСП</b> · ${A.fsp.length ? '' : '<span class="muted">соревнований в протоколах ФСП не найдено</span>'}
-        ${A.fsp.map(achRow).join('')}<span class="muted small">Подтягивается из протоколов ФСП по ФСП ID</span></div></div>
+        ${A.sport_rank ? `<div class="small" style="margin-top:4px">Спортивный разряд: <b>${esc(A.sport_rank)}</b></div>` : ''}
+        ${A.fsp.map(achRow).join('')}<span class="muted small">Подтягивается из протоколов ФСП по ФСП ID: места, результат, дисциплина, разряд</span></div></div>
       <div><span class="dot ${A.hackathons.some(a => a.verified) ? 'on' : ''}"></span><div><b>Хакатоны</b> · ${A.hackathons.length ? '' : '<span class="muted">нет в импортированных протоколах</span>'}
         ${A.hackathons.map(achRow).join('')}<span class="muted small">Протоколы загружают организаторы</span></div></div>
       <div><span class="dot ${cf && cf.verified ? 'on' : ''}"></span><div>${cfBlock}</div></div>
@@ -786,6 +862,7 @@ V['/c/profile'] = () => {
         </div>
         <div class="field"><span>Грейд, на который претендуете</span>
           <div class="seg" role="group">${((META && META.grades) || ['Intern', 'Junior', 'Middle', 'Senior', 'Lead']).map(g => `<button data-act="pgrade" data-v="${g}" aria-pressed="${g === f.grade}">${g}</button>`).join('')}</div>
+          ${S.cv && S.cv.parsed && S.cv.parsed.grade_hint ? `<p class="small" id="grade-hint">По резюме похоже на <b>${esc(S.cv.parsed.grade_hint.grade)}</b>: ${esc(S.cv.parsed.grade_hint.why)}. Это подсказка — выберите сами, тест подтвердит или нет.</p>` : ''}
           <span class="hint">Тест проверит грейд. Если он окажется ниже — категория обновится сразу, выше — через 90 дней.</span>
         </div>
         <div class="field"><span>Роли</span>
@@ -817,7 +894,7 @@ V['/c/profile'] = () => {
       <p class="small muted">${ME && ME.pct != null ? `Перцентиль ${ME.pct}` : 'Перцентиль появится после теста'}</p>
       <div class="chips">${confirmed.map(s => `<span class="chip on">${esc(s)}</span>`).join('')}${claimedOnly.map(s => `<span class="chip">${esc(s)}</span>`).join('')}${claimedOnly.length ? '<span class="chip dim">не подтверждено</span>' : ''}</div>
       ${softChips(f.roles, f.soft)}
-      <div class="chips">${ACH ? badgeChips({ badges: [...ACH.fsp, ...ACH.hackathons, ...(ACH.ctftime ? ACH.ctftime.achievements : [])].filter(a => a.verified), cf: ACH.codeforces && ACH.codeforces.verified ? ACH.codeforces.rating : null }) : ''}</div>
+      <div class="chips">${ACH ? badgeChips({ badges: [...ACH.fsp, ...ACH.hackathons, ...(ACH.ctftime ? ACH.ctftime.achievements : [])].filter(a => a.verified), sport_rank: ACH.sport_rank, cf: ACH.codeforces && ACH.codeforces.verified ? ACH.codeforces.rating : null }) : ''}</div>
     </aside>
   </div>`;
 };
@@ -853,12 +930,12 @@ function historyPanel() {
   if (!H.length) return '';
   return `<div class="panel" style="margin-top:16px">
     <div class="row sb"><h3>История тестов</h3><span class="muted small">θ незаконченной попытки не показываем</span></div>
-    <div class="tbl-wrap" style="margin-top:12px"><table class="tbl">
+    <div class="tbl-wrap" style="margin-top:12px"><table class="tbl stack">
       <thead><tr><th>Начат</th><th>Цель</th><th>Результат</th><th class="num">θ ± SE</th><th class="num">Заданий</th><th>Статус</th></tr></thead>
       <tbody>${H.map(h => `<tr>
-        <td>${DATE(h.started_at)}</td><td>${esc(h.target_grade || '—')}</td><td>${esc(h.grade || '—')}</td>
-        <td class="num">${h.theta != null ? `${DEC(h.theta)} ± ${DEC(h.se)}` : '—'}</td><td class="num">${h.items}</td>
-        <td class="small">${!h.finished_at ? '<span class="status s-sent">не завершён</span>' : h.applied ? '<span class="status s-ok">категория обновлена</span>' : '<span class="status s-exp">не применён</span>'}${h.focus ? '<div class="muted">по приглашению</div>' : ''}</td>
+        <td data-l="Начат">${DATE(h.started_at)}</td><td data-l="Цель">${esc(h.target_grade || '—')}</td><td data-l="Результат">${esc(h.grade || '—')}</td>
+        <td class="num" data-l="θ ± SE">${h.theta != null ? `${DEC(h.theta)} ± ${DEC(h.se)}` : '—'}</td><td class="num" data-l="Заданий">${h.items}</td>
+        <td class="small" data-l="Статус">${!h.finished_at ? '<span class="status s-sent">не завершён</span>' : h.applied ? '<span class="status s-ok">категория обновлена</span>' : '<span class="status s-exp">не применён</span>'}${h.focus ? '<div class="muted">по приглашению</div>' : ''}</td>
       </tr>`).join('')}</tbody>
     </table></div>
   </div>`;
@@ -1083,7 +1160,7 @@ function inviteView() {
         <div class="row"><span class="logo-sq" style="background:${esc(inv.color)}">${esc(inv.company[0])}</span><div><b>${esc(inv.company)}</b><br><span class="small muted">${esc(inv.about)}</span></div><span style="margin-left:auto">${coChip(inv)}</span></div>
         <h2>${esc(inv.role)}</h2>
         <div class="row" style="gap:20px">
-          <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px">${RUB(inv.from)} — ${RUB(inv.to)}</b></div>
+          <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px"><span class="money">${RUB(inv.from)}</span> — <span class="money">${RUB(inv.to)}</span></b></div>
         </div>
         <div class="alert ${inv.fork_check.ok ? 'ok' : 'warn'}">${esc(inv.fork_check.text)}.</div>
         <dl class="kv">
@@ -1098,7 +1175,7 @@ function inviteView() {
       ${(D.invTasks || []).length ? `<div class="panel stack-s">
         <h3>Задания по приглашению</h3>
         <p class="small muted">Задания компании по этой вакансии. Решение уйдёт вместе с приглашением, контакты не раскрываются.</p>
-        ${D.invTasks.map(t => `<div class="row sb" style="padding:6px 0;border-bottom:1px dashed var(--line-2)"><button class="btn ghost small" data-go="/c/task/${t.id}/${id}" style="justify-content:flex-start">${esc(t.title)}</button><span class="row small" style="gap:6px"><span class="muted">${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>${t.submitted ? reviewChip(t.review) : '<span class="chip">не решено</span>'}</span></div>`).join('')}
+        ${D.invTasks.map(t => `<div class="row sb" style="padding:6px 0;border-bottom:1px dashed var(--line-2)"><button class="btn ghost small" data-go="/c/task/${t.id}/${id}" style="justify-content:flex-start">${esc(t.title)}</button><span class="row small" style="gap:6px"><span class="muted">${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>${t.submitted ? resultChips(t) : '<span class="chip">не решено</span>'}</span></div>`).join('')}
       </div>` : ''}
       ${actions}
     </div>
@@ -1146,7 +1223,7 @@ V['/c/settings'] = () => {
           </div></div>
           <div><span class="dot ${ext ? 'on' : ''}"></span><div style="flex:1">
             <button class="switch" role="switch" aria-checked="${!!ext}" data-act="consent-ext"><i></i> <b>Данные внешних профилей</b></button>
-            <p class="small muted" style="margin-top:4px">Codeforces и CTFtime: рейтинг и результаты соревнований. Отзыв удаляет привязки и полученные из них достижения. <button class="btn ghost small" data-go="/c/profile">Привязки в профиле</button></p>
+            <p class="small muted" style="margin-top:4px">Codeforces, CTFtime и ФСП ID: рейтинг, участия и места. Отзыв удаляет привязки и полученные из них достижения. <button class="btn ghost small" data-go="/c/profile">Привязки в профиле</button></p>
             ${consentLog('external')}
             ${confirmBox('revokeExt', 'Отозвать согласие? Привязки Codeforces и CTFtime и полученные из них достижения будут удалены.', 'Отозвать')}
           </div></div>
@@ -1174,6 +1251,13 @@ V['/c/settings'] = () => {
       <span class="label">Вход</span>
       <p class="small">${esc(ME.email)}</p>
       <button class="btn ghost small" data-act="logout">Выйти</button>
+      <div class="divider"></div>
+      <span class="label">ФСП ID</span>
+      ${D.auth && D.auth.fsp_id ? `<p class="small">Привязан <b class="num">${esc(D.auth.fsp_id)}</b>: участия и места подтверждаются реестром ФСП.</p>
+      <div class="row"><button class="btn ghost small" data-act="fsp-link">Обновить достижения</button><button class="btn ghost small" data-act="ask" data-k="fspUnlink">Отвязать</button></div>
+      ${confirmBox('fspUnlink', 'Отвязать ФСП ID? Войти через него больше не получится. Подтверждённые достижения останутся — удалить их можно отзывом согласия на внешние данные.', 'Отвязать')}`
+      : `<p class="small muted">Свяжите аккаунт с ФСП ID: участия и места подтянутся из реестра ФСП (нужно согласие на внешние данные).</p>
+      <button class="btn ghost small" data-act="fsp-link">Связать с ФСП ID</button>`}
     </aside>
   </div>`;
 };
@@ -1237,7 +1321,7 @@ function cVacancyView() {
         <div class="row"><span class="logo-sq" style="background:${esc(v.company.color)}">${esc(v.company.name[0])}</span><b>${esc(v.company.name)}</b><span style="margin-left:auto">${coChip(v.company)}</span></div>
         <h2>${esc(v.title)}</h2>
         <div class="row">${catTag(v.spec, v.track, v.grade)}${v.status !== 'open' ? '<span class="status s-exp">закрыта</span>' : ''}</div>
-        <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px">${RUB(v.from)} — ${RUB(v.to)}</b></div>
+        <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px"><span class="money">${RUB(v.from)}</span> — <span class="money">${RUB(v.to)}</span></b></div>
         ${v.fork_vs_min === false ? `<div class="alert warn">Верхняя граница ниже вашего минимума (${RUB(ME.min)} на руки).</div>` : v.fork_vs_min ? `<div class="alert ok">Вилка покрывает ваш минимум ${RUB(ME.min)} на руки.</div>` : ''}
         <dl class="kv">
           <dt>Формат</dt><dd>${esc([v.format, v.city].filter(Boolean).join(', '))}</dd>
@@ -1289,6 +1373,8 @@ V['/c/applications'] = () => {
 
 /* ---------- витрина задач (кандидат) ---------- */
 const KIND_T = { solve: 'решить', approach: 'предложить подход' };
+const CHECK_T = { open: 'оценю сам', text: 'текст', number: 'число', choice: 'один вариант', multi: 'несколько вариантов', regex: 'шаблон' };
+const isRef = t => t.answer_type && t.answer_type !== 'open';
 V['/c/tasks'] = () => {
   if (!ME) return noProfile('Задачи');
   const T = D.showcase || [], M = D.subs || [];
@@ -1302,7 +1388,7 @@ V['/c/tasks'] = () => {
           <div class="stack-s" style="min-width:0">
             <span class="id">${esc(t.title)}</span>
             <span class="small muted">${esc(t.company.name)} · ${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>
-            <div class="row" style="gap:6px">${coChip(t.company)}${t.submitted ? reviewChip(t.review) : ''}</div>
+            <div class="row" style="gap:6px">${coChip(t.company)}${isRef(t) ? '<span class="chip">проверяет система</span>' : ''}${t.submitted ? resultChips(t) : ''}</div>
           </div>
           <div class="score">${t.submitted ? '<span class="status s-ok">решение отправлено</span>' : '<span class="small muted">открыть</span>'}</div>
         </button>`).join('') || '<div class="panel small muted">Задач по вашей специализации пока нет.</div>'}
@@ -1311,12 +1397,21 @@ V['/c/tasks'] = () => {
       <span class="label">Мои решения</span>
       ${M.map(s => `<div class="stack-s" style="padding:8px 0;border-bottom:1px dashed var(--line-2)">
         <button class="btn ghost small" data-go="/c/task/${s.task.id}" style="justify-content:flex-start">${esc(s.task.title)}</button>
-        <div class="row small" style="gap:6px">${reviewChip(s.review)}<span class="muted">${DAYMON(s.created_at)}</span></div>
+        <div class="row small" style="gap:6px">${resultChips(s)}<span class="muted">${DAYMON(s.created_at)}</span></div>
         ${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}
       </div>`).join('') || '<p class="small muted">Пока нет.</p>'}
     </aside>
   </div>`;
 };
+
+function answerInput(t) {
+  const at = t.answer_type || 'open';
+  if (at === 'choice' || at === 'multi') return `<span class="small muted">${at === 'choice' ? 'Выберите один вариант' : 'Выберите все верные варианты'}</span>
+    <div class="chips" role="group" aria-label="Варианты ответа">${(t.options || []).map((o, i) => `<button class="chip ${S.picks.includes(i) ? 'on' : ''}" aria-pressed="${S.picks.includes(i)}" data-act="tk-pick" data-v="${i}" data-multi="${at === 'multi' ? 1 : ''}">${esc(o)}</button>`).join('')}</div>`;
+  if (at === 'number') return `<input class="input num" id="tk-answer" inputmode="decimal" maxlength="64" style="max-width:240px" placeholder="Число, например 42 или 3,14" value="${esc(S.answer)}">`;
+  if (at !== 'open') return `<input class="input" id="tk-answer" maxlength="500" placeholder="Короткий ответ" value="${esc(S.answer)}">`;
+  return `<textarea class="input" id="tk-answer" maxlength="5000" style="min-height:180px" placeholder="${t.kind === 'solve' ? 'Код или решение' : 'Опишите подход: что делаете, почему, какие риски'}">${esc(S.answer)}</textarea>`;
+}
 
 function cTaskView() {
   if (!ME) return noProfile('Задача');
@@ -1331,25 +1426,26 @@ function cTaskView() {
       <div class="panel stack">
         <div class="row"><span class="logo-sq" style="background:${esc(t.company.color)}">${esc(t.company.name[0])}</span><b>${esc(t.company.name)}</b><span style="margin-left:auto">${coChip(t.company)}</span></div>
         <h2>${esc(t.title)}</h2>
-        <span class="small muted">${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>
+        <span class="small muted">${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин${isRef(t) ? ' · проверяет система' : ''}</span>
         ${S.taskInv ? `<div class="alert info"><span>→</span><span>Задание из приглашения. <button class="btn ghost small" data-go="/c/invite/${S.taskInv}">К приглашению</button></span></div>` : ''}
         <p class="prose pre">${esc(t.text)}</p>
       </div>
       ${mine ? `<div class="panel stack">
         <h3>Ваше решение</h3>
         <p class="small pre">${esc(mine.answer)}</p>
-        <div class="row">${reviewChip(mine.review)}${mine.reviewed_at ? `<span class="small muted">оценено ${DAYMON(mine.reviewed_at)}</span>` : ''}</div>
+        <div class="row">${resultChips(mine)}${mine.reviewed_at ? `<span class="small muted">оценено ${DAYMON(mine.reviewed_at)}</span>` : ''}</div>
+        ${mine.auto_feedback ? `<p class="small">${esc(mine.auto_feedback)}</p>` : ''}
         ${mine.review_comment ? `<p class="small">Комментарий компании: ${esc(mine.review_comment)}</p>` : ''}
       </div>` : `<div class="panel stack">
-        <h3>${t.kind === 'solve' ? 'Решение' : 'Ваш подход'}</h3>
-        <textarea class="input" id="tk-answer" maxlength="5000" style="min-height:180px" placeholder="${t.kind === 'solve' ? 'Код или решение' : 'Опишите подход: что делаете, почему, какие риски'}">${esc(S.answer)}</textarea>
-        <span class="hint">Компания увидит решение с анонимной карточкой — без ФИО и контактов.</span>
+        <h3>${isRef(t) ? 'Ответ' : t.kind === 'solve' ? 'Решение' : 'Ваш подход'}</h3>
+        ${answerInput(t)}
+        <span class="hint">${isRef(t) ? 'Ответ проверит система по эталону компании сразу после отправки. Попытка одна. ' : ''}Компания увидит решение с анонимной карточкой — без ФИО и контактов.</span>
         <div class="row"><button class="btn primary" data-act="task-submit" data-id="${t.id}">Отправить решение</button></div>
       </div>`}
     </div>
     <aside class="panel tight stack-s">
       <span class="label">Как это работает</span>
-      <p class="small">Компания оценивает решение: сильное, нормально или слабо. В карточке у других работодателей появится «решил задачу N дн. назад · оценка». Контакты не раскрываются.</p>
+      <p class="small">Компания оценивает решение: сильное, нормально или слабо. Если у задания есть эталон ответа, проверяет система — вы сразу видите «верно» или «неверно», сам эталон не показывается; компания может переоценить решение вручную. В карточке у других работодателей появится «решил задачу N дн. назад · оценка». Контакты не раскрываются.</p>
     </aside>
   </div>`;
 }
@@ -1625,7 +1721,7 @@ function chatView(side) {
         <button class="btn primary" data-act="chat-send">Отправить</button>
       </div>
       <span class="hint" style="margin-top:6px">Enter — отправить, Shift+Enter — перенос строки</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
-    </div>` : `<div class="panel chat-box" style="align-items:center;justify-content:center"><span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог слева'}</span></div>`;
+    </div>` : `<div class="panel chat-box chat-empty" style="align-items:center;justify-content:center"><span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог в списке'}</span></div>`;
   return `
   ${crumbs(head)}
   ${subnav(side)}
@@ -1757,7 +1853,7 @@ function candView() {
   if (!c) return `${crumbs([['Подборка', '/e/picks'], ['Кандидат']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
   const n = S.needObj, e = c.explanation, b = c.breakdown;
   const must = e ? e.confirmed.filter(s => n && n.must.includes(s)) : [];
-  const ach = [...(c.badges || []).map(x => x.title), c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
+  const ach = [...(c.badges || []).map(badgeTitle), c.sport_rank ? 'спортивный разряд: ' + c.sport_rank : '', c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
   return `
   ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id)]])}
   ${unverifiedBanner()}
@@ -1801,7 +1897,7 @@ function candView() {
           <div><span class="dot ${c.trust.test ? 'on' : ''}"></span><div>Тест пройден</div></div>
           <div><span class="dot ${c.trust.review ? 'on' : ''}"></span><div>Разбор решения</div></div>
           <div><span class="dot ${c.trust.employer_confirmed ? 'on' : ''}"></span><div>Подтверждён работодателем${c.trust.employer_confirmed ? ` · ${c.trust.employer_confirmed} раз` : ''}</div></div>
-          <div><span class="dot ${c.task_signal ? 'on' : ''}"></span><div>${c.task_signal ? `Решил задачу ${c.task_signal.days_ago ? c.task_signal.days_ago + ' дн. назад' : 'сегодня'} · оценка работодателя: ${esc(c.task_signal.review_text)}${c.task_signal.company_verified ? '' : ' <span class="muted small">(компания не прошла проверку)</span>'}` : 'Задачи компаний: оценённых решений нет'}<br><span class="muted small">свежий сигнал, на скор не влияет</span></div></div>
+          <div><span class="dot ${c.task_signal ? 'on' : ''}"></span><div>${c.task_signal ? `Решил задачу ${c.task_signal.days_ago ? c.task_signal.days_ago + ' дн. назад' : 'сегодня'} · ${c.task_signal.source === 'auto' ? 'автопроверка' : 'оценка работодателя'}: ${esc(c.task_signal.review_text)}${c.task_signal.company_verified ? '' : ' <span class="muted small">(компания не прошла проверку)</span>'}` : 'Задачи компаний: оценённых решений нет'}<br><span class="muted small">свежий сигнал, на скор не влияет</span></div></div>
         </div>
       </div>
       ${softChips(c.roles, c.soft) ? `<div class="panel tight stack-s">
@@ -1901,16 +1997,16 @@ V['/e/pipeline'] = () => {
   ${subnav('e')}
   <div class="row sb fade" style="margin-bottom:16px"><h2>Приглашения</h2><span class="small muted num">квота ${q.used} / ${q.max}${q.accepted_share != null ? ' · принято ' + PCT(q.accepted_share) : ''}</span></div>
   <div class="panel" style="padding:8px 12px">
-    <div class="tbl-wrap"><table class="tbl">
+    <div class="tbl-wrap"><table class="tbl stack">
       <thead><tr><th>Кандидат</th><th>Роль</th><th class="num">Вилка на руки</th><th>Отправлено</th><th>Статус</th><th>Контакты</th><th>После собеседования</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}">${esc(r.cid)}</button> ${chatBtn('e', r.chat_peer)}${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
-        <td>${esc(r.role)}</td>
-        <td class="num">${K(r.from)} — ${K(r.to)}</td>
-        <td class="muted">${esc(r.when)}</td>
-        <td><span class="status ${stl[r.status][0]}">${stl[r.status][1]}</span>${r.status === 'no' && r.reason ? `<div class="small muted">причина: ${esc(r.reason.toLowerCase())}</div>` : ''}</td>
-        <td class="small">${r.contact ? esc(r.contact.text) : r.status === 'ok' && r.reason ? `<span class="muted">${esc(r.reason)}</span>` : '<span class="muted">скрыты</span>'}</td>
-        <td>${fb(r)}</td>
+        <td data-l="Роль">${esc(r.role)}</td>
+        <td class="num" data-l="Вилка на руки">${K(r.from)} — ${K(r.to)}</td>
+        <td class="muted" data-l="Отправлено">${esc(r.when)}</td>
+        <td data-l="Статус"><span class="status ${stl[r.status][0]}">${stl[r.status][1]}</span>${r.status === 'no' && r.reason ? `<div class="small muted">причина: ${esc(r.reason.toLowerCase())}</div>` : ''}</td>
+        <td class="small" data-l="Контакты">${r.contact ? esc(r.contact.text) : r.status === 'ok' && r.reason ? `<span class="muted">${esc(r.reason)}</span>` : '<span class="muted">скрыты</span>'}</td>
+        <td data-l="После собеседования">${fb(r)}</td>
       </tr>`).join('') || '<tr><td colspan="7" class="muted">Приглашений пока нет</td></tr>'}</tbody>
     </table></div>
   </div>
@@ -2068,11 +2164,48 @@ function taskForm() {
       <div class="field"><span>Тип</span><div class="seg" role="group">${[['approach', 'Предложить подход'], ['solve', 'Решить']].map(([k, l]) => `<button data-act="tx-set" data-k="kind" data-v="${k}" aria-pressed="${f.kind === k}">${l}</button>`).join('')}</div></div>
       <label class="field"><span>Минут на решение</span><input class="input num" id="tx-min" inputmode="numeric" value="${f.minutes}"></label>
     </div>
+    <div class="field"><span>Проверка ответа</span><div class="seg" role="group" aria-label="Проверка ответа">${Object.entries(CHECK_T).map(([k, l]) => `<button data-act="tx-set" data-k="answer_type" data-v="${k}" aria-pressed="${f.answer_type === k}">${l}</button>`).join('')}</div></div>
+    ${refFields(f)}
     <button class="switch" role="switch" aria-checked="${f.public}" data-act="tx-set" data-k="public"><i></i> На витрине для всех кандидатов специализации (иначе — только приглашённым)</button>
     ${S.needObj ? `<button class="switch" role="switch" aria-checked="${f.link}" data-act="tx-set" data-k="link"><i></i> К потребности «${esc(roleTitle(S.needObj))}»</button>` : ''}
     <div class="row"><button class="btn primary" data-act="task-save">Создать задание</button><span class="hint">Без уведомлений: кандидаты заходят на витрину сами</span></div>
   </div>`;
 }
+
+function refFields(f) {
+  const hint = '<span class="hint">Эталон видите только вы: кандидату и другим компаниям он не показывается. Система проверит ответ сразу после отправки, вручную переоценить можно в любой момент.</span>';
+  if (f.answer_type === 'open') return '<span class="hint">Открытый ответ: решение оцениваете вы — сильное, нормально или слабо.</span>';
+  if (f.answer_type === 'text') return `<label class="field"><span>Эталонные ответы — через «;»</span><input class="input" id="tx-answers" value="${esc(f.answers)}" placeholder="SIGTERM; TERM; 15"></label>
+    <button class="switch" role="switch" aria-checked="${f.exact}" data-act="tx-set" data-k="exact"><i></i> Точное совпадение (иначе без учёта регистра, ё/е, лишних пробелов и знаков по краям)</button>${hint}`;
+  if (f.answer_type === 'number') return `<div class="grid g2"><label class="field"><span>Эталон — число</span><input class="input num" id="tx-value" inputmode="decimal" value="${esc(f.value)}"></label>
+    <label class="field"><span>Допуск ±</span><input class="input num" id="tx-tol" inputmode="decimal" value="${esc(f.tol)}" placeholder="0"></label></div>${hint}`;
+  if (f.answer_type === 'regex') return `<label class="field"><span>Шаблон (регулярное выражение, полное совпадение, без учёта регистра)</span><input class="input" id="tx-pattern" value="${esc(f.pattern)}" placeholder="\\d{3}-\\d{2}"></label>${hint}`;
+  return `<label class="field"><span>Варианты — по одному на строку, верные отметьте «*» в начале (сама звёздочка в вариант не входит)</span><textarea class="input" id="tx-opts" style="min-height:100px" placeholder="Read Committed&#10;Repeatable Read&#10;*Serializable">${esc(f.opts)}</textarea></label>${hint}`;
+}
+
+// эталон из полей формы; ошибки формата ловит и сервер (422)
+function taskRef(f) {
+  const at = f.answer_type, dec = x => parseFloat(String(x).replace(/\s/g, '').replace(',', '.'));
+  if (at === 'open') return {};
+  if (at === 'text') return { reference: { answers: f.answers.split(';').map(x => x.trim()).filter(Boolean), exact: f.exact } };
+  if (at === 'number') {
+    const value = dec(f.value), tolerance = String(f.tol).trim() ? dec(f.tol) : 0;
+    if (!Number.isFinite(value) || !Number.isFinite(tolerance)) throw new Error('Эталон и допуск — числа');
+    return { reference: { value, tolerance } };
+  }
+  if (at === 'regex') return { reference: { pattern: f.pattern } };
+  const lines = f.opts.split('\n').map(x => x.trim()).filter(Boolean);
+  return { options: lines.map(x => x.replace(/^\*\s*/, '')), reference: { correct: lines.flatMap((x, i) => x.startsWith('*') ? [i] : []) } };
+}
+
+const refText = t => {
+  const r = t.reference;
+  if (!r) return '';
+  if (t.answer_type === 'text') return r.answers.join('; ') + (r.exact ? ' (точно)' : '');
+  if (t.answer_type === 'number') return r.tolerance ? `${r.value} ± ${r.tolerance}` : String(r.value);
+  if (t.answer_type === 'regex') return r.pattern;
+  return r.correct.map(i => t.options[i]).join('; ');
+};
 
 V['/e/tasks'] = () => {
   const L = D.mytasks || [];
@@ -2083,9 +2216,9 @@ V['/e/tasks'] = () => {
   <div class="stack">
     ${S.tform ? taskForm() : ''}
     ${L.map(t => `<div class="panel stack-s">
-      <div class="row sb"><b>${esc(t.title)}</b><span class="chip ${t.public ? 'on' : ''}">${t.public ? 'на витрине' : 'только приглашённым'}</span></div>
+      <div class="row sb"><b>${esc(t.title)}</b><span class="row" style="gap:6px">${isRef(t) ? `<span class="chip">автопроверка: ${CHECK_T[t.answer_type] || esc(t.answer_type)}</span>` : ''}<span class="chip ${t.public ? 'on' : ''}">${t.public ? 'на витрине' : 'только приглашённым'}</span></span></div>
       <span class="small muted">${esc(t.spec)}${t.competency ? ' · ' + esc(t.competency) : ''} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин${t.need_id ? ' · к потребности' : ''}</span>
-      <div class="row small" style="gap:12px"><span>Решений: <b class="num">${t.submissions}</b></span><span>оценено ${t.reviewed}</span>${t.avg_review != null ? `<span class="muted">средняя оценка ${DEC(t.avg_review, 1)} из 3</span>` : ''}</div>
+      <div class="row small" style="gap:12px"><span>Решений: <b class="num">${t.submissions}</b></span>${isRef(t) ? `<span>верно ${t.auto_passed} из ${t.auto_checked}</span>` : ''}<span>оценено ${t.reviewed}</span>${t.avg_review != null ? `<span class="muted">средняя оценка ${DEC(t.avg_review, 1)} из 3</span>` : ''}</div>
       <div class="row"><button class="btn ghost small" data-go="/e/task/${t.id}">Решения</button></div>
     </div>`).join('') || '<div class="panel small muted">Заданий пока нет.</div>'}
   </div>`;
@@ -2098,12 +2231,13 @@ function eTaskView() {
   return `
   ${crumbs([['Задания', '/e/tasks'], [esc(t.title)]])}
   ${subnav('e')}
-  <div class="panel stack" style="margin-bottom:16px"><h2>${esc(t.title)}</h2><p class="prose small pre">${esc(t.text)}</p></div>
+  <div class="panel stack" style="margin-bottom:16px"><h2>${esc(t.title)}</h2><p class="prose small pre">${esc(t.text)}</p>${isRef(t) ? `<p class="small">Эталон (${CHECK_T[t.answer_type] || esc(t.answer_type)}): <b>${esc(refText(t))}</b> <span class="muted">— видите только вы</span></p>` : ''}</div>
   <div class="stack">
-    ${T.items.map(s => { const c = s.candidate; if (s.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span><span class="small muted">${DAYMON(s.created_at)}</span></div><span class="small muted">Решение и карточка недоступны: кандидат отозвал согласие или скрыл профиль от компании.</span>${s.review ? `<div class="row">${reviewChip(s.review)}</div>` : ''}</div>`; return `<div class="panel stack-s">
+    ${T.items.map(s => { const c = s.candidate; if (s.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span><span class="small muted">${DAYMON(s.created_at)}</span></div><span class="small muted">Решение и карточка недоступны: кандидат отозвал согласие или скрыл профиль от компании.</span>${s.review || s.auto_ok != null ? `<div class="row">${resultChips(s)}</div>` : ''}</div>`; return `<div class="panel stack-s">
       <div class="row sb"><div class="row"><button class="btn ghost small" data-go="/e/cand/${esc(c.id)}">Кандидат ${esc(c.id)}</button>${catTag(c.spec, c.track, c.grade)}</div><span class="small muted">${DAYMON(s.created_at)}</span></div>
       <p class="small pre" style="background:var(--ground);padding:12px;border-radius:8px">${esc(s.answer)}</p>
-      ${s.review ? `<div class="row">${reviewChip(s.review)}${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}</div>` : `
+      ${s.review ? `<div class="row">${resultChips(s)}${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}</div>` : `
+      ${s.auto_ok != null ? `<div class="row">${autoChip(s.auto_ok)}<span class="small muted">можно переоценить вручную</span></div>` : ''}
       <input class="input" id="rvc-${s.id}" placeholder="Комментарий кандидату, по желанию" style="max-width:520px">
       <div class="row">${['strong', 'ok', 'weak'].map(k => `<button class="btn ${k === 'strong' ? 'primary' : 'ghost'} small" data-act="review" data-id="${s.id}" data-v="${k}">${REVIEW[k][1]}</button>`).join('')}</div>`}
     </div>`; }).join('') || '<div class="panel small muted">Решений пока нет.</div>'}
@@ -2121,7 +2255,7 @@ const gchip = g => `<span class="chip ${['Senior', 'Lead'].includes(g) ? 'bad' :
 
 V['/v'] = () => {
   const R = D.val;
-  const ds = R && R.dataset, Q = R && R.quality, M = R && R.market, C = R && R.cheater, St = R && R.stability;
+  const ds = R && R.dataset, Q = R && R.quality, M = R && R.market, C = R && R.cheater, St = R && R.stability, Sp = R && R.separation;
   const vs = Q ? Q.variants : [];
   const qo = M && M.rows.some(r => r.quota_only != null);
   return `
@@ -2173,8 +2307,44 @@ V['/v'] = () => {
         <div class="stat"><span class="label">Утечка: сложность клона задания</span><b>±${DEC(St.clone_b_spread)}</b><span class="small muted">разброс b внутри семейства</span></div>
       </div>` : VAL_RUN}
     </div>
+    <div class="panel stack" style="grid-column:1/-1">
+      <h3>Разделяющая сила теста</h3>
+      <p class="small muted">Отличает ли тест один грейд от другого${Sp && Sp.simulated ? `. Симуляция: ${Sp.n_per_grade} кандидатов на грейд, банки ${Sp.specs} специализаций; истинный θ взят из полосы грейда, грейд теста считается по θ − SE, как в продукте` : ''}</p>
+      ${Sp ? vsep(Sp) : VAL_RUN}
+    </div>
   </div>`;
 };
+
+// разделяющая сила: сводка, матрица «истинный × тест» (доли строки), соседние грейды, по специализациям, задания
+function vsep(Sp) {
+  const G = Sp.grades, it = Sp.items;
+  const quart = (label, q) => `<tr><td>${label}</td>${['min', 'q1', 'median', 'q3', 'max'].map(k => `<td class="num">${DEC(q[k])}</td>`).join('')}</tr>`;
+  return `<div class="grid g3" style="gap:16px">
+    <div class="stat"><span class="label">Точное совпадение грейда</span><b>${PCT(Sp.accuracy)}</b><span class="small muted">${Sp.accuracy_point != null ? `по θ̂ без запаса SE — ${PCT(Sp.accuracy_point)}` : 'грейд по θ − SE'}</span></div>
+    <div class="stat"><span class="label">В пределах ±1 грейда</span><b>${PCT(Sp.within_one)}</b><span class="small muted">из ошибок в соседний грейд — ${PCT(Sp.adjacent_error_share)}</span></div>
+    <div class="stat"><span class="label">κ с квадратичными весами</span><b>${DEC(Sp.qwk)}</b><span class="small muted">согласие истинного и тестового грейда</span></div>
+  </div>
+  <div class="tbl-wrap"><table class="tbl heat">
+    <caption>Строки — истинный грейд, столбцы — грейд по тесту; в ячейке доля строки, рамка — совпадение</caption>
+    <thead><tr><th scope="col">Истинный грейд</th>${G.map(g => `<th scope="col" class="num">${esc(g)}</th>`).join('')}<th scope="col" class="num">Точность</th></tr></thead>
+    <tbody>${Sp.confusion.map((row, i) => { const n = row.reduce((a, b) => a + b, 0) || 1; return `<tr><th scope="row">${esc(G[i])}</th>${row.map((x, j) => `<td class="c${i === j ? ' diag' : ''}" style="background:rgba(64,47,255,${(0.04 + 0.5 * x / n).toFixed(2)})"${i === j ? ` aria-label="${PCT(x / n)}, совпадение"` : ''}>${PCT(x / n)}</td>`).join('')}<td class="num"><b>${PCT(Sp.per_grade[i].accuracy)}</b></td></tr>`; }).join('')}</tbody>
+  </table></div>
+  <div class="grid g2" style="gap:16px">
+    ${Sp.adjacent ? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Соседние грейды</th><th class="num">AUC по θ̂</th><th class="num">Перекрытие θ̂</th></tr></thead>
+      <tbody>${Sp.adjacent.map(p => `<tr><td>${esc(p.lo)} | ${esc(p.hi)}</td><td class="num">${DEC(p.auc)}</td><td class="num">${PCT(p.overlap)}</td></tr>`).join('')}</tbody>
+    </table></div>` : ''}
+    ${Sp.by_spec ? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Специализация</th><th class="num">Семейств</th><th class="num">Точно</th><th class="num">±1</th><th class="num">SE</th></tr></thead>
+      <tbody>${Sp.by_spec.map(r => `<tr><td>${esc(r.spec)}</td><td class="num">${r.families}</td><td class="num">${PCT(r.accuracy)}</td><td class="num">${PCT(r.within_one)}</td><td class="num">${DEC(r.se_mean)}</td></tr>`).join('')}</tbody>
+    </table></div>` : ''}
+  </div>
+  ${it ? `<div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Дискриминативность заданий (${it.n})</th><th class="num">min</th><th class="num">Q1</th><th class="num">медиана</th><th class="num">Q3</th><th class="num">max</th></tr></thead>
+    <tbody>${quart('a — крутизна кривой 2PL', it.a)}${quart(`r<sub>pb</sub> ответа с суммой остальных, выборка ${it.calib_n}`, it.rpb)}</tbody>
+  </table></div>
+  <p class="small muted">Слабо различающих заданий (r<sub>pb</sub> &lt; 0,2): ${PCT(it.rpb_poor)} — на модельных ответах по той же 2PL, калибровки по живым ответам пока нет. AUC — вероятность, что у кандидата старшего грейда оценка θ выше, чем у младшего; 0,5 — не различает.</p>` : ''}`;
+}
 
 /* ===================== карта экранов ===================== */
 const MAP = [
@@ -2252,12 +2422,12 @@ async function load(r) {
       [D.inv, D.invTasks] = await Promise.all([or404(api('GET', '/api/candidate/invites/' + encodeURIComponent(arg))), or404(api('GET', '/api/tasks/for-invitation/' + encodeURIComponent(arg)))]);
       S.declineFor = null;
     }
-    else if (page === 'settings') { ACH = await api('GET', '/api/achievements'); S.confirm = null; S.hiddenEdit = false; }
+    else if (page === 'settings') { [ACH, D.auth] = await Promise.all([api('GET', '/api/achievements'), api('GET', '/api/auth/me')]); S.confirm = null; S.hiddenEdit = false; }
     else if (page === 'vacancies') [, D.apps] = await Promise.all([loadVac(), api('GET', '/api/vacancies/applications/mine')]);
     else if (page === 'vacancy') { [D.vacancy, D.apps] = await Promise.all([or404(api('GET', '/api/vacancies/' + encodeURIComponent(arg))), api('GET', '/api/vacancies/applications/mine')]); S.applyNote = ''; S.applyErr = null; }
     else if (page === 'applications') D.apps = await api('GET', '/api/vacancies/applications/mine');
     else if (page === 'tasks') [D.showcase, D.subs] = await Promise.all([api('GET', '/api/tasks/showcase'), api('GET', '/api/tasks/submissions/mine')]);
-    else if (page === 'task') { S.taskInv = +r.split('/')[4] || null; [D.task, D.subs] = await Promise.all([or404(api('GET', '/api/tasks/' + encodeURIComponent(arg))), api('GET', '/api/tasks/submissions/mine')]); S.answer = ''; }
+    else if (page === 'task') { S.taskInv = +r.split('/')[4] || null; [D.task, D.subs] = await Promise.all([or404(api('GET', '/api/tasks/' + encodeURIComponent(arg))), api('GET', '/api/tasks/submissions/mine')]); S.answer = ''; S.picks = []; }
     else if (page === 'chat') await loadChat(arg);
   }
   if (side === 'e') {
@@ -2370,6 +2540,7 @@ function capture() {
   if (v('sf-q') != null) Object.assign(S.sf, { q: v('sf-q').trim(), spec: v('sf-spec'), track: v('sf-track'), grade: v('sf-grade'), skills: v('sf-skills').trim(), format: v('sf-format'), city: v('sf-city').trim() });
   if (S.vform && v('vx-title') != null) Object.assign(S.vform, { title: v('vx-title'), spec: v('vx-spec'), track: v('vx-track'), must: v('vx-must'), nice: v('vx-nice'), from: num(v('vx-from')), to: num(v('vx-to')), city: v('vx-city'), description: v('vx-desc') });
   if (S.tform && v('tx-title') != null) Object.assign(S.tform, { title: v('tx-title'), text: v('tx-text'), spec: v('tx-spec'), competency: v('tx-comp'), minutes: num(v('tx-min')) || 45 });
+  if (S.tform) for (const [k, id] of [['answers', 'tx-answers'], ['value', 'tx-value'], ['tol', 'tx-tol'], ['pattern', 'tx-pattern'], ['opts', 'tx-opts']]) if (v(id) != null) S.tform[k] = v(id);
 }
 const reloadAch = async () => { ACH = await api('GET', '/api/achievements'); };
 const skillList = s => s.split(/[,;]+/).map(x => x.trim()).filter(Boolean);
@@ -2384,6 +2555,10 @@ const CONFIRM = {
     await api('PATCH', '/api/candidate/consents', { consent_152: false });
     // отзыв обработки гасит и внешние данные на сервере — перечитываем и достижения
     await loadMe(); await reloadAch(); S.confirm = null; toast('Согласие отозвано: профиль скрыт'); rerender();
+  },
+  async fspUnlink() {
+    await api('POST', '/api/auth/fsp/unlink');
+    S.confirm = null; toast('ФСП ID отвязан'); await refresh();
   },
   async revokeExt() {
     await api('POST', '/api/achievements/consent', { value: false });
@@ -2412,6 +2587,8 @@ const ACT = {
     toast(d.who === 'newco' ? 'Вход: «Новый Стартап» (компания не прошла проверку)' : 'Демо-вход выполнен');
     go(d.who === 'c' ? '/c/home' : '/e/picks');
   },
+  'fsp-login': () => fspStart('login'),
+  'fsp-link': () => fspStart('link'),
   async 'otp-send'() {
     if (!S.signup.email) throw new Error('Укажите почту');
     const r = await api('POST', '/api/auth/email', { email: S.signup.email, role: 'candidate' }, 'c');
@@ -2436,7 +2613,7 @@ const ACT = {
   },
 
   // профиль, резюме, достижения
-  pgrade: (a, d) => { S.pf.grade = d.v; rerender(); },
+  pgrade: (a, d) => { S.pf.grade = d.v; S.pf.gradeSet = true; rerender(); },
   pfmt: (a, d) => { const f = S.pf.formats; f.includes(d.v) ? f.splice(f.indexOf(d.v), 1) : f.push(d.v); rerender(); },
   async pdfexp() {  // сохраняется сразу, как переключатели уведомлений: к сохранению профиля и тесту не привязано
     Object.assign(ME, await api('PATCH', '/api/candidate/pdf', { experience: ME.pdf_experience === false }));
@@ -2575,10 +2752,12 @@ const ACT = {
     toast('Отклик отправлен: компания видит ваши контакты'); await refresh();
   },
   async withdraw(a, d) { await api('POST', `/api/vacancies/applications/${d.id}/withdraw`); toast('Отклик отозван'); await refresh(); },
+  'tk-pick': (a, d) => { const i = +d.v; S.picks = d.multi ? (S.picks.includes(i) ? S.picks.filter(x => x !== i) : [...S.picks, i]) : [i]; rerender(); },
   async 'task-submit'(a, d) {
-    if (!S.answer.trim()) throw new Error('Напишите решение');
-    await api('POST', `/api/tasks/${d.id}/submit`, { answer: S.answer.trim(), invitation_id: S.taskInv || null });
-    toast('Решение отправлено. Оценка появится в «Моих решениях»'); await refresh();
+    const t = D.task, pick = t && ['choice', 'multi'].includes(t.answer_type);
+    if (pick ? !S.picks.length : !S.answer.trim()) throw new Error(pick ? 'Выберите вариант ответа' : 'Напишите решение');
+    const s = await api('POST', `/api/tasks/${d.id}/submit`, pick ? { choices: S.picks, invitation_id: S.taskInv || null } : { answer: S.answer.trim(), invitation_id: S.taskInv || null });
+    toast(s.auto_feedback ? 'Решение отправлено. ' + s.auto_feedback : 'Решение отправлено. Оценка появится в «Моих решениях»'); await refresh();
   },
 
   // работодатель
@@ -2676,12 +2855,12 @@ const ACT = {
   },
 
   // задания (работодатель)
-  'task-new': () => { const n = S.needObj; S.tform = { title: '', text: '', spec: n ? n.spec : 'Backend', competency: '', kind: 'approach', minutes: 45, public: true, link: false }; rerender(); },
+  'task-new': () => { const n = S.needObj; S.tform = { title: '', text: '', spec: n ? n.spec : 'Backend', competency: '', kind: 'approach', minutes: 45, public: true, link: false, answer_type: 'open', answers: '', exact: false, value: '', tol: '', pattern: '', opts: '' }; rerender(); },
   'task-cancel': () => { S.tform = null; rerender(); },
-  'tx-set': (a, d) => { S.tform[d.k] = d.k === 'public' || d.k === 'link' ? !S.tform[d.k] : d.v; rerender(); },
+  'tx-set': (a, d) => { S.tform[d.k] = ['public', 'link', 'exact'].includes(d.k) ? !S.tform[d.k] : d.v; rerender(); },
   async 'task-save'() {
     const f = S.tform;
-    await api('POST', '/api/tasks', { title: f.title, text: f.text, spec: f.spec, competency: f.competency || null, kind: f.kind, minutes: f.minutes, public: f.public, need_id: f.link && S.needObj ? S.needObj.id : null });
+    await api('POST', '/api/tasks', { title: f.title, text: f.text, spec: f.spec, competency: f.competency || null, kind: f.kind, minutes: f.minutes, public: f.public, need_id: f.link && S.needObj ? S.needObj.id : null, answer_type: f.answer_type, ...taskRef(f) });
     S.tform = null; toast('Задание создано'); await refresh();
   },
   async review(a, d) {
@@ -2730,6 +2909,8 @@ document.addEventListener('change', async e => {
       if (p.years_exp != null) S.pf.years = p.years_exp;
       if (p.roles.length) S.pf.roles = p.roles;
       if (p.soft_skills.length) S.pf.soft = p.soft_skills;
+      // подсказка грейда — только предвыбор: выбранный кандидатом или сохранённый грейд не перетираем
+      if (p.grade_hint && !S.pf.gradeSet && !(ME && ME.grade_claimed)) S.pf.grade = p.grade_hint.grade;
       if (!S.pf.name && p.contacts.name) S.pf.name = p.contacts.name;  // своё не перетираем
       if (!S.pf.tg && p.contacts.tg) S.pf.tg = p.contacts.tg;
       if (ME) ME.experience = p.experience;  // профиль уже есть — сервер сохранил текст резюме, PDF возьмёт новые места работы
@@ -2781,7 +2962,7 @@ document.addEventListener('submit', async e => {
 });
 
 addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
-show();
+fspReturn().catch(fail).finally(() => show());
 </script>
 </body>
 </html>

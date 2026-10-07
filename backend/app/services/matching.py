@@ -17,6 +17,7 @@
 
 import json
 import math
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -25,7 +26,7 @@ from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app import catalog
-from app.integrations.scoring import combine
+from app.integrations import scoring
 from app.models import Candidate, Company, Invitation, Need
 from app.services import llm
 
@@ -68,8 +69,13 @@ class Ranked:
     explanation: dict
 
 
+# фиксированное «сейчас» для валидации: нагрузка считается на дату засева, а не на сегодня. ContextVar — свой у каждого
+# запроса/потока, поэтому прогон валидации не сдвигает часы параллельным запросам API
+CLOCK: ContextVar[datetime | None] = ContextVar("matching_clock", default=None)
+
+
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return CLOCK.get() or datetime.now(UTC)
 
 
 def tested(c: Candidate) -> bool:
@@ -117,7 +123,8 @@ def expire_invites(db: Session, **where) -> None:
 
 
 def achievement_signal(c: Candidate) -> float:
-    return combine([a.weight for a in c.achievements if a.verified])
+    """Только подтверждённые: результативность с убывающей отдачей по числу соревнований + рейтинг (scoring.signal)."""
+    return scoring.signal(a for a in c.achievements if a.verified)
 
 
 def fsp_title(c: Candidate) -> str | None:
@@ -126,11 +133,21 @@ def fsp_title(c: Candidate) -> str | None:
 
 
 def badges(c: Candidate) -> list[dict]:
-    """Бейджи анонимной карточки: лучшее подтверждённое достижение по каждому источнику (fsp, hackathon, ctftime, codeforces)."""
+    """Бейджи анонимной карточки: лучшее подтверждённое достижение по каждому источнику (fsp, hackathon, ctftime, codeforces).
+
+    Дисциплина, результат и разряд — факты из протокола, без ранжирования дисциплин.
+    """
     best: dict[str, dict] = {}
     for a in sorted((a for a in c.achievements if a.verified), key=lambda a: -a.weight):
-        best.setdefault(a.source, {"source": a.source, "title": a.title, "place": a.place})
+        best.setdefault(a.source, {"source": a.source, "title": a.title, "place": a.place, "result": a.result,
+                                   "discipline": a.event.discipline if a.event else None, "rank": a.sport_rank})
     return list(best.values())
+
+
+def sport_rank(achievements) -> str | None:
+    """Высший спортивный разряд/звание из подтверждённых протоколов (catalog.SPORT_RANKS) — факт, в вес не входит."""
+    ranks = [a.sport_rank for a in achievements if a.verified and a.sport_rank in catalog.SPORT_RANKS]
+    return min(ranks, key=catalog.SPORT_RANKS.index, default=None)
 
 
 def cf_account(c: Candidate):
@@ -517,6 +534,7 @@ def card(c: Candidate, *, ranked: Ranked | None = None, need: Need | None = None
         "fsp": fsp_title(c),
         "cf": cf.rating if cf else None,
         "badges": badges(c),
+        "sport_rank": sport_rank(c.achievements),
         "salary": c.min_salary,
         "formats": c.formats or [],
         "city": c.city,

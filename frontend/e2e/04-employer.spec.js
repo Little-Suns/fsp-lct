@@ -141,12 +141,16 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(page.getByRole('heading', { name: 'Кандидат A-1042' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Почему в подборке' })).toBeVisible();
   await expect(page.getByText(/Обязательные навыки подтверждены тестом: .*Python/)).toBeVisible();
-  await expect(page.getByText(/Решил задачу (\d+ дн\. назад|сегодня) · оценка работодателя: \S+/)).toBeVisible();
+  // последняя оценка — работодателя или автопроверка (сценарий кандидата решает задания с эталоном раньше)
+  await expect(page.getByText(/Решил задачу (\d+ дн\. назад|сегодня) · (оценка работодателя|автопроверка): \S+/)).toBeVisible();
   await expect(page.getByText('Итоговая оценка')).toBeVisible();
   const soft = page.locator('aside .panel', { hasText: 'Роли и софт-скиллы' });
   await expect(soft).toContainText('Ментор');
   await expect(soft).toContainText('в оценке не участвуют');
   await expect(page.getByText(/ФСП|Codeforces 1912/).first()).toBeVisible();
+  // разряд ФСП — фактом в карточке: чип и строка с дисциплиной и результатом
+  await expect(page.locator('.chips .chip', { hasText: '1 разряд' }).first()).toBeVisible();
+  await expect(page.getByText(/продуктовое программирование · финалист · .*спортивный разряд: 1 разряд/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Уже приглашён — к статусам' })).toBeVisible();
   // повторное приглашение — блокирующая ошибка от сервера прямо в форме
   await open(page, '/e/invite/A-1042');
@@ -665,4 +669,81 @@ test('Ладога ↔ кандидат: задание — создание, р
   await demo(page, 'e');
   await open(page, `/e/task/${task.id + 100000}`);
   await expect(page.getByText('Задание не найдено.')).toBeVisible();
+});
+
+test('Ладога ↔ кандидат: задание с эталоном — форма по типам, автопроверка, эталон не уходит кандидату, переоценка', async ({ page }) => {
+  test.setTimeout(90_000);
+  const id = uniq();
+  const title = `Эталон ${XSS} ${id}`;
+  const seg = name => page.getByRole('button', { name, exact: true });
+  await demo(page, 'e');
+  await open(page, '/e/tasks');
+  await page.getByRole('button', { name: 'Новое задание' }).click();
+  await page.getByLabel('Название').fill(title);
+  await page.getByLabel('Условие').fill('Сервис держит 400 запросов в секунду по 25 мс. Сколько соединений занято?');
+  await expect(page.getByText('Открытый ответ: решение оцениваете вы')).toBeVisible();
+  // каждый тип — свои поля эталона
+  await seg('текст').click();
+  await page.getByLabel(/Эталонные ответы/).fill('десять; 10');
+  const exact = page.getByRole('switch', { name: /Точное совпадение/ });
+  await exact.click();
+  await expect(exact).toHaveAttribute('aria-checked', 'true');
+  await seg('шаблон').click();
+  await page.getByLabel(/Шаблон/).fill('1[0]');
+  await seg('один вариант').click();
+  await page.getByLabel(/Варианты — по одному на строку/).fill('8\n10\n12');  // верный не отмечен — сервер отвечает 422
+  await page.getByRole('button', { name: 'Создать задание' }).click();
+  await expect(toast(page)).toHaveText('Эталон: номера верных вариантов из списка');
+  await seg('несколько вариантов').click();
+  await expect(page.getByLabel(/Варианты — по одному на строку/)).toHaveValue('8\n10\n12');  // введённое не теряется
+  await seg('число').click();
+  await page.getByLabel('Эталон — число').fill('десять');
+  await page.getByRole('button', { name: 'Создать задание' }).click();
+  await expect(toast(page)).toHaveText('Эталон и допуск — числа');
+  await page.getByLabel('Эталон — число').fill('10');
+  await page.getByLabel('Допуск ±').fill('0,5');
+  const made = api(page, 'POST', '/api/tasks');
+  await page.getByRole('button', { name: 'Создать задание' }).click();
+  const task = await (await made).json();
+  expect((await made).request().postDataJSON()).toMatchObject({ answer_type: 'number', reference: { value: 10, tolerance: 0.5 } });
+  await expect(toast(page)).toHaveText('Задание создано');
+  const card = page.locator('.panel', { hasText: id }).filter({ hasText: 'автопроверка: число' });
+  await expect(card).toContainText('верно 0 из 0');
+  await noXss(page);
+
+  // кандидат: поле для числа, эталон в ответах API не приходит
+  await demo(page, 'c');
+  await open(page, '/c/tasks');
+  const got = api(page, 'GET', `/api/tasks/${task.id}`);
+  await page.locator('button.cand', { hasText: id }).click();
+  expect(await (await got).json()).not.toHaveProperty('reference');
+  await noXss(page);
+  await page.getByPlaceholder('Число, например 42 или 3,14').fill('10,2');
+  const sub = api(page, 'POST', `/api/tasks/${task.id}/submit`);
+  await page.getByRole('button', { name: 'Отправить решение' }).click();
+  const sj = await (await sub).json();
+  expect(sj.task).not.toHaveProperty('reference');
+  expect(sj).toMatchObject({ answer: '10,2', auto_ok: true });
+  await expect(toast(page)).toHaveText('Решение отправлено. Ответ совпал с эталоном');
+
+  // работодатель: эталон у себя, результат автопроверки, переоценка вручную
+  await demo(page, 'e');
+  await open(page, '/e/tasks');
+  await expect(card).toContainText('верно 1 из 1');
+  await open(page, `/e/task/${task.id}`);
+  await expect(page.getByText('Эталон (число): 10 ± 0.5')).toBeVisible();
+  await noXss(page);
+  const row = page.locator('.panel', { hasText: 'Кандидат A-1042' });
+  await expect(row).toContainText('верно · автопроверка');
+  await expect(row).toContainText('можно переоценить вручную');
+  await row.getByRole('button', { name: 'слабо' }).click();
+  await expect(toast(page)).toHaveText('Оценка сохранена');
+  await expect(row.locator('.chip.warn')).toHaveText('слабо');
+  await expect(row).toContainText('верно · автопроверка');
+
+  // кандидат видит и автопроверку, и оценку компании
+  await demo(page, 'c');
+  await open(page, `/c/task/${task.id}`);
+  await expect(page.getByText('Ответ совпал с эталоном', { exact: true })).toBeVisible();
+  await expect(page.locator('.chip', { hasText: 'слабо' })).toBeVisible();
 });

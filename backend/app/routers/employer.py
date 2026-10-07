@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, defer, selectinload
 
 from app import catalog
 from app.db import get_db
@@ -432,6 +432,14 @@ def _has(c: Candidate, source: str) -> bool:
     return any(a.verified and a.source == source for a in c.achievements)
 
 
+# поиск грузит весь банк: ПДн, резюме, вектор, «правда» синтетики и разбивка по компетенциям ему не нужны — не тянем их из БД
+# (нагрузочный прогон: ~40 % времени запроса — разбор JSON и текста). raiseload: обращение к ним — ошибка, а не запрос на кандидата
+SEARCH_SKIP = [
+    defer(getattr(Candidate, f), raiseload=True)
+    for f in ("name", "email", "tg", "cv_text", "embedding", "truth", "competencies", "notif")
+]
+
+
 @router.get("/search")
 def search(
     spec: str | None = None,
@@ -456,7 +464,7 @@ def search(
     base = db.scalars(
         select(Candidate)
         .where(Candidate.status == "open", matching.published())
-        .options(selectinload(Candidate.achievements), selectinload(Candidate.accounts))
+        .options(selectinload(Candidate.achievements), selectinload(Candidate.accounts), *SEARCH_SKIP)
     ).all()
     attr = {"spec": lambda c: c.spec, "grade": matching.category_grade}
 
