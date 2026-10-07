@@ -140,6 +140,58 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       // сенсорный экран: разделы кабинета — зона нажатия не меньше 36 px
       for (const b of await page.locator('nav.chips button.chip').all()) expect((await b.boundingBox()).height).toBeGreaterThanOrEqual(36);
     });
+
+    test(`${name}: чат — список или диалог`, async ({ page }) => {
+      await demo(page, 'e');
+      await open(page, '/e/chat');
+      // без открытого диалога — только список, пустой панели «Выберите диалог» нет
+      await expect(page.locator('.chat-box')).toBeHidden();
+      await expect(page.locator('#chat-list')).toBeVisible();
+      await page.locator('.chat-peer', { hasText: 'Анна Смирнова' }).click();
+      await settled(page);
+      // открыт диалог: списка и строки разделов нет, поле ввода — в пределах экрана
+      await expect(page.locator('#chat-list')).toBeHidden();
+      await expect(page.locator('nav.subnav')).toBeHidden();
+      await expect(page.locator('#chat-messages')).toContainText('Пришлю приглашение в календарь');
+      expect((await box(page.locator('#chat-input'))).bottom).toBeLessThanOrEqual(viewport.height);
+      await noHScroll(page, 'диалог');
+      if (phone) {
+        // сенсорная клавиатура: Enter — перенос строки, отправка — кнопкой
+        const input = page.locator('#chat-input');
+        await expect(page.getByText('Отправить — кнопкой, Enter — перенос строки')).toBeVisible();
+        await input.fill('Анна, добрый день!');
+        await input.press('Enter');
+        await input.pressSequentially('Ссылка на встречу придёт письмом.');
+        await expect(input).toHaveValue('Анна, добрый день!\nСсылка на встречу придёт письмом.');
+        await page.getByRole('button', { name: 'Отправить' }).click();
+        await expect(page.locator('.msg.me').last()).toContainText('Ссылка на встречу придёт письмом.');
+        await expect(input).toHaveValue('');
+      }
+      await page.getByRole('button', { name: '← Диалоги' }).click();
+      await settled(page);
+      await expect(page).toHaveURL(/#\/e\/chat$/);
+      await expect(page.locator('#chat-list')).toBeVisible();
+
+      if (phone) {
+        // непрочитанное у кандидата: цифра помещается в бейдж и в строке разделов, и в списке диалогов на узком экране.
+        // Переписка «Ладога Пэй» ↔ A-1042 открывается принятием приглашения (в полном прогоне его уже принял 04-employer)
+        await demo(page, 'c');
+        await page.evaluate(async () => {
+          const h = who => ({ Authorization: 'Bearer ' + localStorage.getItem('fsp.tok.' + who), 'Content-Type': 'application/json' });
+          const { items } = await (await fetch('/api/candidate/invites', { headers: h('c') })).json();
+          const inv = items.find(i => i.company === 'Ладога Пэй' && i.status !== 'accepted');
+          if (inv) await fetch(`/api/candidate/invites/${inv.id}/accept`, { method: 'POST', headers: h('c') });
+          const r = await fetch('/api/chat/A-1042', { method: 'POST', headers: h('e'), body: JSON.stringify({ text: 'Дмитрий, добрый день! Удобно созвониться завтра?' }) });
+          if (!r.ok) throw new Error('POST ' + r.status);
+        });
+        await open(page, '/c/chat');
+        const fits = el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight && el.clientWidth >= 18;
+        const badge = page.locator('nav.subnav').getByRole('button', { name: /^Чат/ }).locator('.unread');
+        await expect(badge).toHaveText(/^\d+$/);
+        expect(await badge.evaluate(fits)).toBe(true);
+        expect(await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
+      }
+    });
   });
 }
 

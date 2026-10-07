@@ -136,7 +136,22 @@ main { padding-left: max(var(--gut), env(safe-area-inset-left)); padding-right: 
 .msg p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .msg time { display: block; text-align: right; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
 .unread { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 1; vertical-align: middle; flex: none; }
-@media (max-width: 900px) { .chat { grid-template-columns: minmax(0, 1fr); } .chat-list { max-height: 30vh; } }
+.btn.chat-back { display: none; }
+.chat-head { padding-bottom: 12px; border-bottom: 1px solid var(--line-2); gap: 10px; flex-wrap: nowrap; }
+.chat-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* телефон и планшет: либо список диалогов, либо открытый диалог на всю высоту экрана (без строки разделов) */
+@media (max-width: 900px) {
+  .chat { grid-template-columns: minmax(0, 1fr); }
+  .chat-list { max-height: none; }
+  .btn.chat-back { display: inline-flex; }
+  .chat.has-peer .chat-list, .chat:not(.has-peer) .chat-box { display: none; }
+  .chat.has-peer .chat-box:not(.chat-empty) { height: calc(100dvh - 56px - env(safe-area-inset-top) - var(--chat-gap, 96px)); min-height: 320px; }
+  main:has(.chat.has-peer) .subnav { display: none; }
+  .chat.has-peer { margin-bottom: 0; }
+  main:has(.chat.has-peer) { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .msg { max-width: 88%; }
+}
+@media (max-width: 560px) { .chat { --chat-gap: 76px; } }
 @media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } .g2.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* телефон и планшет: боковая колонка списка (фильтры, квота, карта) раскладывается вокруг списка —
    нужное для выбора (.m-before) — над ним, справочное — под ним, чтобы список не уезжал на пару экранов вниз */
@@ -453,6 +468,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .panel.tight { padding: 14px; }
   /* кнопки в строке действий заполняют её: крупная цель для пальца, без рваного края; поля рядом с кнопками — тоже */
   .row:not(.sb) > .btn { flex: 1 1 auto; }
+  .chat-box .row > .btn { flex: none; }
   .row > .input { flex: 1 1 140px; max-width: none !important; }
   .stack > .input, .stack-s > .input { max-width: none !important; }
   .row > .seg { flex: 1 1 auto; }
@@ -1897,6 +1913,7 @@ const chatPeerOf = () => { const m = route().match(/^\/[ce]\/chat\/([^/]+)$/); r
 const onChat = () => /^\/[ce]\/chat(\/|$)/.test(route());
 const chatSide = () => route().startsWith('/c') ? 'c' : 'e';
 const chatMe = () => chatSide() === 'c' ? 'candidate' : 'employer';
+const COARSE = matchMedia('(pointer: coarse)');  // сенсорный экран без мыши: телефон, планшет
 const chatBtn = (side, peer, cls = 'btn ghost small') => peer == null ? '' : `<button class="${cls}" data-go="/${side}/chat/${esc(encodeURIComponent(peer))}">Написать в чат</button>`;
 const WHEN = s => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -1920,20 +1937,22 @@ function chatList() {
 function chatView(side) {
   const peer = chatPeerOf(), d = D.chatDetail;
   const head = side === 'c' ? [['Кабинет', '/c/home'], ['Чат']] : [[esc(D.coName || 'Компания'), '/e/signup'], ['Чат']];
+  // телефон и планшет: открыт диалог — списка не видно, назад к нему — кнопкой в шапке диалога
+  const back = `<button class="btn ghost small chat-back" data-go="/${side}/chat">← Диалоги</button>`;
   const box = d ? `
     <div class="panel tight chat-box">
-      <div style="padding-bottom:12px;border-bottom:1px solid var(--line-2)"><b>${esc(d.peer.name)}</b></div>
+      <div class="row chat-head">${back}<b>${esc(d.peer.name)}</b></div>
       <div id="chat-messages" class="chat-msgs">${chatMessages()}</div>
       ${d.can_write ? `<div class="row" style="margin-top:12px;align-items:flex-end">
-        <textarea id="chat-input" class="input" style="flex:1;min-height:44px;resize:none" maxlength="2000" placeholder="Сообщение"></textarea>
+        <textarea id="chat-input" class="input" style="flex:1;min-height:44px;resize:none" maxlength="2000" placeholder="Сообщение" enterkeyhint="${COARSE.matches ? 'enter' : 'send'}"></textarea>
         <button class="btn primary" data-act="chat-send">Отправить</button>
       </div>
-      <span class="hint" style="margin-top:6px">Enter — отправить, Shift+Enter — перенос строки</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
-    </div>` : `<div class="panel chat-box chat-empty" style="align-items:center;justify-content:center"><span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог в списке'}</span></div>`;
+      <span class="hint" style="margin-top:6px">${COARSE.matches ? 'Отправить — кнопкой, Enter — перенос строки' : 'Enter — отправить, Shift+Enter — перенос строки'}</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
+    </div>` : `<div class="panel chat-box chat-empty" style="align-items:center;justify-content:center">${peer != null ? back : ''}<span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог в списке'}</span></div>`;
   return `
   ${crumbs(head)}
   ${subnav(side)}
-  <div class="chat fade">
+  <div class="chat fade ${peer != null ? 'has-peer' : ''}">
     <div class="panel tight stack-s chat-list" id="chat-list">${chatList()}</div>
     ${box}
   </div>`;
@@ -3113,7 +3132,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chat
 const ENTER = { 'su-mail': 'otp-send', 'su-otp': 'otp-verify', 'es-mail': 'eotp-send', 'es-otp': 'eotp-verify', 'vf-q': 'vf-apply', 'vf-city': 'vf-apply', 'sf-q': 'sf-apply', 'sf-skills': 'sf-apply', 'sf-city': 'sf-apply', 'need-skill': 'need-add-ok' };
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.isComposing && ENTER[e.target.id]) { const b = document.querySelector(`[data-act="${ENTER[e.target.id]}"]`); if (b) { e.preventDefault(); b.click(); } }
-  if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
+  if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey && !e.isComposing && !COARSE.matches) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
   if (e.target.id === 'code-ed') {
     // редактор кода: Tab — отступ; Esc, затем Tab — обычный переход фокуса (клавиатура не запирается в поле)
     if (e.key === 'Escape') { S.edEsc = true; return; }
