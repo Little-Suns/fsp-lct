@@ -347,6 +347,7 @@ def test_plan_for_need(env):
     assert env["emp"].post("/api/quest/plan", json={"spec": "Backend", "grade": "Гуру"}).status_code == 422
     assert env["emp"].post("/api/quest/plan", json={"spec": "Project Manager", "grade": "Middle"}).status_code == 422
     assert env["emp"].post("/api/quest/plan", json={"spec": "Backend", "track": "React", "grade": "Middle"}).status_code == 422
+    assert env["emp"].post("/api/quest/plan", json={"spec": "Backend"}).status_code == 422  # грейд со структурой обязателен
     assert env["emp"].post("/api/quest/plan", json={"spec": "Backend" * 20, "grade": "Middle"}).status_code == 422
     # сохранённая потребность важнее структуры с экрана
     assert env["emp"].post("/api/quest/plan", json={"need_id": env["need_id"], "spec": "QA", "grade": "Lead"}).json()["need"]["spec"] == "Backend"

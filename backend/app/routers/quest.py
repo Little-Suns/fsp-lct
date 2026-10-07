@@ -32,9 +32,9 @@ from app import catalog, config
 from app.db import get_db
 from app.deps import current_candidate, current_company
 from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession
+from app.routers.employer import check_category
 from app.services import code_items, irt, sandbox
 from app.services.items import STORY, plan_for_need
-from app.routers.employer import check_category
 from app.services.parsing import canon_skills, parse_need
 
 router = APIRouter(prefix="/api/quest", tags=["quest"])
@@ -89,7 +89,7 @@ class PlanIn(BaseModel):
     # структура, поправленная на экране после разбора, — без повторного разбора текста
     spec: str | None = Field(default=None, max_length=64)
     track: str | None = Field(default=None, max_length=64)
-    grade: str = Field(default="Middle", max_length=16)
+    grade: str | None = Field(default=None, max_length=16)
     must: list[str] = Field(default=[], max_length=50)
     nice: list[str] = Field(default=[], max_length=50)
 
