@@ -45,8 +45,8 @@ def client():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
-        cu, eu, nu = User(email="d.orlov@example.ru", role="candidate"), User(email="m.kovaleva@ladoga-pay.example", role="employer"), User(email="new@example.ru", role="candidate")
-        fake = User(email="hr.ladoga@gmail.com", role="employer")  # почта входа не на домене компании
+        cu, eu, nu = User(email="d.orlov@example.ru", role="candidate"), User(email="m.kovaleva@ladoga-pay.example", role="employer", email_confirmed=True), User(email="new@example.ru", role="candidate")
+        fake = User(email="hr.ladoga@gmail.com", role="employer", email_confirmed=True)  # почта входа не на домене компании
         late = User(email="late@example.ru", role="candidate")  # резюме загружает до создания профиля
         db.add_all([cu, eu, nu, fake, late])
         db.flush()

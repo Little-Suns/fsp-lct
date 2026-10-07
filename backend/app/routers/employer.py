@@ -123,22 +123,40 @@ class CompanyIn(BaseModel):
     recruiter_tg: str | None = Field(default=None, max_length=64)
 
 
-def _checks(co: Company, login_email: str) -> list[dict]:
+def mail_confirmed(user: User | None, site_domain: str | None) -> bool:
+    """Почта входа на домене сайта компании И подтверждена нашим кодом (users.email_confirmed): почте из Keycloak
+    и сторонних IdP не верим — «Trust Email» мог быть включён у провайдера, где адрес любой. recruiter_email не в счёт."""
+    return bool(user and user.email_confirmed and domain_match(user.email, site_domain))
+
+
+def refresh_verified(db: Session, user: User) -> None:
+    """Единственное место, где считается Company.verified: контрольные цифры ИНН + подтверждённая нашим кодом почта на домене сайта."""
+    co = db.scalar(select(Company).where(Company.user_id == user.id)) if user.id else None  # новый пользователь — компании нет
+    if co:
+        co.verified = inn_valid(co.inn) and mail_confirmed(user, co.site_domain)
+
+
+def _checks(co: Company, user: User | None) -> list[dict]:
     inn_ok = inn_valid(co.inn)
-    dom_ok = domain_match(login_email, co.site_domain)  # почта входа подтверждена кодом, recruiter_email — нет
+    dom_ok = mail_confirmed(user, co.site_domain)
+    if dom_ok:
+        dom_text = "Домен почты совпадает с сайтом компании"
+    elif user and not user.email_confirmed and domain_match(user.email, co.site_domain):
+        dom_text = f"Подтвердите рабочую почту: войдите по коду на {user.email}"  # вошли через SSO — почта ещё не подтверждена нашим кодом
+    else:
+        dom_text = "Домен почты не совпадает с сайтом компании"
     return [
         {"key": "inn", "ok": inn_ok, "text": "ИНН: контрольные цифры верны" if inn_ok else "ИНН: контрольные цифры не сходятся"},
         # ponytail: ЕГРЮЛ не запрашивается; API ФНС (egrul.nalog.ru) или DaData, когда будет ключ
         {"key": "egrul", "ok": None, "text": "ЕГРЮЛ: проверка статуса организации не выполнялась (заглушка)"},
-        {"key": "domain", "ok": dom_ok, "text": "Домен почты совпадает с сайтом компании" if dom_ok else "Домен почты не совпадает с сайтом компании"},
+        {"key": "domain", "ok": dom_ok, "text": dom_text},
     ]
 
 
 def company_trust(db: Session, co: Company) -> dict:
     """Что показываем кандидату о компании: отдельные факты, а не общий «проверена».
-    domain_confirmed — почта входа (подтверждена кодом) на домене сайта компании; inn_checksum_valid — контрольные цифры ИНН."""
-    login = db.get(User, co.user_id).email if co.user_id else ""
-    return {"domain_confirmed": domain_match(login, co.site_domain), "inn_checksum_valid": inn_valid(co.inn)}
+    domain_confirmed — почта входа подтверждена нашим кодом и стоит на домене сайта компании; inn_checksum_valid — контрольные цифры ИНН."""
+    return {"domain_confirmed": mail_confirmed(db.get(User, co.user_id) if co.user_id else None, co.site_domain), "inn_checksum_valid": inn_valid(co.inn)}
 
 
 def _company_out(db: Session, co: Company) -> dict:
@@ -154,7 +172,7 @@ def _company_out(db: Session, co: Company) -> dict:
         "recruiter_tg": co.recruiter_tg,
         "verified": co.verified,  # внутренний статус: полная квота; кандидату не отдаётся
         **company_trust(db, co),
-        "checks": _checks(co, db.get(User, co.user_id).email if co.user_id else ""),
+        "checks": _checks(co, db.get(User, co.user_id) if co.user_id else None),
         "quota": quota(db, co),
     }
 
@@ -183,7 +201,7 @@ def save_company(body: CompanyIn, user: User = Depends(current_user), db: Sessio
     co.color = body.color or co.color or "#402FFF"
     co.site_domain, co.recruiter_name = body.site_domain, body.recruiter_name
     co.recruiter_email, co.recruiter_tg = body.recruiter_email or user.email, body.recruiter_tg
-    co.verified = inn_valid(inn) and domain_match(user.email, co.site_domain)
+    refresh_verified(db, user)
     db.commit()
     return _company_out(db, co)
 

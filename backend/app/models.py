@@ -21,6 +21,8 @@ class User(Base):
     token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)  # sha256 токена, сам токен не храним
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     fsp_id: Mapped[str | None] = mapped_column(String(64), unique=True)  # sub из ФСП ID (в Keycloak — UUID, 36 символов)
+    # почту подтвердил наш код входа (deps.verify); почте из Keycloak и сторонних IdP («Trust Email») для проверки компании не верим
+    email_confirmed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = _now()
 
 
@@ -427,6 +429,7 @@ class FspLogin(Base):
     state_hash: Mapped[str | None] = mapped_column(String(64), unique=True)  # None — callback уже был (повтор не пройдёт)
     browser_hash: Mapped[str] = mapped_column(String(64))  # sha256 куки fsp_flow: callback и обмен — только в том же браузере
     mode: Mapped[str] = mapped_column(String(8))  # login | link
+    role: Mapped[str] = mapped_column(String(16), default="candidate", server_default="candidate")  # кем входим: candidate | employer
     # link — кому привязываем ФСП ID (выбрал вошедший пользователь); login после callback — кто вошёл
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     ticket_hash: Mapped[str | None] = mapped_column(String(64), unique=True)  # билет на обмен в наш токен, живёт минуту

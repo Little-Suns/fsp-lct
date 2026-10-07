@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app import config, mail
 from app.db import get_db
-from app.models import Candidate, Company, LoginChallenge, User
+from app.models import AuditLog, Candidate, Company, LoginChallenge, User
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 OTP_TTL = timedelta(minutes=10)
@@ -184,8 +184,18 @@ def verify(body: VerifyIn, db: Session = Depends(get_db)):
         user = User(email=email, role=role)
         db.add(user)
         db.flush()
-    elif user.role != role and not _has_profile(db, user):
-        user.role = role  # роль меняется, пока нет ни профиля кандидата, ни компании
+    else:
+        if user.role != role and not _has_profile(db, user):
+            user.role = role  # роль меняется, пока нет ни профиля кандидата, ни компании
+        if user.fsp_id and not user.email_confirmed:
+            # привязку сделали через брокер, почту владелец не подтверждал (предзахват, в том числе аккаунт с профилем
+            # или компанией, заведёнными атакующим) — сбрасываем независимо от данных
+            user.fsp_id = None
+            db.add(AuditLog(actor_user_id=user.id, action="fsp_id_unlinked", detail=None))
+    user.email_confirmed = True
+    from app.routers.employer import refresh_verified  # поздний импорт: employer сам зависит от deps
+
+    refresh_verified(db, user)  # доменная почта могла подтвердиться этим входом
     # один commit: код удалён, пользователь создан, токен выдан — или ничего. В демо вход по почте персонажа даёт общий
     # токен: код там приходит в ответе, и любой зритель иначе выбил бы остальных
     return login_token(user, db)

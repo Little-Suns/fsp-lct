@@ -37,6 +37,7 @@ services:
       FSP_ID_CLIENT_ID: ${FSP_ID_CLIENT_ID:-fsp-career}
       FSP_ID_CLIENT_SECRET: ${FSP_ID_CLIENT_SECRET:-}
       FSP_ID_MOCK: ${FSP_ID_MOCK:-}
+      FSP_ID_IDPS: ${FSP_ID_IDPS:-}
       # LLM: none — только правила (стенд жюри: без GPU и ключей); ollama — локальная модель на хосте (ollama serve);
       # yandexgpt / gigachat — российские облачные (ключи ниже). Пустые значения = пресет провайдера, см. README
       LLM_PROVIDER: ${LLM_PROVIDER:-none}
