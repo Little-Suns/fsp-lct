@@ -45,7 +45,7 @@ def rerun(k: int = Query(10, ge=1, le=50), seed: int = 42, today: str = Query(sv
         raise HTTPException(409, "Прогон уже идёт, подождите минуту")
     try:
         res = svc.run(db, k=k, seed=seed, today=day)
+        svc.save(res)
     finally:
         _running.release()
-    svc.save(res)
     return res
