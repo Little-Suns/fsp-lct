@@ -209,7 +209,7 @@ def test_quest_flow(env):
         assert rows[0].grade == up2["category"]["grade"]
 
 
-def test_percentile_scope():
+def test_percentile_scope(env):  # env — схема набора, если тест запущен один
     """Перцентиль — по категории spec × track × grade, если в ней не меньше PERCENTILE_MIN_N других; иначе — по специализации;
     без других кандидатов со θ — нет перцентиля. Отдельная специализация, чтобы чужие кандидаты базы не мешали."""
     tag = secrets.token_hex(3)
@@ -232,8 +232,7 @@ def test_percentile_scope():
         assert quest._percentile(db, senior) == (round(100 * 11 / 14), "spec")
         db.delete(peers[0])
         db.flush()  # категория стала меньше порога → тоже специализация
-        assert quest._percentile(db, me)[1] == "spec"
-        db.rollback()
+        assert quest._percentile(db, me)[1] == "spec"  # ничего не коммитится: выход из with откатывает
 
 
 def test_express_mode(env):
