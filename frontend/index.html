@@ -3,8 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FFFFFF">
 <title>ФСП Карьера</title>
 <link rel="icon" href="assets/mark.png">
+<!-- на телефоне стенд добавляется на домашний экран как приложение: манифест и иконка -->
+<link rel="manifest" href="assets/manifest.webmanifest">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="ФСП Карьера">
 <meta name="color-scheme" content="light dark">
 <script>
 /* тема применяется до первой отрисовки, чтобы не было вспышки: 'light' | 'dark', без выбора — по системе */
@@ -138,6 +143,8 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+html.lock { overflow: hidden; }  /* открыто меню: страница под ним не прокручивается */
 body {
   background: var(--ground);
   color: var(--ink);
@@ -162,12 +169,12 @@ p { margin: 0; }
 
 /* ---------- шапка ---------- */
 .top {
-  position: sticky; top: 0; z-index: 20;
+  position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top);
   background: color-mix(in srgb, var(--paper) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line-2);
 }
-.top-in { max-width: 1240px; margin: 0 auto; padding: 10px var(--gut); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.top-in { max-width: 1240px; margin: 0 auto; padding: 10px var(--gut); padding-left: max(var(--gut), env(safe-area-inset-left)); padding-right: max(var(--gut), env(safe-area-inset-right)); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--ink); }
 .brand img { height: 30px; width: auto; filter: var(--logo-filter); }
 .brand .prod { font-weight: 600; font-size: 13px; padding-left: 12px; border-left: 1px solid var(--line); line-height: 1.2; }
@@ -176,10 +183,29 @@ p { margin: 0; }
 .roles button { border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; color: var(--ink-2); }
 .roles button[aria-current="true"] { background: var(--paper); color: var(--blue-text); font-weight: 600; box-shadow: 0 1px 2px var(--shadow); }
 .mapbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
-.mapbtn:hover { border-color: var(--blue); color: var(--blue-text); }
+@media (hover: hover) { .mapbtn:hover { border-color: var(--blue); color: var(--blue-text); } }
+.on-narrow, .m-only { display: none; }
+/* телефон и планшет: шапка в одну строку — логотип, значок темы и «Меню»; роли и выход — в меню */
+@media (max-width: 900px) {
+  .top-in { flex-wrap: nowrap; height: 56px; padding-top: 0; padding-bottom: 0; gap: 12px; }
+  .brand { min-width: 0; gap: 10px; }
+  .brand img { height: 26px; }
+  .brand .prod { padding-left: 10px; white-space: nowrap; }
+  .top .roles, .top #logout { display: none; }
+  .mapbtn { min-height: 40px; padding: 8px 14px; }
+  .top #theme { margin-left: auto; padding: 6px 12px; font-size: 17px; line-height: 1; }  /* только значок ☾ / ☀, подпись — в aria-label */
+  .on-wide { display: none; }
+  .on-narrow { display: inline; }
+  .m-only { display: block; }
+}
+@media (max-width: 430px) { .brand .prod span { display: none; } }  /* подпись под названием не помещается рядом с темой и «Меню» */
+@media (max-width: 360px) { .brand .prod { display: none; } }  /* самый узкий телефон: только логотип ФСП */
+@media (max-height: 480px) and (orientation: landscape) { .top { position: static; } }  /* телефон боком: шапка не съедает и без того низкий экран */
 
 /* ---------- каркас ---------- */
 main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
+main { padding-left: max(var(--gut), env(safe-area-inset-left)); padding-right: max(var(--gut), env(safe-area-inset-right)); padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+@media (max-width: 560px) { main { padding-top: 16px; } }
 .crumbs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; font-size: 12px; color: var(--ink-3); }
 .crumbs b { color: var(--ink); font-weight: 500; }
 .crumbs button { border: 0; background: none; padding: 0; color: var(--blue-text); cursor: pointer; font-size: 12px; }
@@ -202,8 +228,39 @@ main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 .msg p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .msg time { display: block; text-align: right; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
 .unread { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: var(--on-red); font-size: 11px; line-height: 1; vertical-align: middle; flex: none; }
-@media (max-width: 900px) { .chat { grid-template-columns: minmax(0, 1fr); } .chat-list { max-height: 30vh; } }
-@media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } }
+.btn.chat-back { display: none; }
+.row.chat-head { padding-bottom: 12px; border-bottom: 1px solid var(--line-2); gap: 10px; flex-wrap: nowrap; }
+.chat-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* телефон и планшет: либо список диалогов, либо открытый диалог на всю высоту экрана (без строки разделов) */
+@media (max-width: 900px) {
+  .chat { grid-template-columns: minmax(0, 1fr); }
+  .chat-list { max-height: none; }
+  .btn.chat-back { display: inline-flex; }
+  .chat.has-peer .chat-list, .chat:not(.has-peer) .chat-box { display: none; }
+  .chat.has-peer .chat-box:not(.chat-empty) { height: calc(100dvh - 56px - env(safe-area-inset-top) - var(--chat-gap, 96px)); min-height: 320px; }
+  main:has(.chat.has-peer) .subnav { display: none; }
+  .chat.has-peer { margin-bottom: 0; }
+  main:has(.chat.has-peer) { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .msg { max-width: 88%; }
+}
+@media (max-width: 560px) { .chat { --chat-gap: 76px; } }
+@media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } .g2.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* телефон и планшет: боковая колонка списка (фильтры, квота, карта) раскладывается вокруг списка —
+   нужное для выбора (.m-before) — над ним, справочное — под ним, чтобы список не уезжал на пару экранов вниз */
+@media (max-width: 900px) {
+  .side-l > aside { display: contents; }
+  .side-l > aside > * { order: 2; }
+  .side-l > aside > .m-before { order: 0; }
+  .side-l > :not(aside) { order: 1; }
+}
+/* сворачиваемая панель: на широком экране всегда открыта, на телефоне — по кнопке */
+.btn.fold-btn, .fold-n { display: none; }
+@media (max-width: 900px) {
+  .btn.fold-btn { display: inline-flex; }
+  .chip.lot-tag { display: none; }
+  .fold-n { display: inline; }
+  .fold:not(.open) .fold-b { display: none; }
+}
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .row.sb { justify-content: space-between; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
@@ -218,11 +275,11 @@ main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 /* ---------- кнопки и поля ---------- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 10px; padding: 11px 18px; cursor: pointer; font-weight: 500; font-size: 14px; text-decoration: none; transition: background .15s, border-color .15s, color .15s; }
 .btn.primary { background: var(--blue); color: var(--on-accent); }
-.btn.primary:hover { background: var(--blue-hover); }
+@media (hover: hover) { .btn.primary:hover { background: var(--blue-hover); } }
 .btn.ghost { background: var(--paper); border-color: var(--line); color: var(--ink); }
-.btn.ghost:hover { border-color: var(--blue); color: var(--blue-text); }
+@media (hover: hover) { .btn.ghost:hover { border-color: var(--blue); color: var(--blue-text); } }
 .btn.danger { background: var(--paper); border-color: var(--line); color: var(--red); }
-.btn.danger:hover { border-color: var(--red); }
+@media (hover: hover) { .btn.danger:hover { border-color: var(--red); } }
 .btn.dark { background: var(--on-dark); color: var(--dark); }
 .btn.small { padding: 7px 12px; font-size: 13px; border-radius: 8px; }
 .btn[disabled] { opacity: .45; cursor: not-allowed; }
@@ -232,15 +289,23 @@ main { max-width: 1240px; margin: 0 auto; padding: 28px var(--gut) 80px; }
 .field > span { font-size: 12px; color: var(--ink-2); font-weight: 500; }
 .input, select.input, textarea.input { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); padding: 10px 12px; font-size: 14px; }
 .input:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px var(--blue-soft); }
+input[type="search"].input { -webkit-appearance: none; appearance: none; }
 textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; font-family: var(--sans); font-size: 15px; }
 .hint { font-size: 12px; color: var(--ink-3); }
+.fsp-hint { margin-left: auto; }
+@media (max-width: 560px) { .fsp-btn { flex-wrap: wrap; row-gap: 0; } .fsp-hint { flex: 1 1 100%; margin-left: 0; padding-left: 36px; text-align: left; } }
+/* «от» / «до» внутри поля вилки: подпись видна и когда поле заполнено */
+.pfx { position: relative; display: block; min-width: 0; }
+.pfx::before { content: attr(data-p); position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--ink-3); pointer-events: none; }
+.pfx .input { padding-left: 40px; }
 .check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--ink-2); cursor: pointer; }
 .check input { margin-top: 3px; accent-color: var(--blue); }
 
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; flex-wrap: wrap; }
-.seg button { border: 0; background: var(--paper); padding: 8px 14px; cursor: pointer; font-size: 13px; border-right: 1px solid var(--line); }
-.seg button:last-child { border-right: 0; }
-.seg button[aria-pressed="true"] { background: var(--blue); color: var(--on-accent); }
+/* перегородки — фон в зазоре 1px: при переносе на узком экране строки заполняются целиком, без пустых ячеек */
+.seg { display: inline-flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; max-width: 100%; }
+.seg button { flex: 1 1 auto; border: 0; background: var(--paper); padding: 8px 14px; cursor: pointer; font-size: 13px; }
+.seg button[aria-pressed="true"], .seg button[aria-current="true"] { background: var(--blue); color: var(--on-accent); }
+@media (max-width: 560px) { .seg { display: flex; } .seg button { padding: 8px 6px; } }
 
 .switch { display: inline-flex; align-items: center; gap: 10px; text-align: left; cursor: pointer; font-size: 13px; border: 0; background: none; padding: 0; }
 .switch i { width: 38px; height: 22px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s; flex: none; }
@@ -257,8 +322,21 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; font-fam
 .chip.bad { border-color: transparent; background: var(--red-soft); color: var(--red); }
 .chip.dim { color: var(--ink-3); border-style: dashed; }
 button.chip { cursor: pointer; }
-button.chip:hover { border-color: var(--blue); }
+@media (hover: hover) { button.chip:hover { border-color: var(--blue); } }
 .chip .x { opacity: .6; }
+.chip { max-width: 100%; }
+@media (max-width: 400px) { .chip { white-space: normal; } }  /* длинная плашка («почта на домене не подтверждена») переносится, а не вылезает за край */
+.subnav { margin-bottom: 16px; }
+/* телефон и планшет: разделы кабинета — одна строка с прокруткой во всю ширину экрана, активный раздел виден */
+@media (max-width: 900px) {
+  .subnav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
+    margin-left: calc(-1 * max(var(--gut), env(safe-area-inset-left))); margin-right: calc(-1 * max(var(--gut), env(safe-area-inset-right)));
+    padding: 4px max(var(--gut), env(safe-area-inset-right)) 4px max(var(--gut), env(safe-area-inset-left));  /* 4px — не режет рамку фокуса */
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--gut), #000 calc(100% - var(--gut)), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 var(--gut), #000 calc(100% - var(--gut)), transparent 100%); }
+  .subnav::-webkit-scrollbar { display: none; }
+  .subnav .chip { flex: none; }
+}
 
 .cat { display: inline-flex; align-items: center; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--blue); font-weight: 600; font-size: 13px; }
 .cat span { padding: 5px 10px; color: var(--blue-text); }
@@ -331,20 +409,21 @@ button.chip:hover { border-color: var(--blue); }
 @media (max-width: 820px) { .steps { grid-template-columns: 1fr; } .steps > div { border-right: 0; border-bottom: 1px solid var(--blue-line); } .steps > div:last-child { border-bottom: 0; } }
 
 .door { display: flex; flex-direction: column; gap: 14px; padding: 26px; border-radius: var(--r); background: var(--paper); border: 1px solid var(--line-2); cursor: pointer; text-align: left; transition: border-color .15s, transform .15s; }
-.door:hover { border-color: var(--blue); transform: translateY(-2px); }
+@media (hover: hover) { .door:hover { border-color: var(--blue); transform: translateY(-2px); } }
 .door .go { margin-top: auto; color: var(--blue-text); font-weight: 600; }
 
 /* ---------- квест ---------- */
-.quest { background: var(--dark); color: var(--on-dark); border-radius: 22px; overflow: hidden; }
+.quest { background: var(--dark); color: var(--on-dark); border-radius: 22px; overflow: hidden; overflow: clip; }  /* clip, а не hidden: внутри работает sticky */
 .quest-top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 22px; border-bottom: 1px solid var(--dark-line); font-size: 13px; }
-.quest-top .pr { display: flex; gap: 4px; }
-.quest-top .pr i { width: 22px; height: 4px; border-radius: 2px; background: var(--dark-line); }
+.quest-top .pr { display: flex; gap: 4px; flex: 0 1 auto; min-width: 0; }
+.quest-top .pr i { flex: 0 1 22px; min-width: 3px; height: 4px; border-radius: 2px; background: var(--dark-line); }
 .quest-top .pr i.on { background: var(--blue); }
 .quest-top .pr i.cur { background: var(--on-dark); }
 .timer { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; display: inline-flex; gap: 8px; align-items: center; }
 .timer.low { color: #FF6B7D; }
 .quest .switch { color: var(--on-dark-2); }
-.quest .seg { border-color: var(--dark-line); align-self: flex-start; } .quest .seg button { background: var(--dark-2); color: var(--on-dark); border-color: var(--dark-line); } .quest .seg button[aria-pressed="true"] { background: var(--blue); color: #fff; }
+.quest .seg { border-color: var(--dark-line); background: var(--dark-line); align-self: flex-start; } .quest .seg button { background: var(--dark-2); color: var(--on-dark); } .quest .seg button[aria-pressed="true"] { background: var(--blue); color: #fff; }
+@media (max-width: 560px) { .quest .seg { align-self: stretch; } }
 .quest .switch i { background: var(--dark-line); }
 .quest-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; }
 .quest-body > div { padding: 26px; min-width: 0; }
@@ -359,7 +438,7 @@ button.chip:hover { border-color: var(--blue); }
 .term .i { color: #8EA2FF; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
 .opt { text-align: left; border: 1px solid var(--dark-line); background: var(--dark-2); color: var(--on-dark); border-radius: 10px; padding: 12px 14px; cursor: pointer; display: grid; grid-template-columns: 22px 1fr; gap: 10px; font-size: 14px; font-family: var(--sans); }
-.opt:hover { border-color: var(--on-dark-accent); }
+@media (hover: hover) { .opt:hover { border-color: var(--on-dark-accent); } }
 .opt .k { font-family: var(--mono); color: var(--on-dark-2); font-size: 12px; padding-top: 2px; }
 .opt[aria-pressed="true"] { border-color: var(--blue); background: rgba(64,47,255,.18); }
 .opt[aria-pressed="true"] .k { color: #fff; }
@@ -367,19 +446,48 @@ button.chip:hover { border-color: var(--blue); }
 .code { background: #0F1013; border: 1px solid var(--dark-line); border-radius: 10px; overflow-x: auto; font-size: 12.5px; }
 .code button { display: grid; grid-template-columns: 34px 1fr; width: 100%; min-width: max-content; text-align: left; border: 0; background: none; color: #C9CAD3; padding: 1px 12px 1px 0; cursor: pointer; white-space: pre; font-family: var(--mono); line-height: 1.75; }
 .code button .ln { color: #5D5E69; text-align: right; padding-right: 12px; user-select: none; }
-.code button:hover { background: #1A1B21; }
+@media (hover: hover) { .code button:hover { background: #1A1B21; } }
 .code button[aria-pressed="true"] { background: rgba(236,29,53,.18); box-shadow: inset 3px 0 0 var(--red); }
 .pre { white-space: pre-line; }
-.code button[disabled] { cursor: default; } .code button[disabled]:hover { background: none; }
+.code button[disabled] { cursor: default; } @media (hover: hover) { .code button[disabled]:hover { background: none; } }
 .code .kw { color: #A99BFF; } .code .st { color: #9FD8A8; } .code .cm { color: #6C6D78; }
 .quest-foot { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px 22px; border-top: 1px solid var(--dark-line); font-size: 12px; color: var(--on-dark-2); }
 .quest .chart text { fill: var(--on-dark-2); font-size: 10px; font-family: var(--mono); }
+.quest .chart.nar text { font-size: 12px; }
 .code-ed { width: 100%; min-height: 320px; resize: vertical; background: #0F1013; color: #E6E6EE; border: 1px solid var(--dark-line); border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 13px; line-height: 1.6; tab-size: 4; white-space: pre; overflow: auto; font-variant-ligatures: none; }
 .code-ed:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
+.code-tools { display: none; }
+/* телефон: шапка задания (таймер, прогресс) прилипает под шапкой сайта, кнопка «Дальше» — к низу экрана;
+   логи и код переносятся по строкам вместо прокрутки вбок */
+@media (max-width: 640px) {
+  .quest { border-radius: 16px; }
+  .quest-top { position: sticky; top: calc(56px + env(safe-area-inset-top)); z-index: 5; background: var(--dark);
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 10px 16px; }
+  .quest-top .qt-title { grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .quest-top .timer { grid-column: 2; grid-row: 1; margin: 0; }
+  .quest-top .pr { grid-column: 1 / -1; grid-row: 2; }
+  .quest-top .qt-comp { grid-column: 1; grid-row: 3; min-width: 0; font-size: 12px; }
+  .quest-top .switch { grid-column: 2; grid-row: 3; }
+  .quest-body > div { padding: 18px 16px; }
+  .quest .q { font-size: 16px; }
+  .quest-foot { position: sticky; bottom: 0; z-index: 5; background: var(--dark); flex-wrap: nowrap; gap: 12px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); font-size: 11px; line-height: 1.4; box-shadow: 0 -10px 18px rgba(0,0,0,.35); }
+  .quest-foot .row { flex: none; }
+  /* у задачи на код подсказка длинная, а отправка — осознанный последний шаг: низ не прилипает */
+  .quest-foot.qf-code { position: static; flex-wrap: wrap; box-shadow: none; }
+  .quest-foot.qf-code .row { flex: 1 1 100%; }
+  .quest-foot .btn.small { min-height: 44px; padding: 10px 18px; font-size: 14px; }
+  .term { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .code button { white-space: pre-wrap; min-width: 0; }
+  .code button > span:last-child { overflow-wrap: anywhere; }
+  .code-ed { min-height: 260px; }
+}
+@media (pointer: coarse) { .code-tools { display: flex; } .code-keys { display: none; } }
+@media (max-height: 480px) and (orientation: landscape) { .quest-top, .quest-foot { position: static; box-shadow: none; } }
 
 /* ---------- карточки кандидатов / приглашений ---------- */
 .cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 20px; padding: 18px 20px; background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; transition: border-color .15s; text-align: left; width: 100%; }
-.cand:hover { border-color: var(--blue); }
+@media (hover: hover) { .cand:hover { border-color: var(--blue); } }
 .cand .id { font-weight: 600; font-size: 15px; }
 .cand .score { text-align: right; }
 .cand .score b { font-size: 22px; font-weight: 600; color: var(--blue-text); display: block; line-height: 1; }
@@ -388,22 +496,45 @@ button.chip:hover { border-color: var(--blue); }
 @media (max-width: 700px) { .cand .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .inv { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 18px; background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; text-align: left; width: 100%; }
-.inv:hover { border-color: var(--blue); }
+@media (hover: hover) { .inv:hover { border-color: var(--blue); } }
 .logo-sq { box-shadow: inset 0 0 0 1px var(--logo-ring); width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 16px; }
+.inv-st { align-items: flex-end; }
 .money { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-@media (max-width: 560px) { .inv { grid-template-columns: 44px minmax(0, 1fr); } .inv > :last-child { grid-column: 2; } }
+@media (max-width: 560px) {
+  .inv { grid-template-columns: 44px minmax(0, 1fr); align-items: start; }
+  .inv > :last-child { grid-column: 2; }
+  .inv-st { flex-direction: row; flex-wrap: wrap; align-items: center; }
+}
+/* шапка приглашения, вакансии, задачи: логотип и компания рядом, плашки проверки — справа, на телефоне — строкой ниже */
+.co-head > div, .co-head > b { flex: 1 1 160px; min-width: 0; }
+.co-chips { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 560px) { .co-chips { margin-left: 0; flex-basis: 100%; } }
 
 .kv { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px 16px; font-size: 13px; }
 .kv dt { color: var(--ink-3); }
 .kv dd { margin: 0; }
 @media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: 2px 12px; } .kv dd { margin-bottom: 8px; } }
 
-.tbl-wrap { overflow-x: auto; }
+/* таблица шире экрана прокручивается внутри обёртки; тени по краям показывают, что за краем есть столбцы */
+.tbl-wrap { overflow-x: auto; overscroll-behavior-x: contain;
+  background: linear-gradient(90deg, var(--paper) 30%, rgba(255,255,255,0)) left / 28px 100% no-repeat local,
+    linear-gradient(270deg, var(--paper) 30%, rgba(255,255,255,0)) right / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--ink) 18%, transparent), transparent) left / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--ink) 18%, transparent), transparent) right / 12px 100% no-repeat scroll; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th { text-align: left; font-weight: 500; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; padding: 8px 10px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
 .tbl td { padding: 12px 10px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
 .tbl tr:last-child td { border-bottom: 0; }
 .tbl td.num, .tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl td.num { white-space: nowrap; }
+@media (max-width: 640px) {
+  .tbl { font-size: 12px; }
+  .tbl th { padding: 8px 6px; letter-spacing: .03em; white-space: normal; vertical-align: bottom; }
+  .tbl td { padding: 9px 6px; }
+  .tbl th:first-child, .tbl td:first-child { padding-left: 0; }
+  table.tbl.heat td.c { padding: 8px 3px; }
+  .tbl.heat caption { position: sticky; left: 0; }
+}
 
 .tg { background: #E7EBF0; border-radius: 16px; padding: 14px; max-width: 360px; font-family: var(--sans); }
 .tg .bubble { background: #fff; border-radius: 12px 12px 12px 4px; padding: 10px 12px; font-size: 13px; line-height: 1.45; color: #111; }
@@ -432,14 +563,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* ---------- карта экранов, тост ---------- */
 .overlay { position: fixed; inset: 0; background: var(--scrim); z-index: 50; display: flex; justify-content: flex-end; }
-.drawer { background: var(--paper); width: min(440px, 100%); height: 100%; overflow-y: auto; padding: 22px 22px calc(22px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 18px; }
+.drawer { background: var(--paper); width: min(440px, 100%); height: 100%; overflow-y: auto; overscroll-behavior: contain; padding: calc(22px + env(safe-area-inset-top, 0px)) calc(22px + env(safe-area-inset-right, 0px)) calc(22px + env(safe-area-inset-bottom, 0px)) 22px; display: flex; flex-direction: column; gap: 18px; animation: slide .2s ease-out; }
+@keyframes slide { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+.drawer .m-roles { display: flex; }
+@media (max-width: 560px) { .drawer { padding-left: 16px; padding-right: calc(16px + env(safe-area-inset-right, 0px)); } }
 .drawer .grp { display: flex; flex-direction: column; gap: 2px; }
 .drawer .grp button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; display: grid; grid-template-columns: 34px 1fr; font-size: 13px; }
-.drawer .grp button:hover { background: var(--blue-soft); }
+@media (hover: hover) { .drawer .grp button:hover { background: var(--blue-soft); } }
 .drawer .grp button[aria-current="true"] { background: var(--blue); color: var(--on-accent); }
 .drawer .grp button span:first-child { color: var(--ink-3); }
 .drawer .grp button[aria-current="true"] span:first-child { color: var(--on-blue-2); }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--toast-bg); color: var(--toast-fg); padding: 12px 18px; border-radius: 10px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+@media (max-width: 640px) { body:has(.quest-foot:not(.qf-code)) .toast { bottom: calc(88px + env(safe-area-inset-bottom, 0px)); } }  /* над прилипшей «Дальше» */
 
 .drop { border: 1.5px dashed var(--blue-line); border-radius: var(--r); padding: 22px; display: flex; gap: 16px; align-items: center; background: var(--blue-soft); }
 .file-ico { width: 40px; height: 48px; border-radius: 6px; background: var(--paper); border: 1px solid var(--blue-line); display: grid; place-items: center; font-size: 10px; font-weight: 700; color: var(--red); flex: none; }
@@ -458,11 +593,29 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .tbl.stack td[data-l]::before { content: attr(data-l); flex: none; max-width: 45%; text-align: left; color: var(--ink-3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
   .tbl.stack td .chips { justify-content: flex-end; }
   .tbl.stack td[data-l]:empty { display: none; }
-  /* категория «спец · трек · грейд» в узкой колонке карточки не обрезается, а переносится */
+  /* категория «спец · трек · грейд» в узкой колонке карточки не обрезается, а переносится; перенесённая часть — во всю ширину */
   .cat { flex-wrap: wrap; max-width: 100%; }
-  .cat span { padding: 5px 8px; }
+  .cat span { padding: 5px 8px; flex: 1 0 auto; text-align: center; }
   .scale-legend .lg span { font-size: 0; }
   .scale-legend .lg span::before { content: attr(data-s); font-size: 10px; }
+}
+@media (max-width: 560px) {
+  .panel { padding: 16px; }
+  .panel.tight { padding: 14px; }
+  /* кнопки в строке действий заполняют её: крупная цель для пальца, без рваного края; поля рядом с кнопками — тоже */
+  .row:not(.sb) > .btn { flex: 1 1 auto; }
+  .chat-box .row > .btn { flex: none; }
+  .row > .input { flex: 1 1 140px; max-width: none !important; }
+  .stack > .input, .stack-s > .input { max-width: none !important; }
+  .row > .seg { flex: 1 1 auto; }
+  .kv dd { overflow-wrap: anywhere; }
+  /* карточка без числовой оценки справа (статус, «другая специализация») — в одну колонку: заголовок не сжимается */
+  .cand { padding: 16px; }
+  .cand:not(:has(.score > b)) { grid-template-columns: minmax(0, 1fr); }
+  .cand:not(:has(.score > b)) .score { text-align: left; }
+  .drop { flex-wrap: wrap; padding: 16px; }
+  .drop > div:not(.file-ico) { flex: 1 1 180px; }
+  .drop > .btn { flex: 1 1 100%; }
 }
 @media (max-width: 900px) { .chat-box.chat-empty { height: auto; min-height: 0; } }
 @media (pointer: coarse) {
@@ -470,7 +623,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .crumbs button { padding: 10px 0; margin: -10px 0; }
   button.chip, .btn.small, .seg button, .switch { min-height: 36px; }
   .check input { width: 20px; height: 20px; margin-top: 0; flex: none; }
+  /* поле меньше 16 px — iOS увеличивает страницу при фокусе */
+  .input, select.input, textarea.input, .code-ed { font-size: 16px; }
+  button, a, .opt, .cand, .inv { touch-action: manipulation; }
 }
+/* отклик на нажатие: системная подсветка касания выключена, наведение — только с мышью */
+.btn:active, button.chip:active, .seg button:active, .cand:active, .inv:active, .opt:active, .chat-peer:active, .door:active { opacity: .72; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .fade { animation: fade .25s ease-out; }
 .still .fade { animation: none; }  /* перерисовка того же экрана (rerender): без анимации появления */
@@ -490,11 +648,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
       <button data-go="/e/picks" data-role="e">Работодатель</button>
       <button data-go="/v" data-role="v">Валидация</button>
     </nav>
-    <button class="mapbtn" data-act="map" aria-haspopup="dialog">
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3h12M1 7h12M1 11h12" stroke="currentColor" stroke-width="1.5"/></svg>
-      Экраны
-    </button>
     <button class="mapbtn" id="theme" data-act="theme"></button>
+    <button class="mapbtn" data-act="map" aria-haspopup="dialog" aria-expanded="false">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3h12M1 7h12M1 11h12" stroke="currentColor" stroke-width="1.5"/></svg>
+      <span class="on-wide">Экраны</span><span class="on-narrow">Меню</span>
+    </button>
     <button class="mapbtn" id="logout" data-act="logout" hidden>Выйти</button>
   </div>
 </header>
@@ -505,8 +663,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 <script>
 /* ===================== данные: API бэкенда ===================== */
-const RUB = n => n == null ? '—' : Math.round(n).toLocaleString('ru-RU').replace(/[,  ]/g, ' ') + ' ₽';
-const K = n => n == null ? '—' : Math.round(n / 1000) + ' тыс.';
+// суммы — с неразрывными пробелами: на узком экране «230 000 ₽» не рвётся посередине
+const RUB = n => n == null ? '—' : Math.round(n).toLocaleString('ru-RU').replace(/[,  ]/g, '\u00a0') + '\u00a0₽';
+const K = n => n == null ? '—' : Math.round(n / 1000) + '\u00a0тыс.';
 const DEC = (v, d = 2) => v == null ? '—' : Number(v).toFixed(d).replace('.', ',');
 const PCT1 = v => v == null ? '—' : (v * 100).toFixed(1).replace('.', ',') + ' %';
 const PCT = v => v == null ? '—' : Math.round(v <= 1 ? v * 100 : v) + ' %';
@@ -543,6 +702,7 @@ const S = {
   filters: new Set(),
   lot: null,
   inviteForm: null,
+  fold: {},                          // открытые на телефоне сворачиваемые панели: фильтры, лотерея
 };
 
 /* ===================== API ===================== */
@@ -616,7 +776,7 @@ const fspButtons = side => {
   const mark = '<img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px">';
   const main = side === 'e'
     ? `<button class="btn ghost block" data-act="fsp-login" data-side="e" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через SSO (Keycloak)</button>`
-    : `<button class="btn ghost block" data-act="fsp-login" data-side="c" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через ФСП ID <span class="muted small" style="margin-left:auto">подтянем достижения</span></button>`;
+    : `<button class="btn ghost block fsp-btn" data-act="fsp-login" data-side="c" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через ФСП ID <span class="muted small fsp-hint">подтянем достижения</span></button>`;
   return main + ((META && META.fsp_idps) || []).map(i => `<button class="btn ghost block" data-act="fsp-login" data-side="${side}" data-idp="${esc(i.alias)}" style="justify-content:flex-start">Войти через ${esc(i.label)}</button>`).join('');
 };
 const FSP_ERR = {
@@ -709,7 +869,20 @@ const NAV = {
 const NAV_OF = { '/c/invite': '/c/home', '/c/vacancy': '/c/vacancies', '/c/task': '/c/tasks', '/c/quest': '/c/result', '/e/vacancy': '/e/vacancies', '/e/task': '/e/tasks', '/e/need': '/e/picks', '/e/invite': '/e/pipeline' };
 function subnav(side) {
   const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
-  return `<nav class="chips" aria-label="Разделы" style="margin-bottom:16px">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
+  return `<nav class="chips subnav" aria-label="Разделы">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
+}
+// перерисовка разделов (бейдж чата) без сброса прокрутки строки на телефоне
+function redrawNav(side) {
+  const nav = document.querySelector('nav.subnav');
+  if (!nav) return;
+  const x = nav.scrollLeft;
+  nav.outerHTML = subnav(side);
+  document.querySelector('nav.subnav').scrollLeft = x;
+}
+// строка разделов прокручивается: активный раздел — посередине (страница по вертикали не двигается)
+function centerNav() {
+  const nav = document.querySelector('nav.subnav'), on = nav && nav.querySelector('.chip.on');
+  if (on && nav.scrollWidth > nav.clientWidth) nav.scrollLeft += on.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - on.offsetWidth) / 2;
 }
 const fbSummary = (r) => r && r.counts ? Object.entries((META && META.company_feedback) || {}).map(([k, t]) => `${t.toLowerCase()} — ${r.counts[k] || 0}`).join(' · ') : '';
 // отзывы кандидатов после принятия: штраф квоты и блок до ручной проверки (services/reputation.py); кандидату это не показывается
@@ -748,6 +921,13 @@ const coChip = co => (domainOk(co) ? '<span class="chip ok">почта на до
 const domainWarn = co => domainOk(co) ? '' : '<div class="alert warn"><span>!</span><span><b>Почта на домене не подтверждена.</b> Рекрутер вошёл не с почты на домене сайта компании. Не передавайте паспортные и платёжные данные до собеседования.</span></div>';
 const qs = o => Object.entries(o).filter(([, v]) => v !== '' && v !== false && v != null).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
 
+// заголовок сворачиваемой панели (.fold): на телефоне — счётчик активных фильтров и кнопка «Развернуть / Свернуть»
+const FOLD = { vf: 'фильтры', sf: 'фильтры', lot: 'лотерею' };
+const foldLabel = k => (S.fold[k] ? 'Свернуть' : 'Развернуть');
+const foldBtn = k => `<button class="btn ghost small fold-btn" data-act="fold" data-k="${k}" aria-expanded="${!!S.fold[k]}" aria-label="${foldLabel(k)} ${FOLD[k]}">${foldLabel(k)}</button>`;
+const foldHead = (k, title, n = 0) => `<div class="row sb"><span class="label">${title}${n ? `<span class="fold-n">&nbsp;· ${n}</span>` : ''}</span>${foldBtn(k)}</div>`;
+const nOn = o => Object.values(o).filter(v => v !== '' && v !== false && v != null).length;
+
 function crumbs(items) {
   return `<div class="crumbs">${items.map((it, i) => i === items.length - 1 ? `<b>${it[0]}</b>` : `<button data-go="${it[1]}">${it[0]}</button><span>/</span>`).join('')}</div>`;
 }
@@ -770,7 +950,9 @@ function compRows(list, showTh = true) {
 
 function lineChart(p) {
   // panel {type:'chart', x, series:[{name, axis, max, data}], marker:{i, label}}
-  const t = p.x, W = 520, H = 210, L = 44, R = 40, T = 16, B = 28;
+  // телефон: холст уже — подписи крупнее; подпись события уходит в легенду, по оси X — каждая вторая метка (последняя — всегда)
+  const nar = innerWidth <= 640;
+  const t = p.x, W = nar ? 360 : 520, H = nar ? 230 : 210, L = 44, R = nar ? 34 : 40, T = 16, B = 28;
   const lefts = p.series.filter(s => s.axis !== 'right'), left = lefts[0] || p.series[0];
   const LC = ['#EDEDED', '#F2B84B'];  // серии слева делят одну шкалу
   const right = p.series.find(s => s.axis === 'right');
@@ -779,18 +961,19 @@ function lineChart(p) {
   const path = (arr, f) => arr.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + f(v).toFixed(1)).join(' ');
   const lm = left.max || Math.max(...left.data, 1), y1 = yOf(left);
   const m = p.marker;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(p.series.map(s => s.name).join(', '))}">
+  return `<svg class="chart${nar ? ' nar' : ''}" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(p.series.map(s => s.name).join(', '))}">
     ${[0, 1, 2, 3, 4, 5].map(k => Math.round(lm * k / 5)).map(v => `<line x1="${L}" x2="${W - R}" y1="${y1(v)}" y2="${y1(v)}" stroke="#2A2B33"/><text x="${L - 6}" y="${y1(v) + 3}" text-anchor="end">${v}</text>`).join('')}
     ${right ? [0, .5, 1].map(k => Math.round((right.max || Math.max(...right.data, 1)) * k)).map(v => `<text x="${W - R + 6}" y="${yOf(right)(v) + 3}">${v}</text>`).join('') : ''}
     ${m ? `<line x1="${x(m.i)}" x2="${x(m.i)}" y1="${T}" y2="${H - B}" stroke="#EC1D35" stroke-dasharray="3 3"/>
-    <text x="${x(m.i) - 6}" y="${T + 10}" text-anchor="end" style="fill:#FF7A8A">${esc(m.label)}</text>` : ''}
+    ${nar ? '' : `<text x="${x(m.i) - 6}" y="${T + 10}" text-anchor="end" style="fill:#FF7A8A">${esc(m.label)}</text>`}` : ''}
     ${right ? `<path d="${path(right.data, yOf(right))}" fill="none" stroke="#8C84FF" stroke-width="1.5" stroke-dasharray="4 3"/>` : ''}
     ${lefts.map((s, k) => `<path d="${path(s.data, y1)}" fill="none" stroke="${LC[k % 2]}" stroke-width="2"/>`).join('')}
-    ${t.map((s, i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(s)}</text>`).join('')}
+    ${t.map((s, i) => nar && t.length > 6 && (t.length - 1 - i) % 2 ? '' : `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(s)}</text>`).join('')}
   </svg>
   <div class="row small" style="color:var(--on-dark-2);margin-top:6px;gap:18px">
     ${lefts.map((s, k) => `<span><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="${LC[k % 2]}" stroke-width="2"/></svg> ${esc(s.name)}${right ? ' (слева)' : ''}</span>`).join('')}
     ${right ? `<span><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="#8C84FF" stroke-width="1.5" stroke-dasharray="4 3"/></svg> ${esc(right.name)} (справа)</span>` : ''}
+    ${nar && m ? `<span style="color:#FF7A8A"><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" stroke="#EC1D35" stroke-dasharray="3 3"/></svg> ${esc(m.label)}</span>` : ''}
   </div>`;
 }
 
@@ -858,12 +1041,12 @@ V['/c/signup'] = () => `
       ${TOK.c ? '<div class="alert ok"><span>✓</span><span>Вы уже вошли. <button class="btn ghost small" data-go="/c/home">В кабинет</button></span></div>' : ''}
       ${fspButtons('c')}
       <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
-      <label class="field"><span>Почта</span><input class="input" id="su-mail" type="email" autocomplete="email" placeholder="you@example.ru" value="${esc(S.signup.email)}"></label>
+      <label class="field"><span>Почта</span><input class="input" id="su-mail" type="email" autocomplete="email" autocapitalize="off" enterkeyhint="send" placeholder="you@example.ru" value="${esc(S.signup.email)}"></label>
       <label class="check"><input type="checkbox" id="su-152" ${S.signup.c152 ? 'checked' : ''}> Согласен на обработку персональных данных по 152-ФЗ (обязательно). Работодатели не видят ФИО и контакты, пока я не приму приглашение.</label>
       <label class="check"><input type="checkbox" id="su-pub" ${S.signup.publish ? 'checked' : ''}> Показывать мою обезличенную карточку работодателям. Без этого согласия компании меня не найдут; включить можно позже в настройках.</label>
       <label class="check"><input type="checkbox" id="su-tg" ${S.signup.tg ? 'checked' : ''}> Присылать приглашения в Telegram</label>
       ${S.signup.sent ? `
-      <label class="field"><span>Код из письма</span><input class="input num" id="su-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="${esc(S.signup.otp)}" style="max-width:200px"></label>
+      <label class="field"><span>Код из письма</span><input class="input num" id="su-otp" inputmode="numeric" autocomplete="one-time-code" enterkeyhint="go" maxlength="6" value="${esc(S.signup.otp)}" style="max-width:200px"></label>
       ${S.signup.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
       <div class="row"><button class="btn primary" data-act="otp-verify">Войти</button><button class="btn ghost" data-act="otp-send">Отправить код ещё раз</button></div>`
       : '<button class="btn primary" data-act="otp-send">Получить код на почту</button>'}
@@ -934,14 +1117,14 @@ function achPanel() {
          <div class="stack-s" style="margin-top:8px">${S.cfCode ? `<span class="small">Укажите код <code>${esc(S.cfCode.code)}</code> в поле «Организация» профиля Codeforces, затем нажмите «Проверить». Код действует до ${esc(new Date(S.cfCode.expires_at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }))}.</span>
          <span class="hint">Код показывается один раз — сохраните его. Потеряли — получите новый, прежний перестанет действовать.</span>`
          : '<span class="small">Код подтверждения показывается один раз, сразу после запроса. Получите новый код и впишите его в профиль Codeforces.</span>'}
-         <div class="row"><input class="input" id="cf-h" value="${esc(cf.handle)}" style="max-width:200px"><button class="btn ghost small" data-act="cf-link">Получить новый код</button><button class="btn ghost small" data-act="cf-verify">Проверить</button></div></div>`
+         <div class="row"><input class="input" id="cf-h" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(cf.handle)}" style="max-width:200px"><button class="btn ghost small" data-act="cf-link">Получить новый код</button><button class="btn ghost small" data-act="cf-verify">Проверить</button></div></div>`
       : `<b>Codeforces</b> · не подключён
-         <div class="row" style="margin-top:8px"><input class="input" id="cf-h" placeholder="хэндл" style="max-width:200px" ${ok ? '' : 'disabled'}><button class="btn ghost small" data-act="cf-link" ${ok ? '' : 'disabled'}>Подключить</button></div>`;
+         <div class="row" style="margin-top:8px"><input class="input" id="cf-h" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="хэндл" style="max-width:200px" ${ok ? '' : 'disabled'}><button class="btn ghost small" data-act="cf-link" ${ok ? '' : 'disabled'}>Подключить</button></div>`;
   const ctBlock = ct
     ? `<b>CTFtime</b> · ${esc(ct.team || 'команда ' + ct.team_id)}${ct.rating != null ? `, рейтинг <span class="num">${DEC(ct.rating, 1)}</span>` : ''}${ct.role ? ` · ${esc(ct.role)}` : ''}
        <br><span class="muted small">Состав команды CTFtime не подтверждает участие: место команды учитывается с пониженным весом</span>${(ct.achievements || []).map(achRow).join('')}`
     : `<b>CTFtime</b> · не подключён
-       <div class="row" style="margin-top:8px"><input class="input num" id="ctf-id" placeholder="ID команды" inputmode="numeric" style="max-width:140px" ${ok ? '' : 'disabled'}><input class="input" id="ctf-role" placeholder="роль: web, pwn…" style="max-width:160px" ${ok ? '' : 'disabled'}><button class="btn ghost small" data-act="ctf-link" ${ok ? '' : 'disabled'}>Подключить</button></div>`;
+       <div class="row" style="margin-top:8px"><input class="input num" id="ctf-id" placeholder="ID команды" inputmode="numeric" style="max-width:140px" ${ok ? '' : 'disabled'}><input class="input" id="ctf-role" autocapitalize="off" placeholder="роль: web, pwn…" style="max-width:160px" ${ok ? '' : 'disabled'}><button class="btn ghost small" data-act="ctf-link" ${ok ? '' : 'disabled'}>Подключить</button></div>`;
   return `<div class="panel stack">
     <div class="row sb"><h3>Достижения</h3><span class="muted small">по желанию, на грейд не влияют</span></div>
     <div class="trust">
@@ -988,8 +1171,8 @@ V['/c/profile'] = () => {
           <button class="btn ghost small" data-act="cv-pick">${cvName ? 'Заменить' : 'Загрузить'}</button>
         </div>
         <div class="grid g2">
-          <label class="field"><span>Имя и фамилия</span><input class="input" id="p-name" value="${esc(f.name)}"></label>
-          <label class="field"><span>Telegram</span><input class="input" id="p-tg" value="${esc(f.tg)}" placeholder="@username"></label>
+          <label class="field"><span>Имя и фамилия</span><input class="input" id="p-name" autocomplete="name" value="${esc(f.name)}"></label>
+          <label class="field"><span>Telegram</span><input class="input" id="p-tg" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(f.tg)}" placeholder="@username"></label>
         </div>
         <div class="grid g2">
           <label class="field"><span>Специализация</span>
@@ -1013,8 +1196,8 @@ V['/c/profile'] = () => {
         <div class="divider"></div>
         <h3>Условия</h3>
         <div class="grid g2">
-          <label class="field"><span>Минимальная зарплата на руки</span><input class="input num" id="p-min" value="${f.min ? RUB(f.min) : ''}" placeholder="например, 230 000 ₽"></label>
-          <label class="field"><span>Город</span><input class="input" id="p-city" value="${esc(f.city)}"></label>
+          <label class="field"><span>Минимальная зарплата на руки</span><input class="input num" id="p-min" inputmode="numeric" value="${f.min ? RUB(f.min) : ''}" placeholder="например, 230 000 ₽"></label>
+          <label class="field"><span>Город</span><input class="input" id="p-city" autocomplete="address-level2" value="${esc(f.city)}"></label>
         </div>
         <div class="field"><span>Формат</span>
           <div class="chips">${((META && META.formats) || ['Офис', 'Гибрид', 'Удалённо']).map(x => `<button class="chip ${f.formats.includes(x) ? 'on' : ''}" data-act="pfmt" data-v="${x}">${x}</button>`).join('')}</div>
@@ -1140,9 +1323,9 @@ function sceneView() {
   ${crumbs([['Тест-квест', '/c/quest'], [(S.story ? 'Сцена ' : 'Задание ') + n]])}
   <div class="quest fade">
     <div class="quest-top">
-      <b>${S.story ? esc(it.scene_title) : 'Задание ' + n}</b>
+      <b class="qt-title">${S.story ? esc(it.scene_title) : 'Задание ' + n}</b>
       <div class="pr" aria-label="Прогресс">${Array.from({ length: total }, (_, i) => `<i class="${i + 1 < n ? 'on' : i + 1 === n ? 'cur' : ''}"></i>`).join('')}</div>
-      <span style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
+      <span class="qt-comp" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> сюжет</button>
       <span class="timer" id="timer" data-sec="${sec}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
     </div>
@@ -1153,7 +1336,7 @@ function sceneView() {
       </div>
       <div>${right}</div>
     </div>
-    <div class="quest-foot">
+    <div class="quest-foot${isCode ? ' qf-code' : ''}">
       <span>${isCode ? 'Решение проверяется на скрытых тестах после отправки, исправить его потом нельзя. Правильность не показываем до конца теста.' : 'Ответ сохраняется сразу. Правильность не показываем до конца теста.'}</span>
       <div class="row">
         <button class="btn primary small" ${canNext ? '' : 'disabled'} data-act="qnext">${isCode ? 'Отправить решение' : 'Дальше'}</button>
@@ -1178,6 +1361,25 @@ function codeTask(it) {
       ${lang === 'typescript' ? `<p class="small" style="color:var(--on-dark-2)">${esc(c.ts_note)}</p>` : ''}
     </div>`;
 }
+// сенсорная клавиатура без Tab: отступ и обратный отступ кнопками над редактором — у курсора или у всех строк выделения
+function codeIndent(back) {
+  const el = document.getElementById('code-ed'), w = codeLang() === 'python' ? 4 : 2, v = el.value, s = el.selectionStart;
+  if (document.activeElement !== el) return el.focus();  // без фокуса курсор неизвестно где: сначала касание в нужную строку
+  let e = el.selectionEnd;
+  const ls = s ? v.lastIndexOf('\n', s - 1) + 1 : 0;
+  if (s === e) {
+    if (!back) el.setRangeText(' '.repeat(w), s, e, 'end');
+    else {  // ведущие пробелы строки, где бы ни стоял курсор
+      const n = v.slice(ls, ls + w).match(/^ */)[0].length;
+      if (n) el.setRangeText('', ls, ls + n, 'preserve');
+    }
+  } else {
+    if (v[e - 1] === '\n') e--;  // выделение до начала следующей строки её не захватывает
+    const cut = new RegExp(`^ {1,${w}}`);
+    el.setRangeText(v.slice(ls, e).split('\n').map(l => back ? l.replace(cut, '') : ' '.repeat(w) + l).join('\n'), ls, e, 'select');
+  }
+  S.qCode[codeLang()] = el.value;
+}
 function codeEditor(it) {
   const lang = codeLang(), code = S.qCode[lang] != null ? S.qCode[lang] : it.code.templates[lang], R = S.qRun;
   const res = !R ? '' : `<div class="stack-s" id="run-res">
@@ -1188,8 +1390,9 @@ function codeEditor(it) {
     </div>`;
   return `<div class="stack">
     <div class="seg" role="group" aria-label="Язык решения">${[['python', 'Python'], ['typescript', 'TypeScript']].map(([v, t]) => `<button data-act="code-lang" data-v="${v}" aria-pressed="${v === lang}">${t}</button>`).join('')}</div>
-    <textarea class="code-ed" id="code-ed" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Решение">${esc(code)}</textarea>
-    <span class="hint" style="color:var(--on-dark-2)">Tab — отступ, Esc и затем Tab — выйти из редактора. Функция возвращает ответ, ввод и вывод не нужны.</span>
+    <textarea class="code-ed" id="code-ed" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" aria-label="Решение">${esc(code)}</textarea>
+    <div class="row code-tools" role="group" aria-label="Отступы"><button class="btn dark small" data-act="code-indent" data-keepfocus>⇥ Отступ</button><button class="btn dark small" data-act="code-dedent" data-keepfocus>⇤ Убрать отступ</button></div>
+    <span class="hint" style="color:var(--on-dark-2)"><span class="code-keys">Tab — отступ, Esc и затем Tab — выйти из редактора. </span>Функция возвращает ответ, ввод и вывод не нужны.</span>
     <div class="row"><button class="btn dark small" data-act="code-run">Запустить на примерах</button></div>
     ${res}
   </div>`;
@@ -1289,7 +1492,7 @@ V['/c/home'] = () => {
             <span class="small muted">${esc(inv.company)} · ${esc(inv.format)}</span>
             <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)} на руки</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
           </span>
-          <span class="stack-s" style="align-items:flex-end">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
+          <span class="stack-s inv-st">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
         </button>`).join('') || (invErr ? '' : '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>')}
     </div>
     <aside class="stack">
@@ -1348,7 +1551,7 @@ function inviteView() {
   if (inv.status === 'accepted') {
     const me = inv.company_sees || {};
     actions = `<div class="panel stack" style="border-color:var(--ok)">
-      <div class="alert ok"><b>Вы приняли приглашение.</b> Ваши контакты открыты компании.</div>
+      <div class="alert ok"><span><b>Вы приняли приглашение.</b> Ваши контакты открыты компании.</span></div>
       <dl class="kv"><dt>Компания видит</dt><dd>${[me.name, me.email, me.tg].filter(Boolean).map(esc).join(', ')}</dd></dl>
     </div>${companyFeedback(inv)}`;
   } else if (inv.status === 'declined') {
@@ -1374,7 +1577,7 @@ function inviteView() {
     <div class="stack">
       ${domainWarn(inv)}
       <div class="panel stack">
-        <div class="row"><span class="logo-sq" style="background:${esc(inv.color)}">${esc(inv.company[0])}</span><div><b>${esc(inv.company)}</b><br><span class="small muted">${esc(inv.about)}</span></div><span style="margin-left:auto">${coChip(inv)}</span></div>
+        <div class="row co-head"><span class="logo-sq" style="background:${esc(inv.color)}">${esc(inv.company[0])}</span><div><b>${esc(inv.company)}</b><br><span class="small muted">${esc(inv.about)}</span></div><span class="co-chips">${coChip(inv)}</span></div>
         <h2>${esc(inv.role)}</h2>
         <div class="row" style="gap:20px">
           <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px"><span class="money">${RUB(inv.from)}</span> — <span class="money">${RUB(inv.to)}</span></b></div>
@@ -1392,7 +1595,7 @@ function inviteView() {
       ${(D.invTasks || []).length ? `<div class="panel stack-s">
         <h3>Задания по приглашению</h3>
         <p class="small muted">Задания компании по этой вакансии. Решение уйдёт вместе с приглашением, контакты не раскрываются.</p>
-        ${D.invTasks.map(t => `<div class="row sb" style="padding:6px 0;border-bottom:1px dashed var(--line-2)"><button class="btn ghost small" data-go="/c/task/${t.id}/${id}" style="justify-content:flex-start">${esc(t.title)}</button><span class="row small" style="gap:6px"><span class="muted">${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>${t.submitted ? resultChips(t) : '<span class="chip">не решено</span>'}</span></div>`).join('')}
+        ${D.invTasks.map(t => `<div class="row sb" style="padding:6px 0;border-bottom:1px dashed var(--line-2)"><button class="btn ghost small" data-go="/c/task/${t.id}/${id}" style="justify-content:flex-start;text-align:left">${esc(t.title)}</button><span class="row small" style="gap:6px"><span class="muted">${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин</span>${t.submitted ? resultChips(t) : '<span class="chip">не решено</span>'}</span></div>`).join('')}
       </div>` : ''}
       ${actions}
     </div>
@@ -1492,14 +1695,16 @@ V['/c/vacancies'] = () => {
   ${subnav('c')}
   <div class="grid side-l">
     <aside class="stack">
-      <div class="panel tight stack-s">
-        <span class="label">Фильтры</span>
-        <label class="field"><span>Поиск</span><input class="input" id="vf-q" value="${esc(f.q)}" placeholder="платежи, Kafka…"></label>
+      <div class="panel tight stack-s fold m-before ${S.fold.vf ? 'open' : ''}">
+        ${foldHead('vf', 'Фильтры', nOn(f))}
+        <div class="fold-b stack-s">
+        <label class="field"><span>Поиск</span><input class="input" id="vf-q" type="search" enterkeyhint="search" value="${esc(f.q)}" placeholder="платежи, Kafka…"></label>
         ${sel('vf-spec', 'Специализация', (META && META.specs) || [], f.spec)}
         ${sel('vf-grade', 'Грейд', (META && META.grades) || [], f.grade)}
         ${sel('vf-format', 'Формат', (META && META.formats) || [], f.format)}
-        <label class="field"><span>Город</span><input class="input" id="vf-city" value="${esc(f.city)}"></label>
+        <label class="field"><span>Город</span><input class="input" id="vf-city" enterkeyhint="search" value="${esc(f.city)}"></label>
         <div class="row"><button class="btn primary small" data-act="vf-apply">Показать</button><button class="btn ghost small" data-act="vf-reset">Сбросить</button></div>
+        </div>
       </div>
       ${lim ? `<div class="panel tight stack-s">
         <span class="label">Отклики за 7 дней</span>
@@ -1535,7 +1740,7 @@ function cVacancyView() {
     <div class="stack">
       ${domainWarn(v.company)}
       <div class="panel stack">
-        <div class="row"><span class="logo-sq" style="background:${esc(v.company.color)}">${esc(v.company.name[0])}</span><b>${esc(v.company.name)}</b><span style="margin-left:auto">${coChip(v.company)}</span></div>
+        <div class="row co-head"><span class="logo-sq" style="background:${esc(v.company.color)}">${esc(v.company.name[0])}</span><b>${esc(v.company.name)}</b><span class="co-chips">${coChip(v.company)}</span></div>
         <h2>${esc(v.title)}</h2>
         <div class="row">${catTag(v.spec, v.track, v.grade)}${v.status !== 'open' ? '<span class="status s-exp">закрыта</span>' : ''}</div>
         <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px"><span class="money">${RUB(v.from)}</span> — <span class="money">${RUB(v.to)}</span></b></div>
@@ -1613,7 +1818,7 @@ V['/c/tasks'] = () => {
     <aside class="panel tight stack-s">
       <span class="label">Мои решения</span>
       ${M.map(s => `<div class="stack-s" style="padding:8px 0;border-bottom:1px dashed var(--line-2)">
-        <button class="btn ghost small" data-go="/c/task/${s.task.id}" style="justify-content:flex-start">${esc(s.task.title)}</button>
+        <button class="btn ghost small" data-go="/c/task/${s.task.id}" style="justify-content:flex-start;text-align:left">${esc(s.task.title)}</button>
         <div class="row small" style="gap:6px">${resultChips(s)}<span class="muted">${DAYMON(s.created_at)}</span></div>
         ${s.review_comment ? `<span class="small muted">«${esc(s.review_comment)}»</span>` : ''}
       </div>`).join('') || '<p class="small muted">Пока нет.</p>'}
@@ -1641,7 +1846,7 @@ function cTaskView() {
   <div class="grid side fade">
     <div class="stack">
       <div class="panel stack">
-        <div class="row"><span class="logo-sq" style="background:${esc(t.company.color)}">${esc(t.company.name[0])}</span><b>${esc(t.company.name)}</b><span style="margin-left:auto">${coChip(t.company)}</span></div>
+        <div class="row co-head"><span class="logo-sq" style="background:${esc(t.company.color)}">${esc(t.company.name[0])}</span><b>${esc(t.company.name)}</b><span class="co-chips">${coChip(t.company)}</span></div>
         <h2>${esc(t.title)}</h2>
         <span class="small muted">${esc(t.competency || t.spec)} · ${KIND_T[t.kind] || esc(t.kind)} · ~${t.minutes} мин${isRef(t) ? ' · проверяет система' : ''}</span>
         ${S.taskInv ? `<div class="alert info"><span>→</span><span>Задание из приглашения. <button class="btn ghost small" data-go="/c/invite/${S.taskInv}">К приглашению</button></span></div>` : ''}
@@ -1679,9 +1884,9 @@ V['/e/signup'] = () => {
       <p class="prose">Войдите по рабочей почте. Если компании ещё нет — после входа заполните ИНН и данные рекрутера.</p>
       ${fspButtons('e')}
       <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
-      <label class="field"><span>Рабочая почта</span><input class="input" id="es-mail" type="email" autocomplete="email" placeholder="hr@company.ru" value="${esc(f.email)}"></label>
+      <label class="field"><span>Рабочая почта</span><input class="input" id="es-mail" type="email" autocomplete="email" autocapitalize="off" enterkeyhint="send" placeholder="hr@company.ru" value="${esc(f.email)}"></label>
       ${f.sent ? `
-      <label class="field"><span>Код из письма</span><input class="input num" id="es-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="${esc(f.otp)}" style="max-width:200px"></label>
+      <label class="field"><span>Код из письма</span><input class="input num" id="es-otp" inputmode="numeric" autocomplete="one-time-code" enterkeyhint="go" maxlength="6" value="${esc(f.otp)}" style="max-width:200px"></label>
       ${f.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
       <div class="row"><button class="btn primary" data-act="eotp-verify">Войти</button><button class="btn ghost" data-act="eotp-send">Отправить код ещё раз</button></div>`
       : '<button class="btn primary" data-act="eotp-send">Получить код на почту</button>'}
@@ -1712,14 +1917,14 @@ V['/e/signup'] = () => {
       ${D.company && !D.company.verified ? '<div class="alert warn"><span>!</span><span><b>Компания не прошла проверку.</b> Работает с квотой 3 приглашения в неделю. Чтобы пройти, укажите корректный ИНН и входите с рабочей почты на домене сайта.</span></div>' : ''}
       ${D.company && D.company.domain_confirmed !== undefined ? `<div class="row small" style="gap:6px"><span class="muted">Кандидаты видят:</span>${coChip(D.company)}${D.company.inn_checksum_valid ? ' <span class="chip ok">ИНН: контрольные цифры верны</span>' : ''}</div>` : ''}
       <div class="grid g2">
-        <label class="field"><span>ИНН</span><input class="input num" id="co-inn" value="${esc(co.inn)}"></label>
+        <label class="field"><span>ИНН</span><input class="input num" id="co-inn" inputmode="numeric" value="${esc(co.inn)}"></label>
         <label class="field"><span>Название</span><input class="input" id="co-name" value="${esc(co.name)}"></label>
       </div>
       <div class="grid g2">
         <label class="field"><span>Рекрутер</span><input class="input" id="co-rec" value="${esc(co.recruiter_name)}"></label>
-        <label class="field"><span>Сайт компании</span><input class="input" id="co-site" value="${esc(co.site_domain)}" placeholder="company.ru"></label>
+        <label class="field"><span>Сайт компании</span><input class="input" id="co-site" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(co.site_domain)}" placeholder="company.ru"></label>
       </div>
-      <label class="field"><span>Рабочая почта рекрутера</span><input class="input" id="co-mail" value="${esc(co.recruiter_email)}"></label>
+      <label class="field"><span>Рабочая почта рекрутера</span><input class="input" id="co-mail" type="email" autocomplete="email" autocapitalize="off" value="${esc(co.recruiter_email)}"></label>
       <div class="stack-s">
         ${co.checks ? co.checks.map(c => `<div class="alert ${c.ok === true ? 'ok' : c.ok === false ? 'bad' : 'info'}">${esc(c.text)}.</div>`).join('') : '<div class="alert info">Проверки ИНН и домена почты появятся после сохранения.</div>'}
       </div>
@@ -1774,7 +1979,7 @@ function needCatBox(p) {
 V['/e/need'] = () => {
   const p = S.need.parsed;
   const mk = p && p.market;
-  const addBox = k => S.needAdd === k ? `<span class="row" style="gap:6px"><input class="input" id="need-skill" list="skills-list" style="max-width:160px;padding:6px 10px" placeholder="навык"><button class="btn primary small" data-act="need-add-ok" data-k="${k}">Добавить</button><button class="btn ghost small" data-act="need-add" data-k="">×</button></span>` : `<button class="chip dim" data-act="need-add" data-k="${k}">+ навык</button>`;
+  const addBox = k => S.needAdd === k ? `<span class="row" style="gap:6px"><input class="input" id="need-skill" list="skills-list" autocapitalize="off" enterkeyhint="done" style="max-width:160px;padding:6px 10px" placeholder="навык"><button class="btn primary small" data-act="need-add-ok" data-k="${k}">Добавить</button><button class="btn ghost small" data-act="need-add" data-k="">×</button></span>` : `<button class="chip dim" data-act="need-add" data-k="${k}">+ навык</button>`;
   return `
   ${crumbs([['Подборки', '/e/picks'], ['Новая потребность']])}
   ${coBanners()}
@@ -1798,7 +2003,7 @@ V['/e/need'] = () => {
           <span class="label">Формат</span><div>${esc([p.format || 'любой', p.city].filter(Boolean).join(', '))}</div>
         </div>
         ${p.ignored && p.ignored.length ? `<div class="alert warn"><span>!</span><span>Не учитываем: ${esc(p.ignored.join(', '))}. Персональные признаки в подборе не используются.</span></div>` : ''}
-        <div class="alert info">В категории <b>${esc([p.category.spec, p.category.track, p.category.grade].filter(Boolean).join(' · '))}</b> ${p.category.count} кандидатов открыты к предложениям.${p.market_hint ? ' ' + esc(p.market_hint) : ''}</div>
+        <div class="alert info"><span>В категории <b>${esc([p.category.spec, p.category.track, p.category.grade].filter(Boolean).join(' · '))}</b> ${p.category.count} кандидатов открыты к предложениям.${p.market_hint ? ' ' + esc(p.market_hint) : ''}</span></div>
         <div class="row"><button class="btn primary" data-act="need-save">Показать подборку</button></div>
       </div>` : ''}
       ${p || S.needObj ? planPanel() : ''}
@@ -1829,7 +2034,7 @@ function lotteryPanel(n) {
       <div class="parsed">
         <span class="label">Категория</span>${th}
         <span class="label">Навыки, подтверждённые тестом</span><div class="chips">${n.must.map(s => `<button class="chip ${L.must.includes(s) ? 'on' : ''}" data-act="lot-skill" data-v="${esc(s)}">${esc(s)}</button>`).join('') || '<span class="small muted">не заданы</span>'}</div>
-        <span class="label">Ожидания на руки не выше</span><div><input class="input num" id="lot-fork" value="${L.fork_to ? RUB(L.fork_to) : ''}" style="max-width:180px"></div>
+        <span class="label">Ожидания на руки не выше</span><div><input class="input num" id="lot-fork" inputmode="numeric" value="${L.fork_to ? RUB(L.fork_to) : ''}" style="max-width:180px"></div>
         <span class="label">Сколько выбрать</span><div><input class="input num" id="lot-k" inputmode="numeric" value="${L.draw_count}" style="max-width:80px"></div>
       </div>
       <button class="switch" role="switch" aria-checked="${L.require_free}" data-act="lot-free"><i></i> Только без перегрузки (меньше ${CAP} открытых приглашений)</button>
@@ -1851,10 +2056,12 @@ function lotteryPanel(n) {
       <div class="row"><button class="btn ghost small" data-act="lot-verify">Проверить жеребьёвку</button><button class="btn ghost small" data-act="lot-reset">Новый розыгрыш</button></div>
       ${L.verify ? `<div class="alert ${L.verify.ok ? 'ok' : 'bad'}"><span>${L.verify.ok ? '✓' : '!'}</span><span>${L.verify.ok ? 'Проверка пройдена: sha256(зерно) совпал с опубликованным хешем, пул и порог совпали с обязательством, порядок жребия воспроизведён.' : `Проверка не пройдена: хеш ${L.verify.hash_ok ? 'совпал' : 'не совпал'}, обязательство ${L.verify.commitment_ok ? 'совпало' : 'не совпало'}, порядок ${L.verify.draw_ok ? 'совпал' : 'не совпал'}.`}</span></div>` : ''}`}`;
   }
-  return `<div class="panel stack">
-    <div class="row sb"><h3>Лотерея среди прошедших порог</h3><span class="chip">квалифицированная лотерея</span></div>
+  return `<div class="panel stack fold ${S.fold.lot ? 'open' : ''}">
+    <div class="row sb"><h3>Лотерея среди прошедших порог</h3><span class="chip lot-tag">квалифицированная лотерея</span>${foldBtn('lot')}</div>
+    <div class="fold-b stack">
     <p class="small muted">Когда кандидаты статистически неразличимы (интервалы θ ± SE перекрываются), ранжировать их между собой — ложная точность.<br>Жребий среди прошедших порог случаен и проверяем: хеш зерна публикуется до розыгрыша.</p>
     ${body}
+    </div>
   </div>`;
 }
 
@@ -1876,7 +2083,7 @@ V['/e/picks'] = () => {
   </div>
   <div class="grid side-l">
     <aside class="stack">
-      <div class="panel tight stack-s">
+      <div class="panel tight stack-s m-before">
         <span class="label">Квота на неделю</span>
         <div class="row sb"><b class="num" style="font-size:22px">${q.used} / ${q.max}</b><span class="small muted">до ${DAYMON(q.resets_at)}</span></div>
         <div class="meter"><i style="width:${q.max ? Math.min(100, q.used / q.max * 100) : 100}%"></i></div>
@@ -1888,7 +2095,7 @@ V['/e/picks'] = () => {
         ${cats.map(c => `<button class="chip ${c.current ? 'on' : ''}" style="justify-content:space-between;width:100%" ${c.current ? '' : `data-act="noop" data-msg="${esc(c.note || 'Соседняя категория')}"`}>${esc([c.spec, c.track, c.grade].filter(Boolean).join(' · '))} <b class="num">${c.count}</b></button>`).join('')}
         ${warnCat ? `<span class="hint">${esc(warnCat.note)}</span>` : ''}
       </div>
-      <div class="panel tight stack-s">
+      <div class="panel tight stack-s m-before">
         <span class="label">Фильтры</span>
         <div class="chips">${fl.map(([k, l]) => `<button class="chip ${S.filters.has(k) ? 'on' : ''}" data-act="filter" data-k="${k}">${l}</button>`).join('')}</div>
         <span class="hint">Фильтр сужает список, порядок сохраняется</span>
@@ -1926,6 +2133,7 @@ const chatPeerOf = () => { const m = route().match(/^\/[ce]\/chat\/([^/]+)$/); r
 const onChat = () => /^\/[ce]\/chat(\/|$)/.test(route());
 const chatSide = () => route().startsWith('/c') ? 'c' : 'e';
 const chatMe = () => chatSide() === 'c' ? 'candidate' : 'employer';
+const COARSE = matchMedia('(pointer: coarse)');  // сенсорный экран без мыши: телефон, планшет
 const chatBtn = (side, peer, cls = 'btn ghost small') => peer == null ? '' : `<button class="${cls}" data-go="/${side}/chat/${esc(encodeURIComponent(peer))}">Написать в чат</button>`;
 const WHEN = s => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -1949,20 +2157,22 @@ function chatList() {
 function chatView(side) {
   const peer = chatPeerOf(), d = D.chatDetail;
   const head = side === 'c' ? [['Кабинет', '/c/home'], ['Чат']] : [[esc(D.coName || 'Компания'), '/e/signup'], ['Чат']];
+  // телефон и планшет: открыт диалог — списка не видно, назад к нему — кнопкой в шапке диалога
+  const back = `<button class="btn ghost small chat-back" data-go="/${side}/chat">← Диалоги</button>`;
   const box = d ? `
     <div class="panel tight chat-box">
-      <div style="padding-bottom:12px;border-bottom:1px solid var(--line-2)"><b>${esc(d.peer.name)}</b></div>
+      <div class="row chat-head">${back}<b>${esc(d.peer.name)}</b></div>
       <div id="chat-messages" class="chat-msgs">${chatMessages()}</div>
       ${d.can_write ? `<div class="row" style="margin-top:12px;align-items:flex-end">
-        <textarea id="chat-input" class="input" style="flex:1;min-height:44px;resize:none" maxlength="2000" placeholder="Сообщение"></textarea>
+        <textarea id="chat-input" class="input" style="flex:1;min-height:44px;resize:none" maxlength="2000" placeholder="Сообщение" enterkeyhint="${COARSE.matches ? 'enter' : 'send'}"></textarea>
         <button class="btn primary" data-act="chat-send">Отправить</button>
       </div>
-      <span class="hint" style="margin-top:6px">Enter — отправить, Shift+Enter — перенос строки</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
-    </div>` : `<div class="panel chat-box chat-empty" style="align-items:center;justify-content:center"><span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог в списке'}</span></div>`;
+      <span class="hint" style="margin-top:6px">${COARSE.matches ? 'Отправить — кнопкой, Enter — перенос строки' : 'Enter — отправить, Shift+Enter — перенос строки'}</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
+    </div>` : `<div class="panel chat-box chat-empty" style="align-items:center;justify-content:center">${peer != null ? back : ''}<span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог в списке'}</span></div>`;
   return `
   ${crumbs(head)}
   ${subnav(side)}
-  <div class="chat fade">
+  <div class="chat fade ${peer != null ? 'has-peer' : ''}">
     <div class="panel tight stack-s chat-list" id="chat-list">${chatList()}</div>
     ${box}
   </div>`;
@@ -1979,9 +2189,9 @@ function drawChat(stick = true) {
 }
 function drawChatSide() {
   UNREAD = ((D.chatContacts && D.chatContacts.contacts) || []).reduce((n, c) => n + c.unread_count, 0);
-  const l = document.getElementById('chat-list'), nav = document.querySelector('nav.chips');
+  const l = document.getElementById('chat-list');
   if (l) l.innerHTML = chatList();
-  if (nav) nav.outerHTML = subnav(chatSide());
+  redrawNav(chatSide());
 }
 
 async function loadChat(peer) {
@@ -1996,7 +2206,7 @@ async function loadChat(peer) {
 let chatBusy = false;
 let chatAgain = false;  // сигнал пришёл, пока шёл прошлый опрос: после него повторяем
 async function pollChat() {
-  if (!onChat() || document.hidden || $app.inert) return;
+  if (!onChat() || document.hidden || $app.hasAttribute('aria-busy')) return;
   if (chatBusy) { chatAgain = true; return; }
   chatBusy = true;
   const my = seq, peer = chatPeerOf(), d = D.chatDetail, me = chatMe();
@@ -2033,8 +2243,7 @@ async function chatNudge() {
   if (!TOK[side] || !/^\/[ce]\//.test(route())) return;
   try {
     UNREAD = (await api('GET', '/api/chat/unread')).unread_count;
-    const nav = document.querySelector('nav.chips');
-    if (nav && route().startsWith('/' + side)) nav.outerHTML = subnav(side);
+    if (route().startsWith('/' + side)) redrawNav(side);
   } catch { /* бейдж не критичен */ }
 }
 async function chatStream(side) {
@@ -2184,9 +2393,9 @@ function inviteFormView() {
       <h2>Приглашение для ${esc(c.id)}</h2>
       <label class="field"><span>Роль</span><input class="input" id="f-role" value="${esc(f.role)}"></label>
       <div class="field"><span>Вилка на руки, ₽ · обязательно</span>
-        <div class="grid g2" style="gap:10px">
-          <input class="input num" id="f-from" inputmode="numeric" value="${f.from || ''}" aria-label="от">
-          <input class="input num" id="f-to" inputmode="numeric" value="${f.to || ''}" aria-label="до">
+        <div class="grid g2 pair" style="gap:10px">
+          <span class="pfx" data-p="от"><input class="input num" id="f-from" inputmode="numeric" value="${f.from || ''}" aria-label="от"></span>
+          <span class="pfx" data-p="до"><input class="input num" id="f-to" inputmode="numeric" value="${f.to || ''}" aria-label="до"></span>
         </div>
         <div id="f-msgs" class="stack-s">${errs.map(e => `<div class="alert bad">${esc(e)}</div>`).join('')}${warns.map(e => `<div class="alert warn">${esc(e)}</div>`).join('')}${!errs.length && !warns.length ? '<div class="alert ok">Вилка в рынке и покрывает ожидания кандидата.</div>' : ''}</div>
       </div>
@@ -2263,17 +2472,19 @@ V['/e/search'] = () => {
   ${coBanners()}
   <div class="grid side-l">
     <aside class="stack">
-      <div class="panel tight stack-s">
-        <span class="label">Фильтры</span>
-        <label class="field"><span>Текст</span><input class="input" id="sf-q" value="${esc(f.q)}" placeholder="python kafka платежи"></label>
+      <div class="panel tight stack-s fold m-before ${S.fold.sf ? 'open' : ''}">
+        ${foldHead('sf', 'Фильтры', nOn({ ...f, page: '' }))}
+        <div class="fold-b stack-s">
+        <label class="field"><span>Текст</span><input class="input" id="sf-q" type="search" enterkeyhint="search" value="${esc(f.q)}" placeholder="python kafka платежи"></label>
         <label class="field"><span>Специализация</span><select class="input" id="sf-spec">${opt((META && META.specs) || [], f.spec)}</select></label>
         <label class="field"><span>Трек</span><select class="input" id="sf-track">${opt(f.spec && META ? META.tracks[f.spec] : [], f.track)}</select></label>
         <label class="field"><span>Грейд</span><select class="input" id="sf-grade">${opt((META && META.grades) || [], f.grade)}</select></label>
-        <label class="field"><span>Навыки через запятую</span><input class="input" id="sf-skills" value="${esc(f.skills)}" placeholder="PostgreSQL, Kafka"></label>
+        <label class="field"><span>Навыки через запятую</span><input class="input" id="sf-skills" autocapitalize="off" enterkeyhint="search" value="${esc(f.skills)}" placeholder="PostgreSQL, Kafka"></label>
         <label class="field"><span>Формат</span><select class="input" id="sf-format">${opt((META && META.formats) || [], f.format)}</select></label>
-        <label class="field"><span>Город</span><input class="input" id="sf-city" value="${esc(f.city)}"></label>
+        <label class="field"><span>Город</span><input class="input" id="sf-city" enterkeyhint="search" value="${esc(f.city)}"></label>
         <div class="chips">${[['fsp', 'ФСП'], ['cf', 'Codeforces'], ['hackathon', 'Хакатоны']].map(([k, l]) => `<button class="chip ${f[k] ? 'on' : ''}" data-act="sf-flag" data-k="${k}">${l}</button>`).join('')}</div>
         <div class="row"><button class="btn primary small" data-act="sf-apply">Найти</button><button class="btn ghost small" data-act="sf-reset">Сбросить</button></div>
+        </div>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Специализации</span><div class="chips">${facet('spec', R.facets.spec) || '<span class="small muted">—</span>'}</div>
@@ -2327,11 +2538,11 @@ function vacancyForm() {
     </div>
     <div class="field"><span>Грейд</span><div class="seg" role="group">${((META && META.grades) || []).map(g => `<button data-act="vx-set" data-k="grade" data-v="${g}" aria-pressed="${g === f.grade}">${g}</button>`).join('')}</div></div>
     <div class="grid g2">
-      <label class="field"><span>Обязательные навыки</span><input class="input" id="vx-must" value="${esc(f.must)}" placeholder="Python, PostgreSQL"></label>
-      <label class="field"><span>Желательные навыки</span><input class="input" id="vx-nice" value="${esc(f.nice)}"></label>
+      <label class="field"><span>Обязательные навыки</span><input class="input" id="vx-must" autocapitalize="off" value="${esc(f.must)}" placeholder="Python, PostgreSQL"></label>
+      <label class="field"><span>Желательные навыки</span><input class="input" id="vx-nice" autocapitalize="off" value="${esc(f.nice)}"></label>
     </div>
     <div class="field"><span>Вилка на руки, ₽ · обязательно</span>
-      <div class="grid g2" style="gap:10px"><input class="input num" id="vx-from" inputmode="numeric" value="${f.from || ''}" aria-label="от"><input class="input num" id="vx-to" inputmode="numeric" value="${f.to || ''}" aria-label="до"></div>
+      <div class="grid g2 pair" style="gap:10px"><span class="pfx" data-p="от"><input class="input num" id="vx-from" inputmode="numeric" value="${f.from || ''}" aria-label="от"></span><span class="pfx" data-p="до"><input class="input num" id="vx-to" inputmode="numeric" value="${f.to || ''}" aria-label="до"></span></div>
       <div class="stack-s" id="vx-msgs">${errs.map(e => `<div class="alert bad">${esc(e)}</div>`).join('')}${warns.map(e => `<div class="alert warn">${esc(e)}</div>`).join('')}</div>
       <span class="hint">Те же правила, что в приглашении: нижняя граница не ниже 25-го перцентиля рынка, ширина не больше 40 %.</span>
     </div>
@@ -2416,7 +2627,7 @@ function refFields(f) {
     <button class="switch" role="switch" aria-checked="${f.exact}" data-act="tx-set" data-k="exact"><i></i> Точное совпадение (иначе без учёта регистра, ё/е, лишних пробелов и знаков по краям)</button>${hint}`;
   if (f.answer_type === 'number') return `<div class="grid g2"><label class="field"><span>Эталон — число</span><input class="input num" id="tx-value" inputmode="decimal" value="${esc(f.value)}"></label>
     <label class="field"><span>Допуск ±</span><input class="input num" id="tx-tol" inputmode="decimal" value="${esc(f.tol)}" placeholder="0"></label></div>${hint}`;
-  if (f.answer_type === 'regex') return `<label class="field"><span>Шаблон (регулярное выражение, полное совпадение, без учёта регистра)</span><input class="input" id="tx-pattern" value="${esc(f.pattern)}" placeholder="\\d{3}-\\d{2}"></label>${hint}`;
+  if (f.answer_type === 'regex') return `<label class="field"><span>Шаблон (регулярное выражение, полное совпадение, без учёта регистра)</span><input class="input" id="tx-pattern" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(f.pattern)}" placeholder="\\d{3}-\\d{2}"></label>${hint}`;
   return `<label class="field"><span>Варианты — по одному на строку, верные отметьте «*» в начале (сама звёздочка в вариант не входит)</span><textarea class="input" id="tx-opts" style="min-height:100px" placeholder="Read Committed&#10;Repeatable Read&#10;*Serializable">${esc(f.opts)}</textarea></label>${hint}`;
 }
 
@@ -2595,15 +2806,39 @@ const MAP = [
   ['Жюри', [['/v', 'Дашборд валидации']]],
 ];
 function openMap() {
-  const r = route();
+  const r = route(), role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
   let n = 0;
-  document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-label="Карта экранов">
-    <div class="row sb"><h3>Карта экранов</h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
+  const sbw = innerWidth - document.documentElement.clientWidth;  // полоса прокрутки исчезнет — страница не должна сдвинуться
+  document.documentElement.style.paddingRight = sbw ? sbw + 'px' : '';
+  document.documentElement.classList.add('lock');
+  document.querySelector('[data-act="map"]').setAttribute('aria-expanded', 'true');
+  document.querySelector('header.top').inert = $app.inert = true;  // фон под меню недоступен ни мыши, ни клавиатуре
+  // на телефоне шапка без ролей и «Выйти»: они здесь, над картой экранов
+  const roles = `<div class="m-only"><div class="stack-s"><span class="label">Роль</span><nav class="seg m-roles" aria-label="Роль">${[['/c/home', 'c', 'Кандидат'], ['/e/picks', 'e', 'Работодатель'], ['/v', 'v', 'Валидация']].map(([p, k, t]) => `<button data-go="${p}" aria-current="${role === k}">${t}</button>`).join('')}</nav>
+    <button class="btn ghost block" id="theme-m" data-act="theme"></button>
+    ${(role === 'c' || role === 'e') && TOK[role] ? `<button class="btn ghost block" data-act="logout">Выйти из кабинета ${role === 'c' ? 'кандидата' : 'работодателя'}</button>` : ''}</div></div>`;
+  document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-modal="true" aria-labelledby="map-title">
+    <div class="row sb"><h3 id="map-title"><span class="on-wide">Карта экранов</span><span class="on-narrow">Меню</span></h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
+    ${roles}
     ${MAP.map(([g, items]) => [g, g === 'Кандидат' ? [...items, ...((D.invites && D.invites.items) || []).slice(0, 2).map(i => ['/c/invite/' + i.id, 'Приглашение: ' + esc(i.company)])] : items]).map(([g, items]) => `<div class="grp"><span class="label" style="margin:0 10px 4px">${g}</span>${items.map(([p, t]) => `<button data-go="${p}" aria-current="${r === p}"><span class="num">${String(++n).padStart(2, '0')}</span><span>${t}</span></button>`).join('')}</div>`).join('')}
     <p class="small muted">Демо-сценарий: регистрация → профиль и PDF → тест → категория → работодатель пишет потребность → подборка → приглашение → кандидат принимает → контакты. Вход за демо-персонажей — кнопками «Демо: войти как …» на экранах входа.</p>
   </div></div>`;
+  paintTheme();  // подпись переключателя темы в меню
+  document.querySelector('#overlay [data-act="close-map"].btn').focus();
 }
-const closeMap = () => document.getElementById('overlay').innerHTML = '';
+function closeMap() {
+  const ov = document.getElementById('overlay');
+  if (!ov.innerHTML) return;
+  const back = ov.contains(document.activeElement);  // фокус был в меню — возвращаем на кнопку меню
+  ov.innerHTML = '';
+  document.documentElement.classList.remove('lock');
+  document.documentElement.style.paddingRight = '';
+  document.querySelector('header.top').inert = false;
+  $app.inert = $app.hasAttribute('aria-busy');  // экран мог ещё грузиться (busy)
+  const btn = document.querySelector('[data-act="map"]');
+  btn.setAttribute('aria-expanded', 'false');
+  if (back) btn.focus();
+}
 
 /* ===================== загрузка данных экрана ===================== */
 const or404 = p => p.catch(e => { if (e.status === 404) return null; throw e; });
@@ -2712,6 +2947,7 @@ function render() {
   }
   $app.innerHTML = html;
   busy(false);
+  centerNav();
   const cm = document.getElementById('chat-messages');
   if (cm) cm.scrollTop = cm.scrollHeight;
   const role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
@@ -2740,7 +2976,7 @@ function rerender() {
 
 // смена экрана: без входа — на экран входа своей роли; загрузка данных, рендер
 // пока грузится следующий экран, прежний неактивен (inert): клик по устаревшей кнопке не уйдёт с параметрами старого экрана
-function busy(on) { $app.inert = on; on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
+function busy(on) { $app.inert = on || !!document.querySelector('#overlay .overlay'); on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
 async function show(keep) {
   const r = route(), my = ++seq, y = scrollY;
   const side = r.split('/')[1];
@@ -2829,12 +3065,24 @@ const CONFIRM = {
 /* тема: явный выбор в localStorage, без него — системная (см. скрипт в <head>) */
 const darkMq = matchMedia('(prefers-color-scheme: dark)');
 const isDark = () => (document.documentElement.dataset.theme || (darkMq.matches ? 'dark' : 'light')) === 'dark';
-const paintTheme = () => { document.getElementById("theme").innerHTML = isDark() ? `<span aria-hidden="true">☀</span> Светлая тема` : `<span aria-hidden="true">☾</span> Тёмная тема`; };
+// на телефоне и планшете в шапке — только значок (подпись .on-wide скрыта), имя кнопки — из aria-label
+const paintTheme = () => {
+  const el = document.getElementById('theme'), m = document.getElementById('theme-m'), t = isDark() ? 'Светлая тема' : 'Тёмная тема', ic = `<span aria-hidden="true">${isDark() ? '☀' : '☾'}</span>`;
+  el.innerHTML = `${ic}<span class="on-wide"> ${t}</span>`;
+  el.setAttribute('aria-label', t);
+  if (m) m.innerHTML = `${ic} ${t}`;  // то же в меню телефона — с подписью
+  document.querySelector('meta[name="theme-color"]').content = isDark() ? '#17181D' : '#FFFFFF';  // строка состояния и адресная строка телефона — под фон шапки
+};
 darkMq.addEventListener('change', paintTheme);
 
 const ACT = {
   theme: () => { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; LS.set('fsp.theme', t); paintTheme(); },
   map: () => openMap(),
+  fold: (a, d) => {
+    S.fold[d.k] = !S.fold[d.k];
+    a.closest('.fold').classList.toggle('open', S.fold[d.k]);
+    a.setAttribute('aria-expanded', S.fold[d.k]); a.setAttribute('aria-label', foldLabel(d.k) + ' ' + FOLD[d.k]); a.textContent = foldLabel(d.k);
+  },
   noop: (a, d) => toast(d.msg || 'Пока не реализовано'),
   reload: () => refresh(),
   ask: (a, d) => { S.confirm = d.k; rerender(); },
@@ -2843,7 +3091,7 @@ const ACT = {
   async logout() {
     const role = roleOf(route());
     await api('POST', '/api/auth/logout', undefined, role).catch(() => null);  // токен мог уже истечь — всё равно чистим
-    clearSide(role); toast('Вы вышли');
+    clearSide(role); toast('Вы вышли'); closeMap();
     const to = role === 'e' ? '/e/signup' : '/c/signup';
     if (route() === to) show(); else go(to);
   },
@@ -2991,6 +3239,8 @@ const ACT = {
   ans: (a, d) => { S.qAns = +d.i; rerender(); },
   mark: (a, d) => { S.codeMark = +d.line; rerender(); },
   'code-lang': (a, d) => { S.qLang = d.v; S.qRun = null; rerender(); },
+  'code-indent': () => codeIndent(false),
+  'code-dedent': () => codeIndent(true),
   async 'code-run'() {
     const it = S.quest.item, lang = codeLang();
     S.qRun = await api('POST', '/api/quest/run', { item_id: it.id, lang, code: S.qCode[lang] != null ? S.qCode[lang] : it.code.templates[lang] });
@@ -3175,8 +3425,10 @@ const ACT = {
 Object.assign(ACT, { 'chat-send': chatSend, 'chat-more': chatMore });
 // ponytail: SSE живёт в памяти одного процесса (Hub в services/chat.py); при нескольких воркерах — Redis pub/sub.
 document.addEventListener('visibilitychange', () => { if (!document.hidden) chatNudge(); });
+const ENTER = { 'su-mail': 'otp-send', 'su-otp': 'otp-verify', 'es-mail': 'eotp-send', 'es-otp': 'eotp-verify', 'vf-q': 'vf-apply', 'vf-city': 'vf-apply', 'sf-q': 'sf-apply', 'sf-skills': 'sf-apply', 'sf-city': 'sf-apply', 'need-skill': 'need-add-ok' };
 document.addEventListener('keydown', e => {
-  if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
+  if (e.key === 'Enter' && !e.isComposing && ENTER[e.target.id]) { const b = document.querySelector(`[data-act="${ENTER[e.target.id]}"]`); if (b) { e.preventDefault(); b.click(); } }
+  if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey && !e.isComposing && (!COARSE.matches || e.ctrlKey || e.metaKey)) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
   if (e.target.id === 'code-ed') {
     // редактор кода: Tab — отступ; Esc, затем Tab — обычный переход фокуса (клавиатура не запирается в поле)
     if (e.key === 'Escape') { S.edEsc = true; return; }
@@ -3278,6 +3530,9 @@ document.addEventListener('submit', async e => {
 });
 
 addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
+matchMedia('(max-width: 640px)').addEventListener('change', () => { if (document.querySelector('.quest .chart')) { capture(); rerender(); } });  // график теста — узкий или широкий холст после поворота
+document.addEventListener('touchstart', () => {}, { passive: true });  // без него iOS Safari не показывает :active при касании
+for (const ev of ['pointerdown', 'mousedown']) document.addEventListener(ev, e => { if (e.target.closest('[data-keepfocus]')) e.preventDefault(); });
 fspReturn().catch(fail).finally(() => show());
 </script>
 </body>

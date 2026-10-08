@@ -8,9 +8,8 @@ test.skip(!process.env.SANDBOX_URL && !process.env.CI, 'нет песочниц�
 
 const itemId = page => page.evaluate(() => S.quest && S.quest.item && S.quest.item.id);
 
-test('задача на код: редактор, запуск на примерах в песочнице, отправка', async ({ page }) => {
-  expect(process.env.SANDBOX_URL, 'в CI сценарий идёт с настоящей песочницей').toBeTruthy();
-  // новый кандидат: вход по коду и минимальный профиль (Backend · Python по умолчанию)
+// новый кандидат (вход по коду, минимальный профиль Backend · Python) и полный тест до задачи на код
+async function toCodeTask(page) {
   await open(page, '/c/signup');
   await page.getByLabel('Почта').fill(`code-${uniq()}@example.ru`);
   await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
@@ -38,6 +37,12 @@ test('задача на код: редактор, запуск на пример
     await expect.poll(() => itemId(page)).not.toBe(prev);
   }
   await expect(ed).toBeVisible();
+}
+
+test('задача на код: редактор, запуск на примерах в песочнице, отправка', async ({ page }) => {
+  expect(process.env.SANDBOX_URL, 'в CI сценарий идёт с настоящей песочницей').toBeTruthy();
+  await toCodeTask(page);
+  const ed = page.locator('#code-ed');
   const item = await page.evaluate(() => S.quest.item);
   const py = item.code.entry.python, ts = item.code.entry.typescript;
   expect(JSON.stringify(item)).not.toMatch(/"key"|"seed"|"tests"/);  // наружу — только открытая часть
@@ -118,4 +123,35 @@ test('задача на код: редактор, запуск на пример
   expect(JSON.stringify(await r.json())).not.toMatch(/"correct"|"tests"|"seed"/);
   await expect(ed).toHaveCount(0);
   await expect.poll(() => itemId(page)).not.toBe(item.id);
+});
+
+test.describe('телефон', () => {
+  test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
+
+  test('задача на код: отступы кнопками вместо Tab', async ({ page }) => {
+    await toCodeTask(page);
+    const ed = page.locator('#code-ed');
+    const { sw, cw } = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+    expect(sw).toBeLessThanOrEqual(cw);
+    await expect(page.locator('.code-keys')).toBeHidden();  // на сенсорной клавиатуре Tab нет — подсказка про него скрыта
+    expect(await ed.evaluate(e => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(16);
+    // курсор в конце, «Отступ» — пробелы у курсора, фокус остаётся в редакторе; «Убрать отступ» — снимает их у строки
+    await ed.tap();
+    await ed.evaluate(el => el.setSelectionRange(el.value.length, el.value.length));
+    await page.getByRole('button', { name: '⇥ Отступ' }).tap();
+    expect(await ed.inputValue()).toMatch(/\n {4}$/);
+    await expect(ed).toBeFocused();
+    await page.getByRole('button', { name: '⇤ Убрать отступ' }).tap();
+    expect(await ed.inputValue()).toMatch(/\n$/);
+    // курсор в начале строки с отступом — «Убрать отступ» снимает его целиком
+    await ed.evaluate(el => { const i = el.value.lastIndexOf('    ...'); el.setSelectionRange(i, i); });
+    await page.getByRole('button', { name: '⇤ Убрать отступ' }).tap();
+    expect(await ed.inputValue()).toMatch(/\n\.\.\.\n$/);
+    // выделено несколько строк — отступ у каждой, текст не заменяется
+    await ed.evaluate(el => el.setSelectionRange(el.value.indexOf('\n') + 1, el.value.length));
+    await page.getByRole('button', { name: '⇥ Отступ' }).tap();
+    expect(await ed.inputValue()).toMatch(/\n {8}# ваше решение\n {4}\.\.\.\n$/);
+    // у задачи на код низ не прилипает: подсказка длинная, отправка — последний шаг
+    expect(await page.locator('.quest-foot').evaluate(e => getComputedStyle(e).position)).toBe('static');
+  });
 });

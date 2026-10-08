@@ -130,7 +130,7 @@ PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name=
 main{{max-width:420px;margin:48px auto;padding:28px;background:#fff;border-radius:16px}}h1{{font-size:22px;margin:0 0 6px}}
 p{{color:#555;font-size:14px}}h2{{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:#777;margin:18px 0 0}}button{{display:block;width:100%;padding:14px;margin:10px 0;border:1px solid #d0d0da;border-radius:10px;
 background:#fff;font:inherit;text-align:left;cursor:pointer}}button.main{{background:#402fff;color:#fff;border-color:#402fff}}
-small{{display:block;color:inherit;opacity:.75}}</style></head><body><main>
+small{{display:block;color:inherit;opacity:.75}}@media(max-width:460px){{main{{margin:16px;padding:20px}}}}</style></head><body><main>
 <h1>ФСП ID (демо)</h1><p>Имитация единого входа ФСП на Keycloak (OpenID Connect). Пароль не нужен: выберите демо-аккаунт.
 Сервис «ФСП Карьера» получит ФСП ID, подтверждённую почту, имя и подтверждённые участия и места.</p>
 {via}<form method="post" action="{action}">{hidden}{buttons}<button name="account" value="">Отмена</button></form></main></body></html>"""
