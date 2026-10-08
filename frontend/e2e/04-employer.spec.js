@@ -513,7 +513,16 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
   await expect(toast(page)).toContainText('Вакансия опубликована');
   const card = page.locator('.panel', { hasText: `вакансия ${id}` }).first();
   await expect(card).toContainText(title);  // нагрузка видна как текст
+  await expect(card).toContainText('открыта до');
   await noXss(page);
+  // лимит открытых вакансий подтверждённой компании и срок публикации
+  const limit = page.locator('.panel', { hasText: 'Открытые вакансии' });
+  await expect(limit).toContainText(/\d+ \/ 10/);
+  await expect(limit).toContainText('Вакансия публикуется на 30 дней');
+  const ext = api(page, 'POST', `/api/vacancies/${vac.id}/extend`);
+  await card.getByRole('button', { name: 'Продлить' }).click();
+  expect((await ext).status()).toBe(200);
+  await expect(toast(page)).toContainText('Вакансия продлена до');
 
   // правка
   await card.getByRole('button', { name: 'Изменить' }).click();
@@ -556,12 +565,12 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
     const applied = api(page, 'POST', `/api/vacancies/${vid}/apply`);
     await page.getByRole('button', { name: 'Откликнуться' }).click();
     expect((await applied).status()).toBe(200);
-    await expect(toast(page)).toHaveText('Отклик отправлен: компания видит ваши контакты');
+    await expect(toast(page)).toHaveText('Отклик отправлен: контакты откроются, когда компания его примет');
     await expect(page.getByText('Вы откликнулись:')).toBeVisible();
   }
   await expect(page.getByRole('heading', { name: `QA отказ ${id}` })).toBeVisible();
 
-  // работодатель: отклики с контактами, статусы
+  // работодатель: до ответа — анонимная карточка, контакты — после приглашения на интервью
   await demo(page, 'e');
   await open(page, '/e/vacancies');
   await expect(card).toContainText('Откликов: 1');
@@ -569,18 +578,22 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
   await card.getByRole('button', { name: 'Отклики' }).click();
   await expect(page.getByRole('heading', { name: title + ' (ред.)' })).toBeVisible();
   await noXss(page);
+  await expect(page.getByText('ФИО и контакты кандидата откроются, когда вы пригласите его на интервью')).toBeVisible();
   const app = page.locator('.panel', { hasText: 'Кандидат A-1042' });
-  await expect(app).toContainText('Дмитрий Орлов · d.orlov@example.ru · @dorlov_dev');
   await expect(app).toContainText('«Готов к задаче вместо созвона»');
+  await expect(app).toContainText('Контакты откроются после приглашения на интервью');
+  await expect(page.getByText('d.orlov@example.ru')).toHaveCount(0);
   await app.getByRole('button', { name: 'Просмотрено' }).click();
   await expect(toast(page)).toHaveText('Отмечено как просмотренное');
   await expect(app).toContainText('просмотрен');
+  await expect(page.getByText('d.orlov@example.ru')).toHaveCount(0);
   await app.getByRole('button', { name: 'Отклонить…' }).click();
   await expect(app.getByRole('button', { name: 'Отклонить', exact: true })).toBeDisabled();
   await app.getByRole('button', { name: 'Отмена' }).click();
   await app.getByRole('button', { name: 'Пригласить на интервью' }).click();
   await expect(toast(page)).toHaveText('Кандидат приглашён на интервью');
   await expect(app).toContainText('приглашение на интервью');
+  await expect(app).toContainText('Дмитрий Орлов · d.orlov@example.ru · @dorlov_dev');
 
   // отклик кандидата, отозвавшего согласие: ни карточки, ни контактов, ни кнопок
   const appsUrl = `**/api/vacancies/${vac.id}/applications`;
@@ -589,7 +602,8 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
     real.items.push({ ...real.items[0], id: 999999, status: 'sent', hidden: true, candidate: null, contacts: null });
     // контакты закрыты при живой карточке: отзыв отклика и «скрыть профиль от компании» объясняются по-разному
     real.items.push({ ...real.items[0], id: 999998, status: 'withdrawn', reason: null, contacts: null, chat_peer: null });
-    real.items.push({ ...real.items[0], id: 999997, status: 'declined', reason: null, contacts: null, chat_peer: null });
+    real.items.push({ ...real.items[0], id: 999997, status: 'accepted', reason: null, contacts: null, chat_peer: null });
+    real.items.push({ ...real.items[0], id: 999996, status: 'declined', reason: null, contacts: null, chat_peer: null });
     await r.fulfill({ json: real });
   });
   await open(page, '/e/vacancies');
@@ -599,6 +613,7 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
   await expect(gone.getByRole('button')).toHaveCount(0);
   await expect(page.getByText('Кандидат отозвал отклик — контакты скрыты')).toHaveCount(1);
   await expect(page.getByText('Кандидат закрыл доступ к контактам')).toHaveCount(1);
+  await expect(page.getByText('Отклик отклонён — контакты не открывались')).toHaveCount(1);
   await page.unroute(appsUrl);
 
   await open(page, `/e/vacancy/${declineId}`);
@@ -611,7 +626,7 @@ test('Ладога ↔ кандидат: вакансии — 422 по вилк�
   // кандидат видит итог по обоим откликам
   await demo(page, 'c');
   await open(page, '/c/applications');
-  await expect(page.locator('.panel', { hasText: `вакансия ${id}` })).toContainText('Компания готова пообщаться');
+  await expect(page.locator('.panel', { hasText: `вакансия ${id}` })).toContainText('Компания приняла отклик: ей открыты ваши контакты');
   await expect(page.locator('.panel', { hasText: `QA отказ ${id}` })).toContainText('Отказ: стек.');
   await noXss(page);
 

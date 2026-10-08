@@ -265,18 +265,21 @@ test('вакансии: фильтры, отклик с заметкой, отз
   await expect(page.getByRole('heading', { name: target.title })).toBeVisible();
   await expect(page.getByText('Вилка на руки')).toBeVisible();
   await expect(page.getByText('Соответствие вашему профилю')).toBeVisible();
+  await expect(page.getByText('Ответы на отклики')).toBeVisible();
+  await expect(page.getByText('ФИО, почта и Telegram откроются, только когда компания примет отклик.')).toBeVisible();
   await page.getByLabel('Короткая заметка, по желанию').fill('Интересен высоконагруженный бэкенд');
   await expect(page.getByText(`${300 - 'Интересен высоконагруженный бэкенд'.length} символов`)).toBeVisible();
   const ap = api(page, 'POST', `/api/vacancies/${target.id}/apply`);
   await page.getByRole('button', { name: 'Откликнуться' }).click();
   expect((await ap).status()).toBe(200);
-  await expect(toast(page)).toHaveText('Отклик отправлен: компания видит ваши контакты');
+  await expect(toast(page)).toHaveText('Отклик отправлен: контакты откроются, когда компания его примет');
   await expect(page.getByText('Вы откликнулись:')).toBeVisible();
 
   await page.getByRole('button', { name: 'Мои отклики' }).last().click();
   await expect(page.getByRole('heading', { name: 'Мои отклики' })).toBeVisible();
   const row = page.locator('.panel', { has: page.getByRole('button', { name: target.title }) });
   await expect(row).toContainText('Ваша заметка: Интересен высоконагруженный бэкенд');
+  await expect(row).toContainText('Компания видит анонимную карточку. Контакты откроются, когда она примет отклик.');
   await row.getByRole('button', { name: 'Отозвать отклик' }).click();
   await expect(toast(page)).toHaveText('Отклик отозван');
   await expect(row).toContainText('отозван');

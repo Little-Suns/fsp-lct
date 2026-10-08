@@ -37,7 +37,7 @@ def _me(db: Session, user: User) -> tuple[Candidate | None, Company | None]:
 
 def _dialog(db: Session, user: User, peer_id: str, *, write: bool) -> tuple[Company, Candidate]:
     """Диалог по peer_id: у кандидата это id компании, у работодателя — публичный id кандидата.
-    Работодатель теряет доступ, как только кандидат отозвал согласие на обработку, отклик или скрыл профиль (как и к контактам).
+    Работодатель теряет доступ, как только кандидат отозвал согласие на обработку или скрыл профиль (как и к контактам).
     Кандидат не пишет компании, от которой скрыл профиль: она не может ни прочитать, ни ответить."""
     me_c, me_co = _me(db, user)
     if me_c:
@@ -63,7 +63,7 @@ def _dialog(db: Session, user: User, peer_id: str, *, write: bool) -> tuple[Comp
 
 
 def _cand_label(db: Session, co: Company, cand: Candidate, reveal: list[Application]) -> str:
-    """Имя кандидата — только когда оно уже открыто работодателю (принятое приглашение или отклик); иначе публичный id.
+    """Имя кандидата — только когда оно уже открыто работодателю (принятое приглашение или принятый отклик); иначе публичный id.
     Отклики, по которым имя показано, складываются в reveal: вызывающий пишет их в AuditLog одним _reveal (как список откликов)."""
     accepted = db.scalar(select(Invitation.id).where(Invitation.company_id == co.id, Invitation.candidate_id == cand.id, Invitation.status == "accepted").limit(1))
     apps = db.scalars(

@@ -75,7 +75,7 @@ def client():
         inv_ml = _inv(ml, need3)  # другая потребность
         db.add_all([inv, inv_other, inv_ml, _inv(raw, need2, expires_at=NOW - timedelta(hours=1))])  # последнее — истекло
         db.commit()
-        IDS.update(co=co.id, cand=cand.id, gone=gone.id, need2=need2.id, inv=inv.id, inv_other=inv_other.id, inv_ml=inv_ml.id)
+        IDS.update(co=co.id, cand=cand.id, gone=gone.id, shy=shy.id, need2=need2.id, inv=inv.id, inv_other=inv_other.id, inv_ml=inv_ml.id)
         for k, u in users.items():
             H[k] = {"Authorization": f"Bearer {issue_token(db, u)}"}
     app = FastAPI()
@@ -127,27 +127,53 @@ def test_list_sorted_by_fit(client):
     assert client.get("/api/vacancies", params={"spec": "QA"}).json()["total"] == 0
 
 
-def test_apply_reveals_contacts_and_logs(client):
+def _reveals(cid: int) -> list[AuditLog]:
+    with SessionLocal() as db:
+        return db.scalars(select(AuditLog).where(AuditLog.action == "contacts_revealed", AuditLog.subject_candidate_id == cid)).all()
+
+
+def test_apply_anonymous_until_accepted(client):
+    """Фиктивная вакансия не собирает контакты: до принятия отклика — анонимная карточка, заметка без ПДн, нет журнала и чата."""
     vid = IDS["vac"]
     assert client.post(f"/api/vacancies/{vid}/apply", json={"note": "x" * 301}, headers=H["cand"]).status_code == 422
     assert client.post(f"/api/vacancies/{vid}/apply", json={}, headers=H["raw"]).status_code == 403  # не прошёл тест
     assert client.post(f"/api/vacancies/{vid}/apply", json={}, headers=H["old"]).status_code == 403  # согласие на старую редакцию
-    r = client.post(f"/api/vacancies/{vid}/apply", json={"note": "Делал платёжный шлюз"}, headers=H["cand"])
-    assert r.status_code == 200 and r.json()["status"] == "sent"
+    r = client.post(f"/api/vacancies/{vid}/apply", json={"note": "Делал платёжный шлюз, пишите d.orlov@example.ru или @dorlov"}, headers=H["cand"])
+    assert r.status_code == 200 and r.json()["status"] == "sent" and r.json()["contacts_open"] is False
     IDS["app"] = r.json()["id"]
     assert client.post(f"/api/vacancies/{vid}/apply", json={}, headers=H["cand"]).status_code == 409
     assert client.get(f"/api/vacancies/{vid}", headers=H["cand"]).json()["applied"] == "sent"
 
+    def emp_view():
+        r = client.get(f"/api/vacancies/{vid}/applications", headers=H["emp"])
+        return r.text, {i["id"]: i for i in r.json()["items"]}
+
+    for st in (None, "seen"):  # ни отклик, ни просмотр контактов не открывают
+        if st:
+            assert client.post(f"/api/vacancies/applications/{IDS['app']}/status", json={"status": st}, headers=H["emp"]).json()["contacts"] is None
+        text, rows = emp_view()
+        row = rows[IDS["app"]]
+        assert row["contacts"] is None and row["chat_peer"] is None
+        assert row["candidate"]["id"] == "A-1042" and "name" not in row["candidate"]
+        assert row["note"].startswith("Делал платёжный шлюз") and "[почта]" in row["note"]
+        for pii in ("Дмитрий Орлов", "d.orlov@example.ru", "@dorlov"):
+            assert pii not in text
+        assert not _reveals(IDS["cand"])
+    assert client.get("/api/vacancies/applications/mine", headers=H["cand"]).json()["items"][0]["contacts_open"] is False
+
+    # принятый отклик: контакты в ответе на смену статуса и в списке, журнал — ровно одна запись
+    sid = client.post(f"/api/vacancies/{vid}/apply", json={"note": "Мой Telegram @s0004"}, headers=H["shy"]).json()["id"]
+    assert not _reveals(IDS["shy"])
+    acc = client.post(f"/api/vacancies/applications/{sid}/status", json={"status": "accepted"}, headers=H["emp"]).json()
+    assert acc["contacts"] == {"name": "Имя S-0004", "email": "s-0004@example.ru", "tg": "@s-0004"} and acc["note"] == "Мой Telegram @s0004"
     for _ in range(2):  # повторный просмотр не плодит записи журнала
-        rows = client.get(f"/api/vacancies/{vid}/applications", headers=H["emp"]).json()["items"]
-    assert rows[0]["contacts"] == {"name": "Дмитрий Орлов", "email": "d.orlov@example.ru", "tg": "@dorlov"}
-    assert rows[0]["candidate"]["id"] == "A-1042" and "name" not in rows[0]["candidate"]
+        _, rows = emp_view()
+    assert rows[sid]["contacts"]["email"] == "s-0004@example.ru"
+    logs = _reveals(IDS["shy"])
+    assert len(logs) == 1 and logs[0].detail == {"application_id": sid, "vacancy_id": vid, "basis": "application"}
     with SessionLocal() as db:
-        logs = db.scalars(select(AuditLog).where(AuditLog.action == "contacts_revealed")).all()
-    assert len(logs) == 1 and logs[0].detail == {"application_id": IDS["app"], "vacancy_id": vid, "basis": "application"}
-    assert logs[0].subject_candidate_id == IDS["cand"]
-    with SessionLocal() as db:
-        assert db.get(Application, IDS["app"]).contacts_revealed_at is not None
+        assert db.get(Application, sid).contacts_revealed_at is not None and db.get(Application, IDS["app"]).contacts_revealed_at is None
+    assert client.get("/api/vacancies/applications/mine", headers=H["shy"]).json()["items"][0]["contacts_open"] is True
 
 
 def test_weekly_limit(client):
@@ -162,7 +188,7 @@ def test_status_flow_both_sides(client):
     assert client.post(f"/api/vacancies/applications/{aid}/withdraw", headers=H["busy"]).status_code == 404
     assert client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "declined"}, headers=H["emp"]).status_code == 422
     assert client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "hired"}, headers=H["emp"]).status_code == 422
-    assert client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "seen"}, headers=H["emp"]).json()["status"] == "seen"
+    assert client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "seen"}, headers=H["emp"]).status_code == 409  # уже просмотрен
     mine = client.get("/api/vacancies/applications/mine", headers=H["cand"]).json()["items"]
     assert mine[0]["status"] == "seen" and mine[0]["vacancy"]["id"] == IDS["vac"]
     r = client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "declined", "reason": "stack"}, headers=H["emp"])
@@ -170,8 +196,10 @@ def test_status_flow_both_sides(client):
     assert client.get("/api/vacancies/applications/mine", headers=H["cand"]).json()["items"][0]["reason"] == "Стек"
     assert client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "accepted"}, headers=H["emp"]).status_code == 409
     assert client.post(f"/api/vacancies/applications/{aid}/withdraw", headers=H["cand"]).status_code == 409
-    counts = client.get("/api/vacancies/mine", headers=H["emp"]).json()[0]["applications"]
-    assert counts["declined"] == 1 and counts["total"] == 1
+    counts = client.get("/api/vacancies/mine", headers=H["emp"]).json()["items"][0]["applications"]
+    assert counts["declined"] == 1 and counts["accepted"] == 1 and counts["total"] == 2
+    row = next(i for i in client.get(f"/api/vacancies/{IDS['vac']}/applications", headers=H["emp"]).json()["items"] if i["id"] == aid)
+    assert row["contacts"] is None and not _reveals(IDS["cand"])  # отказ контактов не открывает
 
 
 def test_withdraw_hides_contacts_and_close(client):
@@ -189,17 +217,75 @@ def test_withdraw_hides_contacts_and_close(client):
 
 def test_consent_revoked_hides_application(client):
     vid = client.post("/api/vacancies", json={**VAC, "title": "Третий бэкенд"}, headers=H["emp"]).json()["id"]
+    IDS["vac3"] = vid
     aid = client.post(f"/api/vacancies/{vid}/apply", json={}, headers=H["gone"]).json()["id"]
-    assert client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "accepted"}, headers=H["emp"]).json()["status"] == "accepted"
-    assert client.post(f"/api/vacancies/applications/{aid}/withdraw", headers=H["gone"]).status_code == 409  # после ответа не отозвать
     with SessionLocal() as db:
         db.get(Candidate, IDS["gone"]).consent_152 = False
         db.commit()
+    # согласие отозвано до ответа: принятие контактов не открывает и в журнал не пишется
+    acc = client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "accepted"}, headers=H["emp"]).json()
+    assert acc["status"] == "accepted" and acc["contacts"] is None
+    assert client.post(f"/api/vacancies/applications/{aid}/withdraw", headers=H["gone"]).status_code == 409  # после ответа не отозвать
     r = client.get(f"/api/vacancies/{vid}/applications", headers=H["emp"])
     row = r.json()["items"][0]
     assert row["hidden"] is True and row["candidate"] is None and row["contacts"] is None and "Отозвал" not in r.text
     with SessionLocal() as db:
         assert not db.scalars(select(AuditLog).where(AuditLog.subject_candidate_id == IDS["gone"])).all()
+
+
+def test_vacancy_limit_expiry_extend(client):
+    lim = client.get("/api/vacancies/mine", headers=H["emp"]).json()["limit"]
+    assert lim == {"open": 2, "max": catalog.VACANCY_LIMIT_UNVERIFIED, "verified": False, "ttl_days": catalog.VACANCY_TTL_DAYS}
+    r = client.post("/api/vacancies", json={**VAC, "title": "Сверх лимита"}, headers=H["emp"])
+    assert r.status_code == 409 and "лимит" in r.json()["detail"] and "Подтвердите компанию" in r.json()["detail"]
+    # у подтверждённой — свой лимит: у «Чужой» уже VACANCY_LIMIT_VERIFIED открытых
+    assert client.get("/api/vacancies/mine", headers=H["emp2"]).json()["limit"]["open"] == catalog.VACANCY_LIMIT_VERIFIED
+    r = client.post("/api/vacancies", json={**VAC, "title": "Одиннадцатая"}, headers=H["emp2"])
+    assert r.status_code == 409 and "Подтвердите" not in r.json()["detail"]
+
+    # срок вышел: скрыта из списка и карточки, отклики не принимает, в лимит не идёт
+    vid, vac3 = IDS["vac"], IDS["vac3"]
+    with SessionLocal() as db:
+        db.get(Vacancy, vac3).expires_at = NOW - timedelta(minutes=1)
+        db.commit()
+    assert all(i["id"] != vac3 for i in client.get("/api/vacancies").json()["items"])
+    assert client.get(f"/api/vacancies/{vac3}").status_code == 404
+    assert client.get(f"/api/vacancies/{vac3}", headers=H["gone"]).json()["expired"] is True  # откликнувшийся видит, на что откликался
+    r = client.post(f"/api/vacancies/{vac3}/apply", json={}, headers=H["ml"])
+    assert r.status_code == 409 and "Срок" in r.json()["detail"]
+    mine = client.get("/api/vacancies/mine", headers=H["emp"]).json()
+    assert mine["limit"]["open"] == 1 and next(v for v in mine["items"] if v["id"] == vac3)["expired"] is True
+    # место освободилось — новая вакансия публикуется со сроком VACANCY_TTL_DAYS
+    new = client.post("/api/vacancies", json={**VAC, "title": "Четвёртый бэкенд"}, headers=H["emp"]).json()
+    assert new["expired"] is False and datetime.fromisoformat(new["expires_at"]) > NOW + timedelta(days=catalog.VACANCY_TTL_DAYS - 1)
+    # продление истёкшей снова занимает место: сверх лимита — 409, после закрытия другой — продлевается
+    assert client.post(f"/api/vacancies/{vac3}/extend", headers=H["emp2"]).status_code == 404
+    assert client.post(f"/api/vacancies/{vac3}/extend", headers=H["emp"]).status_code == 409
+    assert client.post(f"/api/vacancies/{new['id']}/close", headers=H["emp"]).status_code == 200
+    assert client.post(f"/api/vacancies/{new['id']}/extend", headers=H["emp"]).status_code == 409  # закрытую не продлить
+    ext = client.post(f"/api/vacancies/{vac3}/extend", headers=H["emp"]).json()
+    assert ext["expired"] is False and datetime.fromisoformat(ext["expires_at"]) > NOW + timedelta(days=catalog.VACANCY_TTL_DAYS - 1)
+    assert any(i["id"] == vac3 for i in client.get("/api/vacancies").json()["items"])
+    # продление живой вакансии лимит не трогает: она уже открыта
+    assert client.post(f"/api/vacancies/{vid}/extend", headers=H["emp"]).status_code == 200
+
+
+def test_response_rate(client):
+    with SessionLocal() as db:
+        vs = db.scalars(select(Vacancy).where(Vacancy.company_id != IDS["co"]).order_by(Vacancy.id)).all()
+        apps = db.scalars(select(Application).where(Application.vacancy_id.in_([v.id for v in vs])).order_by(Application.id)).all()
+        assert len(apps) == catalog.APPLICATIONS_PER_WEEK
+        apps[0].status, apps[1].status, apps[2].status = "accepted", "declined", "declined"
+        apps[3].status = "withdrawn"  # отозванный кандидатом не в счёт
+        apps[4].created_at = NOW - timedelta(days=catalog.RESPONSE_RATE_WINDOW_DAYS + 1)  # вне окна
+        db.commit()
+        other = vs[0].id
+    v = client.get(f"/api/vacancies/{other}", headers=H["cand"]).json()
+    assert v["response_rate"] == round(100 * 3 / 8) and v["response_window_days"] == catalog.RESPONSE_RATE_WINDOW_DAYS
+    listed = {i["id"]: i for i in client.get("/api/vacancies?limit=200").json()["items"]}
+    assert listed[other]["response_rate"] == 38
+    # у «Ладоги» откликов меньше RESPONSE_RATE_MIN — доли нет
+    assert listed[IDS["vac"]]["response_rate"] is None
 
 
 TASK = {"title": "Идемпотентность платежа", "text": "Как не списать деньги дважды при ретрае?", "spec": "Backend",

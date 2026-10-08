@@ -1668,7 +1668,7 @@ V['/c/settings'] = () => {
     </div>
     <aside class="panel tight stack-s">
       <span class="label">Что видит работодатель</span>
-      <p class="small">До принятия приглашения или вашего отклика — только анонимную карточку ${esc(ME.id)}. Каждое раскрытие контактов пишется в журнал.</p>
+      <p class="small">Только анонимную карточку ${esc(ME.id)}, пока вы не приняли приглашение или компания не приняла ваш отклик. Каждое раскрытие контактов пишется в журнал.</p>
       <div class="divider"></div>
       <span class="label">Вход</span>
       <p class="small">${esc(ME.email)}</p>
@@ -1686,6 +1686,8 @@ V['/c/settings'] = () => {
 
 /* ---------- вакансии (кандидат) ---------- */
 const vacMeta = v => `${K(v.from)} — ${K(v.to)} на руки · ${esc([v.format, v.city].filter(Boolean).join(', '))}`;
+// доля откликов, на которые компания ответила (принят или отклонён); null — откликов мало, доля случайна
+const rateText = v => v.response_rate != null ? `отвечает на ${v.response_rate} % откликов` : '';
 const vacChips = v => `${coChip(v.company)}${v.fork_vs_min === false ? '<span class="chip warn">вилка ниже вашего минимума</span>' : ''}${v.applied ? appChip(v.applied) : ''}`;
 
 V['/c/vacancies'] = () => {
@@ -1720,7 +1722,7 @@ V['/c/vacancies'] = () => {
       ${L.items.map(v => `<button class="cand" data-go="/c/vacancy/${v.id}">
           <div class="stack-s" style="min-width:0">
             <div class="row"><span class="id">${esc(v.title)}</span></div>
-            <span class="small muted">${esc(v.company.name)} · ${vacMeta(v)}</span>
+            <span class="small muted">${esc(v.company.name)} · ${vacMeta(v)}${rateText(v) ? ` · ${rateText(v)}` : ''}</span>
             <div class="row" style="gap:6px">${catTag(v.spec, v.track, v.grade)}${vacChips(v)}</div>
             <div class="chips">${v.must.map(s => `<span class="chip ${(ME.skills_confirmed || []).includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${v.nice.map(s => `<span class="chip dim">${esc(s)}</span>`).join('')}</div>
           </div>
@@ -1744,7 +1746,7 @@ function cVacancyView() {
       <div class="panel stack">
         <div class="row co-head"><span class="logo-sq" style="background:${esc(v.company.color)}">${esc(v.company.name[0])}</span><b>${esc(v.company.name)}</b><span class="co-chips">${coChip(v.company)}</span></div>
         <h2>${esc(v.title)}</h2>
-        <div class="row">${catTag(v.spec, v.track, v.grade)}${v.status !== 'open' ? '<span class="status s-exp">закрыта</span>' : ''}</div>
+        <div class="row">${catTag(v.spec, v.track, v.grade)}${v.status !== 'open' ? '<span class="status s-exp">закрыта</span>' : v.expired ? '<span class="status s-exp">срок публикации истёк</span>' : ''}</div>
         <div class="stat"><span class="label">Вилка на руки</span><b class="num" style="font-size:24px"><span class="money">${RUB(v.from)}</span> — <span class="money">${RUB(v.to)}</span></b></div>
         ${v.fork_vs_min === false ? `<div class="alert warn">Верхняя граница ниже вашего минимума (${RUB(ME.min)} на руки).</div>` : v.fork_vs_min ? `<div class="alert ok">Вилка покрывает ваш минимум ${RUB(ME.min)} на руки.</div>` : ''}
         <dl class="kv">
@@ -1756,15 +1758,19 @@ function cVacancyView() {
       </div>
       ${v.applied ? `<div class="alert info"><span>→</span><span>Вы откликнулись: ${appChip(v.applied)} <button class="btn ghost small" data-go="/c/applications">Мои отклики</button></span></div>`
         : v.status !== 'open' ? '<div class="alert warn">Вакансия закрыта.</div>'
+        : v.expired ? '<div class="alert warn">Срок публикации вакансии истёк.</div>'
         : `<div class="panel stack">
         <h3>Откликнуться</h3>
-        <p class="small muted">Вы откликаетесь сами, поэтому компания сразу увидит ваши контакты и анонимную карточку с результатом теста.</p>
+        <p class="small muted">Компания увидит анонимную карточку с результатом теста и заметку. ФИО, почта и Telegram откроются, только когда компания примет отклик.</p>
         <label class="field"><span>Короткая заметка, по желанию</span><textarea class="input" id="ap-note" maxlength="300" style="min-height:70px" placeholder="Чем интересна вакансия">${esc(S.applyNote)}</textarea><span class="hint" id="ap-left">${left} символов</span></label>
         ${S.applyErr ? `<div class="alert bad">${esc(S.applyErr)}</div>` : ''}
         <div class="row"><button class="btn primary" data-act="apply" data-id="${v.id}" ${lim && lim.used >= lim.max ? 'disabled' : ''}>Откликнуться</button>${lim ? `<span class="small muted num">откликов за 7 дней: ${lim.used} / ${lim.max}</span>` : ''}</div>
       </div>`}
     </div>
     <aside class="stack">
+      <div class="panel tight stack-s"><span class="label">Ответы на отклики</span>${v.response_rate != null
+        ? `<b class="num" style="font-size:28px">${v.response_rate} %</b><span class="small muted">откликов за ${v.response_window_days} дней компания приняла или отклонила</span>`
+        : `<span class="small muted">Откликов за ${v.response_window_days} дней пока мало, чтобы считать, как часто компания отвечает</span>`}</div>
       ${v.fit != null ? `<div class="panel tight stack-s"><span class="label">Соответствие вашему профилю</span><b class="num" style="font-size:28px;color:var(--blue-text)">${v.fit.toFixed(2)}</b><span class="small muted">По той же формуле, что и подборка: тест, навыки, достижения × вероятность, что вилка вам подойдёт</span></div>` : ''}
       <div class="panel tight stack-s">
         <span class="label">Рынок · ${esc(v.spec)} · ${esc(v.grade)}</span>
@@ -1787,7 +1793,8 @@ V['/c/applications'] = () => {
       <div class="row sb"><button class="btn ghost small" data-go="/c/vacancy/${a.vacancy.id}">${esc(a.vacancy.title)}</button>${appChip(a.status)}</div>
       <span class="small muted">${esc(a.vacancy.company.name)} · ${vacMeta(a.vacancy)} · отправлен ${DAYMON(a.created_at)}${a.seen_at ? ` · просмотрен ${DAYMON(a.seen_at)}` : ''}</span>
       ${a.note ? `<p class="small">Ваша заметка: ${esc(a.note)}</p>` : ''}
-      ${a.status === 'accepted' ? '<div class="alert ok">Компания готова пообщаться и свяжется по вашим контактам.</div>' : ''}
+      ${a.status === 'sent' || a.status === 'seen' ? '<p class="small muted">Компания видит анонимную карточку. Контакты откроются, когда она примет отклик.</p>' : ''}
+      ${a.status === 'accepted' ? '<div class="alert ok">Компания приняла отклик: ей открыты ваши контакты, можно написать в чат.</div>' : ''}
       ${a.status === 'declined' ? `<div class="alert bad">Отказ${a.reason ? `: ${esc(a.reason.toLowerCase())}` : ''}.</div>` : ''}
       ${a.chat_peer != null ? `<div class="row">${chatBtn('c', a.chat_peer)}</div>` : ''}
       ${a.status === 'sent' || a.status === 'seen' ? `<div class="row"><button class="btn ghost small" data-act="withdraw" data-id="${a.id}">Отозвать отклик</button></div>` : ''}
@@ -2153,7 +2160,7 @@ function chatList() {
   return list.map(c => `<button class="chat-peer ${String(c.peer_id) === peer ? 'on' : ''}" data-go="/${side}/chat/${esc(encodeURIComponent(c.peer_id))}">
       <span class="stack-s" style="min-width:0;flex:1"><b>${esc(c.peer_name)}</b><span class="small muted">${c.last_message ? (c.last_message.sender === chatMe() ? 'Вы: ' : '') + esc(c.last_message.text) : 'Нет сообщений'}</span></span>
       ${c.unread_count ? `<span class="unread">${c.unread_count}</span>` : ''}
-    </button>`).join('') || '<span class="small muted">Диалогов пока нет. Писать можно после принятия приглашения или отклика на вакансию.</span>';
+    </button>`).join('') || '<span class="small muted">Диалогов пока нет. Писать можно после принятия приглашения или когда компания примет ваш отклик.</span>';
 }
 
 function chatView(side) {
@@ -2558,19 +2565,22 @@ function vacancyForm() {
 }
 
 V['/e/vacancies'] = () => {
-  const L = D.myvac || [];
+  const L = (D.myvac && D.myvac.items) || [], lim = D.myvac && D.myvac.limit, full = lim && lim.open >= lim.max;
   return `
   ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Вакансии']])}
   ${subnav('e')}
   ${coBanners()}
-  <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>Вакансии</h2><span class="small muted">Дополнительный путь: кандидат откликается сам, контакты видны сразу. Основной — приглашения из подборки.</span></div>${S.vform ? '' : '<button class="btn primary small" data-act="vac-new">Новая вакансия</button>'}</div>
+  <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>Вакансии</h2><span class="small muted">Дополнительный путь: кандидат откликается сам, контакты открываются, когда вы примете отклик. Основной — приглашения из подборки.</span></div>${S.vform ? '' : `<button class="btn primary small" data-act="vac-new" ${full ? 'disabled' : ''}>Новая вакансия</button>`}</div>
   <div class="stack">
+    ${lim ? `<div class="panel tight stack-s"><div class="row sb"><span class="label">Открытые вакансии</span><b class="num">${lim.open} / ${lim.max}</b></div>
+      <div class="meter"><i style="width:${Math.min(100, lim.open / lim.max * 100)}%"></i></div>
+      <p class="small muted">Вакансия публикуется на ${lim.ttl_days} дней, потом скрывается — продлите её, если найм идёт. ${lim.verified ? 'Лимит подтверждённой компании.' : 'Подтвердите компанию (ИНН и рабочая почта на домене сайта) — лимит вырастет.'}${full ? ' Сейчас лимит исчерпан: закройте вакансию, которая уже не нужна.' : ''}</p></div>` : ''}
     ${S.vform ? vacancyForm() : ''}
     ${L.map(v => `<div class="panel stack-s">
-      <div class="row sb"><b>${esc(v.title)}</b>${v.status === 'open' ? '<span class="status s-ok">открыта</span>' : '<span class="status s-exp">закрыта</span>'}</div>
+      <div class="row sb"><b>${esc(v.title)}</b>${v.status !== 'open' ? '<span class="status s-exp">закрыта</span>' : v.expired ? '<span class="status s-exp">срок истёк</span>' : `<span class="status s-ok">открыта до ${DAYMON(v.expires_at)}</span>`}</div>
       <div class="row" style="gap:6px">${catTag(v.spec, v.track, v.grade)}<span class="small muted">${vacMeta(v)}</span></div>
       <div class="row small" style="gap:12px"><span>Откликов: <b class="num">${v.applications.total}</b></span>${v.applications.sent ? `<span class="chip warn">новых ${v.applications.sent}</span>` : ''}${v.applications.accepted ? `<span class="muted">принято ${v.applications.accepted}</span>` : ''}${v.applications.declined ? `<span class="muted">отказ ${v.applications.declined}</span>` : ''}</div>
-      <div class="row"><button class="btn ghost small" data-go="/e/vacancy/${v.id}">Отклики</button>${v.status === 'open' ? `<button class="btn ghost small" data-act="vac-edit" data-id="${v.id}">Изменить</button><button class="btn ghost small" data-act="vac-close" data-id="${v.id}">Закрыть</button>` : ''}</div>
+      <div class="row"><button class="btn ghost small" data-go="/e/vacancy/${v.id}">Отклики</button>${v.status === 'open' ? `<button class="btn ghost small" data-act="vac-edit" data-id="${v.id}">Изменить</button><button class="btn ghost small" data-act="vac-extend" data-id="${v.id}">Продлить</button><button class="btn ghost small" data-act="vac-close" data-id="${v.id}">Закрыть</button>` : ''}</div>
     </div>`).join('') || '<div class="panel small muted">Вакансий пока нет.</div>'}
   </div>`;
 };
@@ -2583,14 +2593,14 @@ function eVacancyView() {
   ${crumbs([['Вакансии', '/e/vacancies'], [esc(v.title)]])}
   ${subnav('e')}
   <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>${esc(v.title)}</h2><span class="small muted">${vacMeta(v)} · откликов ${A.items.length}</span></div></div>
-  <div class="alert info" style="margin-bottom:16px"><span>i</span><span>Кандидат откликнулся сам, поэтому контакты видны сразу. Каждое первое раскрытие записывается в журнал.</span></div>
+  <div class="alert info" style="margin-bottom:16px"><span>i</span><span>До ответа вы видите анонимную карточку. ФИО и контакты кандидата откроются, когда вы пригласите его на интервью (примете отклик); раскрытие записывается в журнал.</span></div>
   <div class="stack">
     ${A.items.map(a => { const c = a.candidate, ct = a.contacts; if (a.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span>${appChip(a.status)}</div><span class="small muted">Согласие на обработку данных отозвано: карточка и контакты недоступны · ${DAYMON(a.created_at)}</span></div>`; return `<div class="panel stack-s">
       <div class="row sb"><div class="row"><button class="btn ghost small" data-go="/e/cand/${esc(c.id)}">Кандидат ${esc(c.id)}</button>${catTag(c.spec, c.track, c.grade)}<span class="small muted">перцентиль ${c.pct ?? '—'}</span></div>${appChip(a.status)}</div>
       <div class="chips">${c.skills.map(s => `<span class="chip ${v.must.includes(s) || v.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
       ${a.note ? `<p class="small">«${esc(a.note)}»</p>` : ''}
       ${a.chat_peer != null ? `<div class="row">${chatBtn('e', a.chat_peer)}</div>` : ''}
-      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : `<span class="muted">${a.status === 'withdrawn' ? 'Кандидат отозвал отклик — контакты скрыты' : 'Кандидат закрыл доступ к контактам'}</span>`} <span class="muted">· ожидания от ${RUB(c.salary)} на руки · ${DAYMON(a.created_at)}</span></p>
+      <p class="small">${ct ? `Контакты: <b>${esc([ct.name, ct.email, ct.tg].filter(Boolean).join(' · '))}</b>` : `<span class="muted">${{ withdrawn: 'Кандидат отозвал отклик — контакты скрыты', accepted: 'Кандидат закрыл доступ к контактам', declined: 'Отклик отклонён — контакты не открывались' }[a.status] || 'Контакты откроются после приглашения на интервью'}</span>`} <span class="muted">· ожидания от ${RUB(c.salary)} на руки · ${DAYMON(a.created_at)}</span></p>
       ${a.status === 'declined' && a.reason ? `<span class="small muted">причина отказа: ${esc(a.reason.toLowerCase())}</span>` : ''}
       ${a.status === 'sent' || a.status === 'seen' ? (S.appDecline === a.id ? `<div class="stack-s"><div class="chips">${reasons.map(([k, x]) => `<button class="chip ${S.appReason === k ? 'on' : ''}" data-act="app-reason" data-v="${k}">${esc(x)}</button>`).join('')}</div>
         <div class="row"><button class="btn danger small" data-act="app-status" data-id="${a.id}" data-v="declined" ${S.appReason ? '' : 'disabled'}>Отклонить</button><button class="btn ghost small" data-act="app-decline" data-id="">Отмена</button></div></div>`
@@ -3297,7 +3307,7 @@ const ACT = {
       if ([403, 409, 429].includes(e.status)) { S.applyErr = e.message; rerender(); return; }
       throw e;
     }
-    toast('Отклик отправлен: компания видит ваши контакты'); await refresh();
+    toast('Отклик отправлен: контакты откроются, когда компания его примет'); await refresh();
   },
   async withdraw(a, d) { await api('POST', `/api/vacancies/applications/${d.id}/withdraw`); toast('Отклик отозван'); await refresh(); },
   'tk-pick': (a, d) => { const i = +d.v; S.picks = d.multi ? (S.picks.includes(i) ? S.picks.filter(x => x !== i) : [...S.picks, i]) : [i]; rerender(); },
@@ -3384,7 +3394,7 @@ const ACT = {
 
   // вакансии (работодатель)
   'vac-new': () => { S.vform = vformFrom(null); rerender(); },
-  'vac-edit': (a, d) => { S.vform = vformFrom(D.myvac.find(v => v.id === +d.id)); rerender(); scrollTo(0, 0); },
+  'vac-edit': (a, d) => { S.vform = vformFrom(D.myvac.items.find(v => v.id === +d.id)); rerender(); scrollTo(0, 0); },
   'vac-cancel': () => { S.vform = null; rerender(); },
   'vx-set': (a, d) => { S.vform[d.k] = d.v; S.vform.server = null; rerender(); },
   async 'vac-save'() {
@@ -3401,6 +3411,7 @@ const ACT = {
     toast((f.id ? 'Вакансия сохранена' : 'Вакансия опубликована') + (r.warnings && r.warnings.length ? '. ' + r.warnings[0] : ''));
     await refresh();
   },
+  async 'vac-extend'(a, d) { const v = await api('POST', `/api/vacancies/${d.id}/extend`); toast(`Вакансия продлена до ${DAYMON(v.expires_at)}`); await refresh(); },
   async 'vac-close'(a, d) { await api('POST', `/api/vacancies/${d.id}/close`); toast('Вакансия закрыта'); await refresh(); },
   'app-decline': (a, d) => { S.appDecline = d.id ? +d.id : null; S.appReason = null; rerender(); },
   'app-reason': (a, d) => { S.appReason = d.v; rerender(); },

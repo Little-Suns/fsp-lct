@@ -114,22 +114,26 @@ def test_access_matrix(client):
 
 
 def test_application_link(client):
+    """Чат по отклику — только после того, как компания его приняла: фиктивная вакансия не выспросит контакты в переписке."""
     co1 = IDS["co1"]
-    assert say(client, "e1", pid("app")).status_code == 200  # отклик не закрыт — контакты открыты, можно писать
+    for st in ("sent", "seen", "declined"):
+        with SessionLocal() as db:
+            db.scalar(select(Application).where(Application.candidate_id == IDS["app"])).status = st
+            db.commit()
+        assert say(client, "e1", pid("app")).status_code == 403, st
+        assert say(client, "app", co1).status_code == 403, st
+        assert client.get(f"/api/chat/{pid('app')}", headers=H["e1"]).status_code == 403, st
+        assert client.get(f"/api/chat/{co1}", headers=H["app"]).json()["can_write"] is False, st
+        assert client.get("/api/vacancies/applications/mine", headers=H["app"]).json()["items"][0]["chat_peer"] is None
+        row = client.get(f"/api/vacancies/{IDS['vac']}/applications", headers=H["e1"]).json()["items"][0]
+        assert row["chat_peer"] is None and row["contacts"] is None
+        assert pid("app") not in [x["peer_id"] for x in client.get("/api/chat/contacts", headers=H["e1"]).json()["contacts"]]
+    with SessionLocal() as db:
+        assert not db.scalars(select(AuditLog).where(AuditLog.subject_candidate_id == IDS["app"])).all()
+        db.scalar(select(Application).where(Application.candidate_id == IDS["app"])).status = "accepted"
+        db.commit()
+    assert say(client, "e1", pid("app")).status_code == 200  # компания приняла отклик — контакты открыты, можно писать
     assert say(client, "app", co1).status_code == 200
-    with SessionLocal() as db:
-        a = db.scalar(select(Application).where(Application.candidate_id == IDS["app"]))
-        a.status = "declined"
-        db.commit()
-    assert say(client, "e1", pid("app")).status_code == 403
-    assert client.get(f"/api/chat/{pid('app')}", headers=H["e1"]).status_code == 200
-    with SessionLocal() as db:
-        db.scalar(select(Application).where(Application.candidate_id == IDS["app"])).status = "withdrawn"
-        db.commit()
-    assert say(client, "app", co1).status_code == 403
-    with SessionLocal() as db:
-        db.scalar(select(Application).where(Application.candidate_id == IDS["app"])).status = "sent"
-        db.commit()
 
 
 def test_validation_and_rate_limit(client):
@@ -304,34 +308,26 @@ def test_chat_peer_in_lists(client):
     assert mine[0]["chat_peer"] == IDS["co1"]
 
 
-def test_withdrawn_application_closes_dialog_for_employer(client):
-    """Регрессия: после отзыва отклика контакты скрыты — и переписка, где они могли прозвучать, тоже."""
+def test_unanswered_application_has_no_dialog(client):
+    """Регрессия: отклик без ответа и отозванный отклик переписки не открывают — ни писать, ни читать работодателю."""
     co1 = IDS["co1"]
-    assert say(client, "app", co1, "Мой телефон +7 900 000-00-00").status_code == 200
     with SessionLocal() as db:
-        a = db.scalar(select(Application).where(Application.candidate_id == IDS["app"]))
-        a.status = "seen"  # отозвать можно, пока нет ответа
+        a = Application(vacancy_id=IDS["vac"], candidate_id=IDS["none"], status="sent")
+        db.add(a)
+        db.add(Message(company_id=co1, candidate_id=IDS["none"], sender="candidate", text="Мой телефон +7 900 000-00-00"))  # старое
         db.commit()
-    assert client.post(f"/api/vacancies/applications/{a.id}/withdraw", headers=H["app"]).status_code == 200
-    r = client.get(f"/api/chat/{pid('app')}", headers=H["e1"])
+    assert say(client, "none", co1).status_code == 403
+    assert say(client, "e1", pid("none")).status_code == 403
+    r = client.get(f"/api/chat/{pid('none')}", headers=H["e1"])
     assert r.status_code == 403 and "телефон" not in r.text
-    assert client.post(f"/api/chat/{pid('app')}/read", headers=H["e1"]).status_code == 403
-    assert say(client, "e1", pid("app")).status_code == 403
-    assert pid("app") not in [x["peer_id"] for x in client.get("/api/chat/contacts", headers=H["e1"]).json()["contacts"]]
-    apps = client.get(f"/api/vacancies/{IDS['vac']}/applications", headers=H["e1"]).json()["items"]
-    assert apps[0]["contacts"] is None and apps[0]["chat_peer"] is None
-    # кандидат свою историю видит, но писать уже нельзя
-    mine = client.get(f"/api/chat/{co1}", headers=H["app"]).json()
+    assert client.post(f"/api/chat/{pid('none')}/read", headers=H["e1"]).status_code == 403
+    assert pid("none") not in [x["peer_id"] for x in client.get("/api/chat/contacts", headers=H["e1"]).json()["contacts"]]
+    assert client.get(f"/api/employer/candidates/{pid('none')}", headers=H["e1"]).json()["chat_peer"] is None
+    assert client.post(f"/api/vacancies/applications/{a.id}/withdraw", headers=H["none"]).status_code == 200
+    assert client.get(f"/api/chat/{pid('none')}", headers=H["e1"]).status_code == 403
+    # кандидат свою историю видит, но писать нельзя
+    mine = client.get(f"/api/chat/{co1}", headers=H["none"]).json()
     assert mine["can_write"] is False and any("телефон" in m["text"] for m in mine["messages"])
-    # другая живая связь (принятое приглашение) диалог возвращает
-    with SessionLocal() as db:
-        inv = _inv(db.get(Company, co1), db.get(Candidate, IDS["app"]), "accepted")
-        db.add(inv)
-        db.commit()
-    assert client.get(f"/api/chat/{pid('app')}", headers=H["e1"]).status_code == 200
-    with SessionLocal() as db:
-        db.delete(db.get(Invitation, inv.id))
-        db.commit()
 
 
 def test_export_and_delete(client):

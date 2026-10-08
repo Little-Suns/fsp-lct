@@ -1,7 +1,8 @@
 """Инвариант ПДн на засеянном мире: обходим каждый эндпоинт, который видит работодатель, и ищем в JSON ФИО, почту
-и Telegram кандидатов. Разрешены только те, кто принял приглашение этой компании или сам откликнулся на её вакансию
-(и не отозвал отклик). Скрытые поля синтетики (`truth`, резюме, эмбеддинг) не уходят никому.
-Плюс сценарий жизни кандидата: приглашение → принятие (запись contacts_revealed) → отзыв согласий → выгрузка → удаление.
+и Telegram кандидатов. Разрешены только те, кто принял приглашение этой компании, или те, чей отклик на её вакансию
+компания приняла. Скрытые поля синтетики (`truth`, резюме, эмбеддинг) не уходят никому.
+Плюс сценарии жизни кандидата: приглашение → принятие (запись contacts_revealed) → отзыв согласий → выгрузка → удаление;
+отклик → анонимно до принятия компанией → контакты и одна запись в журнале.
 Своя БД (fsp_priv)."""
 
 import json
@@ -71,8 +72,9 @@ def crawl(client, h) -> list[tuple[str, str]]:
         page += 1
     for pid in sorted(pids):
         _get(client, f"/api/employer/candidates/{pid}" + (f"?need_id={needs[0]['id']}" if needs else ""), h, out)
-    for v in _get(client, "/api/vacancies/mine", h, out):
-        _get(client, f"/api/vacancies/{v['id']}", h, out)
+    for v in _get(client, "/api/vacancies/mine", h, out)["items"]:
+        if not v["expired"]:  # истёкшая публично не отдаётся (404); свои истёкшие компания видит в /mine
+            _get(client, f"/api/vacancies/{v['id']}", h, out)
         _get(client, f"/api/vacancies/{v['id']}/applications", h, out)
     for t in client.get("/api/tasks/mine", headers=h).json():
         _get(client, f"/api/tasks/{t['id']}/submissions", h, out)
@@ -108,7 +110,7 @@ def _found(value: str, text: str) -> bool:
 def allowed_ids(db, company_id: int) -> set[int]:
     acc = db.scalars(select(Invitation.candidate_id).where(Invitation.company_id == company_id, Invitation.status == "accepted"))
     app = db.scalars(
-        select(Application.candidate_id).join(Vacancy).where(Vacancy.company_id == company_id, Application.status != "withdrawn")
+        select(Application.candidate_id).join(Vacancy).where(Vacancy.company_id == company_id, Application.status == "accepted")
     )
     return set(acc) | set(app)
 
@@ -251,6 +253,41 @@ def test_candidate_lifecycle_contacts_consents_delete(world):
             s = json.dumps(a.detail, ensure_ascii=False) if a.detail else ""
             assert email not in s and name not in s, a.action
     assert client.get("/api/candidate/me", headers=hx).status_code == 401
+
+
+def test_application_contacts_only_after_accept(world):
+    """Фиктивная вакансия не собирает контакты: до принятия отклика ПДн нет ни в одном ответе компании и нет записи в журнале."""
+    client, heads = world
+    with SessionLocal() as db:
+        lad = db.scalar(select(Company).where(Company.name == "Ладога Пэй"))
+        h = heads[lad.id]
+        linked = allowed_ids(db, lad.id) | set(db.scalars(select(Invitation.candidate_id).where(Invitation.company_id == lad.id)))
+        linked |= set(db.scalars(select(Application.candidate_id).join(Vacancy).where(Vacancy.company_id == lad.id)))
+        x = next(c for c in db.scalars(select(Candidate).where(Candidate.user_id.is_(None), Candidate.theta.is_not(None)).order_by(Candidate.id))
+                 if c.id not in linked and matching.consent_ok(c, "processing") and c.email)
+        cid, email = x.id, x.email
+        hx = _login_as(db, x)
+    p25 = catalog.market("Backend", "Middle", "Москва")["p25"]
+    vac = client.post("/api/vacancies", json={"title": "Проверка откликов", "spec": "Backend", "grade": "Middle", "salary_from": p25,
+                                              "salary_to": int(p25 * 1.2), "format": "Удалённо"}, headers=h)
+    assert vac.status_code == 200, vac.text
+    r = client.post(f"/api/vacancies/{vac.json()['id']}/apply", json={"note": f"Пишите на {email}"}, headers=hx)
+    assert r.status_code == 200, r.text
+    aid = r.json()["id"]
+
+    def logs():
+        with SessionLocal() as db:
+            return db.scalars(select(AuditLog).where(AuditLog.action == "contacts_revealed", AuditLog.subject_candidate_id == cid)).all()
+
+    for st in (None, "seen"):  # отклик и просмотр: ПДн нет ни в одном ответе компании (заметка замаскирована), журнала нет
+        if st:
+            assert not _found(email, client.post(f"/api/vacancies/applications/{aid}/status", json={"status": st}, headers=h).text)
+        assert assert_no_leaks(client, {lad.id: h}) > 0
+        assert not logs()
+    acc = client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "accepted"}, headers=h).json()
+    assert acc["contacts"]["email"] == email
+    assert assert_no_leaks(client, {lad.id: h}) > 0  # теперь кандидат «разрешён»: его почта обязана быть видна
+    assert len(logs()) == 1 and logs()[0].detail == {"application_id": aid, "vacancy_id": vac.json()["id"], "basis": "application"}
 
 
 def test_search_does_not_load_pii_columns(world):
