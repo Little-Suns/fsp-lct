@@ -194,7 +194,6 @@ p { margin: 0; }
   .top .roles, .top #logout { display: none; }
   .mapbtn { min-height: 40px; padding: 8px 14px; }
   .top #theme { margin-left: auto; padding: 6px 12px; font-size: 17px; line-height: 1; }  /* только значок ☾ / ☀, подпись — в aria-label */
-  .top .mapbtn[data-act="map"] { order: 1; }  /* «Меню» — у правого края */
   .on-wide { display: none; }
   .on-narrow { display: inline; }
   .m-only { display: block; }
@@ -520,8 +519,8 @@ button.chip { cursor: pointer; }
 .tbl-wrap { overflow-x: auto; overscroll-behavior-x: contain;
   background: linear-gradient(90deg, var(--paper) 30%, rgba(255,255,255,0)) left / 28px 100% no-repeat local,
     linear-gradient(270deg, var(--paper) 30%, rgba(255,255,255,0)) right / 28px 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, var(--shadow), transparent) left / 12px 100% no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, var(--shadow), transparent) right / 12px 100% no-repeat scroll; }
+    radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--ink) 18%, transparent), transparent) left / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--ink) 18%, transparent), transparent) right / 12px 100% no-repeat scroll; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th { text-align: left; font-weight: 500; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; padding: 8px 10px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
 .tbl td { padding: 12px 10px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
@@ -649,11 +648,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
       <button data-go="/e/picks" data-role="e">Работодатель</button>
       <button data-go="/v" data-role="v">Валидация</button>
     </nav>
+    <button class="mapbtn" id="theme" data-act="theme"></button>
     <button class="mapbtn" data-act="map" aria-haspopup="dialog" aria-expanded="false">
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3h12M1 7h12M1 11h12" stroke="currentColor" stroke-width="1.5"/></svg>
       <span class="on-wide">Экраны</span><span class="on-narrow">Меню</span>
     </button>
-    <button class="mapbtn" id="theme" data-act="theme"></button>
     <button class="mapbtn" id="logout" data-act="logout" hidden>Выйти</button>
   </div>
 </header>
@@ -2812,7 +2811,7 @@ function openMap() {
   const sbw = innerWidth - document.documentElement.clientWidth;  // полоса прокрутки исчезнет — страница не должна сдвинуться
   document.documentElement.style.paddingRight = sbw ? sbw + 'px' : '';
   document.documentElement.classList.add('lock');
-  document.querySelector('.mapbtn').setAttribute('aria-expanded', 'true');
+  document.querySelector('[data-act="map"]').setAttribute('aria-expanded', 'true');
   document.querySelector('header.top').inert = $app.inert = true;  // фон под меню недоступен ни мыши, ни клавиатуре
   // на телефоне шапка без ролей и «Выйти»: они здесь, над картой экранов
   const roles = `<div class="m-only"><div class="stack-s"><span class="label">Роль</span><nav class="seg m-roles" aria-label="Роль">${[['/c/home', 'c', 'Кандидат'], ['/e/picks', 'e', 'Работодатель'], ['/v', 'v', 'Валидация']].map(([p, k, t]) => `<button data-go="${p}" aria-current="${role === k}">${t}</button>`).join('')}</nav>
@@ -2836,7 +2835,7 @@ function closeMap() {
   document.documentElement.style.paddingRight = '';
   document.querySelector('header.top').inert = false;
   $app.inert = $app.hasAttribute('aria-busy');  // экран мог ещё грузиться (busy)
-  const btn = document.querySelector('.mapbtn');
+  const btn = document.querySelector('[data-act="map"]');
   btn.setAttribute('aria-expanded', 'false');
   if (back) btn.focus();
 }
@@ -3072,6 +3071,7 @@ const paintTheme = () => {
   el.innerHTML = `${ic}<span class="on-wide"> ${t}</span>`;
   el.setAttribute('aria-label', t);
   if (m) m.innerHTML = `${ic} ${t}`;  // то же в меню телефона — с подписью
+  document.querySelector('meta[name="theme-color"]').content = isDark() ? '#17181D' : '#FFFFFF';  // строка состояния и адресная строка телефона — под фон шапки
 };
 darkMq.addEventListener('change', paintTheme);
 

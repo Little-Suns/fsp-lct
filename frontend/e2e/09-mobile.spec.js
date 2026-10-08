@@ -37,6 +37,7 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await theme.click();
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
       await expect(theme).toHaveAttribute('aria-label', 'Светлая тема');
+      await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#17181D');  // строка состояния телефона — тёмная
       await page.getByRole('button', { name: 'Меню' }).click();
       await expect(page.locator('#overlay')).toContainText('Карточка кандидата');
       await noHScroll(page, 'меню экранов');
