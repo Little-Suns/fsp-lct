@@ -193,13 +193,14 @@ p { margin: 0; }
   .brand .prod { padding-left: 10px; white-space: nowrap; }
   .top .roles, .top #logout { display: none; }
   .mapbtn { min-height: 40px; padding: 8px 14px; }
-  .top #theme { margin-left: auto; padding: 8px 12px; }  /* только значок ☾ / ☀, подпись — в aria-label */
+  .top #theme { margin-left: auto; padding: 6px 12px; font-size: 17px; line-height: 1; }  /* только значок ☾ / ☀, подпись — в aria-label */
   .top .mapbtn[data-act="map"] { order: 1; }  /* «Меню» — у правого края */
   .on-wide { display: none; }
   .on-narrow { display: inline; }
   .m-only { display: block; }
 }
-@media (max-width: 370px) { .brand .prod span { display: none; } }
+@media (max-width: 430px) { .brand .prod span { display: none; } }  /* подпись под названием не помещается рядом с темой и «Меню» */
+@media (max-width: 360px) { .brand .prod { display: none; } }  /* самый узкий телефон: только логотип ФСП */
 @media (max-height: 480px) and (orientation: landscape) { .top { position: static; } }  /* телефон боком: шапка не съедает и без того низкий экран */
 
 /* ---------- каркас ---------- */
@@ -2815,6 +2816,7 @@ function openMap() {
   document.querySelector('header.top').inert = $app.inert = true;  // фон под меню недоступен ни мыши, ни клавиатуре
   // на телефоне шапка без ролей и «Выйти»: они здесь, над картой экранов
   const roles = `<div class="m-only"><div class="stack-s"><span class="label">Роль</span><nav class="seg m-roles" aria-label="Роль">${[['/c/home', 'c', 'Кандидат'], ['/e/picks', 'e', 'Работодатель'], ['/v', 'v', 'Валидация']].map(([p, k, t]) => `<button data-go="${p}" aria-current="${role === k}">${t}</button>`).join('')}</nav>
+    <button class="btn ghost block" id="theme-m" data-act="theme"></button>
     ${(role === 'c' || role === 'e') && TOK[role] ? `<button class="btn ghost block" data-act="logout">Выйти из кабинета ${role === 'c' ? 'кандидата' : 'работодателя'}</button>` : ''}</div></div>`;
   document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-modal="true" aria-labelledby="map-title">
     <div class="row sb"><h3 id="map-title"><span class="on-wide">Карта экранов</span><span class="on-narrow">Меню</span></h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
@@ -2822,6 +2824,7 @@ function openMap() {
     ${MAP.map(([g, items]) => [g, g === 'Кандидат' ? [...items, ...((D.invites && D.invites.items) || []).slice(0, 2).map(i => ['/c/invite/' + i.id, 'Приглашение: ' + esc(i.company)])] : items]).map(([g, items]) => `<div class="grp"><span class="label" style="margin:0 10px 4px">${g}</span>${items.map(([p, t]) => `<button data-go="${p}" aria-current="${r === p}"><span class="num">${String(++n).padStart(2, '0')}</span><span>${t}</span></button>`).join('')}</div>`).join('')}
     <p class="small muted">Демо-сценарий: регистрация → профиль и PDF → тест → категория → работодатель пишет потребность → подборка → приглашение → кандидат принимает → контакты. Вход за демо-персонажей — кнопками «Демо: войти как …» на экранах входа.</p>
   </div></div>`;
+  paintTheme();  // подпись переключателя темы в меню
   document.querySelector('#overlay [data-act="close-map"].btn').focus();
 }
 function closeMap() {
@@ -3065,9 +3068,10 @@ const darkMq = matchMedia('(prefers-color-scheme: dark)');
 const isDark = () => (document.documentElement.dataset.theme || (darkMq.matches ? 'dark' : 'light')) === 'dark';
 // на телефоне и планшете в шапке — только значок (подпись .on-wide скрыта), имя кнопки — из aria-label
 const paintTheme = () => {
-  const el = document.getElementById('theme'), t = isDark() ? 'Светлая тема' : 'Тёмная тема';
-  el.innerHTML = `<span aria-hidden="true">${isDark() ? '☀' : '☾'}</span><span class="on-wide"> ${t}</span>`;
+  const el = document.getElementById('theme'), m = document.getElementById('theme-m'), t = isDark() ? 'Светлая тема' : 'Тёмная тема', ic = `<span aria-hidden="true">${isDark() ? '☀' : '☾'}</span>`;
+  el.innerHTML = `${ic}<span class="on-wide"> ${t}</span>`;
   el.setAttribute('aria-label', t);
+  if (m) m.innerHTML = `${ic} ${t}`;  // то же в меню телефона — с подписью
 };
 darkMq.addEventListener('change', paintTheme);
 

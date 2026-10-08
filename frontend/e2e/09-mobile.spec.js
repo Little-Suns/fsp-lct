@@ -30,9 +30,20 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       // шапка — одна строка: роли и «Выйти» спрятаны, вместо «Экраны» — «Меню»
       expect((await box(page.locator('header.top'))).h).toBeLessThanOrEqual(64);
       await expect(page.locator('header .roles')).toBeHidden();
+      // тема: в шапке — значок (подпись в aria-label), в меню — кнопка с подписью; обе переключают тему
+      const theme = page.locator('#theme');
+      await expect(theme).toHaveAttribute('aria-label', 'Тёмная тема');
+      await expect(theme.locator('.on-wide')).toBeHidden();
+      await theme.click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+      await expect(theme).toHaveAttribute('aria-label', 'Светлая тема');
       await page.getByRole('button', { name: 'Меню' }).click();
       await expect(page.locator('#overlay')).toContainText('Карточка кандидата');
       await noHScroll(page, 'меню экранов');
+      await expect(page.locator('#theme-m')).toHaveText('☀ Светлая тема');
+      await page.locator('#theme-m').click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+      await expect(page.locator('#theme-m')).toHaveText('☾ Тёмная тема');
       expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).toBe('hidden');  // страница под меню не прокручивается
       // роль переключается из меню, меню закрывается
       const roles = page.locator('#overlay').getByRole('navigation', { name: 'Роль' });
