@@ -102,6 +102,61 @@ test('вход по почте в существующий аккаунт вед
   await expect(page).toHaveURL(/#\/c\/home$/);
 });
 
+test('сбой /api/candidate/me: «Не удалось загрузить профиль · Повторить», а не «Профиль ещё не создан»', async ({ page }) => {
+  // вход по почте, а /me отвечает 500: кабинет с ошибкой и повтором, не регистрация и не noProfile
+  await page.route('**/api/candidate/me', r => r.fulfill({ status: 500, json: { detail: 'Внутренняя ошибка сервера' } }));
+  await open(page, '/c/signup');
+  await page.getByLabel('Почта').fill('d.orlov@example.ru');
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  await expect(page).toHaveURL(/#\/c\/home$/);
+  await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toBeVisible();
+  await expect(page.getByText('Профиль ещё не создан')).toHaveCount(0);
+  await expect(toast(page)).toHaveText('Внутренняя ошибка сервера');
+  await page.unroute('**/api/candidate/me');
+  const me = api(page, 'GET', '/api/candidate/me');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  expect((await me).ok()).toBe(true);
+  await expect(page.getByText('Дмитрий Орлов · виден как A-1042')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toHaveCount(0);
+
+  // обрыв сети на другом экране кандидата — та же ошибка с повтором вместо прежних данных
+  await page.route('**/api/candidate/me', r => r.abort('connectionrefused'));
+  await open(page, '/c/settings');
+  await expect(toast(page)).toHaveText('Сервер недоступен');
+  await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toBeVisible();
+  await expect(page.getByRole('switch', { name: /Обработка персональных данных/ })).toHaveCount(0);
+  await page.unroute('**/api/candidate/me');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await expect(page.getByRole('switch', { name: /Обработка персональных данных/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toHaveCount(0);
+
+  // действие сохранилось, а перечитать /me не вышло — экран сразу сменяется ошибкой, а не остаётся с устаревшим переключателем
+  const pub = page.getByRole('switch', { name: /Публикация обезличенной карточки/ });
+  const was = await pub.getAttribute('aria-checked');
+  await page.route('**/api/candidate/me', r => r.fulfill({ status: 503, json: { detail: 'Сервис временно недоступен' } }));
+  const patched = api(page, 'PATCH', '/api/candidate/consents');
+  await pub.click();
+  expect((await patched).ok()).toBe(true);
+  await expect(toast(page)).toHaveText('Сервис временно недоступен');
+  await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toBeVisible();
+  await page.unroute('**/api/candidate/me');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await expect(pub).toHaveAttribute('aria-checked', was === 'true' ? 'false' : 'true');  // сервер изменение принял
+  await pub.click();  // вернуть как было: от публикации Орлова зависят другие сценарии
+  await expect(pub).toHaveAttribute('aria-checked', was);
+
+  // холодный старт при упавшем /api/meta: до /me не дошли — та же ошибка, а не «Профиль ещё не создан»
+  await page.route('**/api/meta', r => r.fulfill({ status: 500, json: { detail: 'Внутренняя ошибка сервера' } }));
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toBeVisible();
+  await expect(page.getByText('Профиль ещё не создан')).toHaveCount(0);
+  await page.unroute('**/api/meta');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await expect(pub).toBeVisible();
+});
+
 test('профиль и результат теста демо-кандидата', async ({ page }) => {
   await demo(page, 'c');
   await open(page, '/c/profile');

@@ -675,6 +675,7 @@ const DAYMON = s => s ? new Date(s).toLocaleDateString('ru-RU', { day: 'numeric'
 let META = null;   // /api/meta: справочники
 let CAP = 4;       // лимит открытых приглашений у кандидата (из META)
 let ME = null;     // /api/candidate/me
+let ME_ERR = false;  // /me не загрузился (сеть, 5xx): экраны кандидата — ошибка с повтором, а не «профиль не создан»
 let ACH = null;    // /api/achievements
 let GRADE_TH = [{ g: 'Junior', t: -0.5 }, { g: 'Middle', t: 0.5 }, { g: 'Senior', t: 1.5 }, { g: 'Lead', t: 2.3 }];
 const D = {};      // данные текущего экрана
@@ -737,7 +738,7 @@ function fail(e) { toast(e && e.message ? e.message : 'Ошибка'); }
 // сброс токена и данных одной роли: выход, 401, смена пользователя
 function clearSide(role) {
   setTok(role, null);
-  if (role === 'c') { ME = null; ACH = null; Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
+  if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
   else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
 }
 // демо-персонажи (только при DEMO=1 на сервере): c — Орлов, e — «Ладога Пэй», newco — неподтверждённый «Новый Стартап»
@@ -905,6 +906,7 @@ const withdrawn = () => !!(ME && (!ME.consent_152 || ME.needs_reconsent));
 const withdrawnAlert = () => ME && ME.consent_152 && ME.needs_reconsent ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Текст согласия обновился — подтвердите согласия.</b> Пока вы не подтвердите новую редакцию, профиль скрыт и редактировать данные нельзя. <button class="btn primary small" data-act="reconsent">Подтвердить согласия</button> <button class="btn ghost small" data-go="/c/settings">Настройки</button></span></div>` : withdrawn() ? `<div class="alert bad" style="margin-bottom:16px"><span>!</span><span><b>Согласие на обработку отозвано: восстановите его или удалите аккаунт.</b> Пока оно отозвано, профиль скрыт и редактировать данные нельзя. <button class="btn ghost small" data-act="consent-152">Восстановить согласие</button> <button class="btn ghost small" data-go="/c/settings">Настройки</button></span></div>` : '';
 // последнее событие журнала согласий по цели: {granted, at, version} | null
 const consentLog = k => { const e = ME && ME.consents && ME.consents[k]; return `<span class="small muted" data-consent="${k}">Журнал: ${e ? `${e.granted ? 'дано' : 'отозвано'} ${DATE(e.at)}, версия ${esc(e.version || '—')}` : 'событий нет'}</span>`; };
+const meErr = () => `${crumbs([['Главная', '/'], ['Кандидат']])}<div class="panel stack"><h2>Не удалось загрузить профиль</h2><p class="prose small">Сбой сети или сервера — повторите попытку.</p><div class="row"><button class="btn primary" data-act="reload">Повторить</button></div></div>`;
 const noProfile = title => `${crumbs([['Главная', '/'], [title]])}<div class="panel stack"><h2>Профиль ещё не создан</h2><p class="prose small">Заполните профиль и пройдите тест — после этого откроются вакансии, задачи и приглашения.</p><div class="row"><button class="btn primary" data-go="/c/profile">Заполнить профиль</button></div></div>`;
 const APP_ST = { sent: ['s-sent', 'отправлен'], seen: ['s-seen', 'просмотрен'], accepted: ['s-ok', 'приглашение на интервью'], declined: ['s-no', 'отказ'], withdrawn: ['s-exp', 'отозван'] };
 const appChip = st => `<span class="status ${(APP_ST[st] || APP_ST.sent)[0]}">${(APP_ST[st] || [0, esc(st)])[1]}</span>`;
@@ -2843,8 +2845,9 @@ function closeMap() {
 /* ===================== загрузка данных экрана ===================== */
 const or404 = p => p.catch(e => { if (e.status === 404) return null; throw e; });
 
+// 403 — профиля нет (ME = null); сбой помечается noMe: флаг ME_ERR ставят show() (с учётом seq) и обработчик действий
 async function loadMe() {
-  ME = await api('GET', '/api/candidate/me').catch(e => { if (e.status === 403) return null; throw e; });
+  ME = await api('GET', '/api/candidate/me').catch(e => { if (e.status === 403) return null; e.noMe = true; throw e; });
 }
 
 // компания работодателя (для плашки «не подтверждена» и квоты); без компании — на экран регистрации
@@ -2876,7 +2879,7 @@ async function load(r) {
   // данные экрана — только из этой загрузки: после ошибки не показываем то, что осталось от прошлого визита
   for (const k of Object.keys(D)) if (k !== 'co' && k !== 'coName') delete D[k];
   if (!META) {
-    META = await api('GET', '/api/meta');
+    META = await api('GET', '/api/meta').catch(e => { e.noMe = true; throw e; });  // до /me не дошли — профиль тоже не загружен
     CAP = META.cap;
     GRADE_TH = Object.entries(META.grade_th).filter(([g]) => g !== 'Intern').map(([g, t]) => ({ g, t }));
   }
@@ -2940,7 +2943,7 @@ function render() {
   let html;
   try {
     const pv = PARAM_VIEWS.find(([p]) => r.startsWith(p));
-    html = V[r] ? V[r]() : pv ? pv[1]() : V['/']();
+    html = ME_ERR && r.startsWith('/c/') && r !== '/c/signup' ? meErr() : V[r] ? V[r]() : pv ? pv[1]() : V['/']();
   } catch (e) {
     console.error(e);
     html = `<div class="panel stack"><p>Не удалось показать экран: данные не загрузились.</p><div class="row"><button class="btn ghost small" data-act="reload">Повторить</button></div></div>`;
@@ -2984,8 +2987,9 @@ async function show(keep) {
   if ((side === 'c' || side === 'e') && r !== `/${side}/signup` && !TOK[side]) { go(`/${side}/signup`); return; }
   try {
     await load(r);
+    if (my === seq) ME_ERR = false;
   } catch (e) {
-    if (my === seq) fail(e);
+    if (my === seq) { ME_ERR = side === 'c' && !!e.noMe && e.status !== 401; fail(e); }
     if (e.status === 401) { if (my === seq && r === route()) busy(false); return; }
   }
   if (my !== seq || r !== route()) return;
@@ -3121,7 +3125,7 @@ const ACT = {
     await verifyLogin('c', S.signup.email, S.signup.otp);
     S.signup.sent = false;
     // профиль уже есть — в кабинет (как вход через ФСП ID с has_profile), иначе — шаг «Профиль» регистрации
-    // сбой /me (сеть, 5xx) после входа — тоже в кабинет: загрузчик повторит запрос, ошибка — тостом (см. table.md про noProfile)
+    // сбой /me (сеть, 5xx) после входа — тоже в кабинет: загрузчик повторит запрос, при новом сбое — «Не удалось загрузить профиль · Повторить»
     try { await loadMe(); } catch { return go('/c/home'); }
     if (ME) { toast('Вход выполнен'); go('/c/home'); } else go('/c/profile');
   },
@@ -3450,7 +3454,7 @@ document.addEventListener('click', e => {
   e.preventDefault();
   capture();
   const p = ACT[a.dataset.act](a, a.dataset);
-  if (p && p.then) { a.disabled = true; p.catch(fail).finally(() => { a.disabled = false; }); }
+  if (p && p.then) { a.disabled = true; p.catch(e => { fail(e); if (e.noMe && e.status !== 401) { ME_ERR = true; rerender(); } }).finally(() => { a.disabled = false; }); }
 });
 
 paintTheme();
