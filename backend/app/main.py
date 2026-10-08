@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -6,15 +7,28 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import catalog, config, deps
-from app.db import init_db
+from app.db import SessionLocal, init_db
 from app.integrations import fsp_id as fsp_id_client
 from app.routers import achievements, candidate, chat, employer, fsp_id, lottery, mock_fsp_id, quest, tasks, vacancies, validation
-from app.services import sandbox
+from app.services import items, sandbox
+
+
+log = logging.getLogger("uvicorn.error")  # логгер uvicorn: сообщение видно в выводе сервера без настройки logging
+
+
+def startup() -> None:
+    """Миграции, затем банк заданий: на новом стенде без засева тест иначе отвечает 503 «Банк заданий пуст».
+    seed_items идемпотентен (повторный старт ничего не меняет) и приводит засеянный банк к текущим шаблонам —
+    так изменённые задания доезжают на стенд с каждой выкладкой без ручного python -m app.services.items."""
+    init_db()
+    with SessionLocal() as db:
+        if n := items.seed_items(db):
+            log.info("Банк заданий: добавлено и обновлено %d заданий", n)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
+    startup()
     yield
 
 

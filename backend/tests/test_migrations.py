@@ -1,5 +1,6 @@
 """Миграции Alembic: с пустой базы до моделей без расхождений (модель поменяли без ревизии — тест падает),
-база от create_all помечается baseline, откат до base и обратно, чужая ревизия и чужие таблицы. Своя БД (fsp_migr)."""
+база от create_all помечается baseline, откат до base и обратно, чужая ревизия и чужие таблицы; засев банка заданий
+при старте API на пустой базе и параллельный засев без дублей. Своя БД (fsp_migr)."""
 
 import os
 import re
@@ -13,10 +14,10 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, MetaData, String, Table, inspect, text
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, MetaData, String, Table, func, inspect, select, text
 
 from app import models  # noqa: F401
-from app.db import ALEMBIC_INI, BASELINE, BASELINE_TABLES, Base, engine, init_db, migrate, reset_schema
+from app.db import ALEMBIC_INI, BASELINE, BASELINE_TABLES, Base, SessionLocal, engine, init_db, migrate, reset_schema
 
 SCRIPT = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
 
@@ -209,3 +210,54 @@ def test_reset_drops_foreign_tables():
     reset_schema()
     assert "notes_other_branch" not in inspect(engine).get_table_names()
     assert _versions() == set(SCRIPT.get_heads()) and _diff() == []
+
+
+def test_startup_seeds_bank_on_empty_db():
+    # новый стенд (DEMO=0, без seed.generate): старт API накатывает миграции и засевает банк — тест не отвечает 503
+    from fastapi.testclient import TestClient
+
+    from app.deps import issue_token
+    from app.main import app
+    from app.models import Candidate, Item, User
+    from app.services.items import generate_bank
+
+    def bank() -> list[tuple]:
+        with SessionLocal() as db:
+            return [(it.id, it.family, it.spec, it.payload, it.b) for it in db.scalars(select(Item).order_by(Item.id))]
+
+    with TestClient(app) as cl:  # with — запускает lifespan, как uvicorn
+        first = bank()
+        assert len(first) == len(generate_bank())
+        with SessionLocal() as db:
+            u = User(email="new-stand@example.ru", role="candidate")
+            db.add(u)
+            db.flush()
+            db.add(Candidate(public_id="N-1", user_id=u.id, name="Тест", email=u.email, spec="Backend", track="Python",
+                             grade_claimed="Middle", min_salary=200000, formats=[], city="Москва"))
+            tok = issue_token(db, u)
+            db.commit()
+        r = cl.post("/api/quest/start", json={}, headers={"Authorization": f"Bearer {tok}"})
+        assert r.status_code == 200 and r.json()["item"], r.text
+    with TestClient(app):  # повторный старт (рестарт, выкладка): банк не дублируется и не меняется
+        assert bank() == first
+
+
+def test_parallel_seed_has_no_duplicates():
+    # старт API и seed.generate / CLI одновременно: advisory-блокировка сериализует засев, второй ничего не добавляет
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.models import Item
+    from app.services.items import generate_bank, seed_items
+
+    migrate()
+
+    def run(_) -> int:
+        with SessionLocal() as db:
+            return seed_items(db)
+
+    with ThreadPoolExecutor(2) as ex:
+        ns = sorted(ex.map(run, range(2)))
+    total = len(generate_bank())
+    assert ns == [0, total]
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Item)) == total
