@@ -17,7 +17,7 @@ from app import catalog
 from app.db import get_db
 from app.deps import active_company, current_candidate, current_company, current_user
 from app.models import Application, AuditLog, Candidate, Company, Vacancy
-from app.routers.employer import MSK, company_trust, validate_fork
+from app.routers.employer import MSK, Salary, company_trust, validate_fork
 from app.services import matching
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills
@@ -101,8 +101,8 @@ class VacancyIn(BaseModel):
     grade: str
     must: list[str] = []
     nice: list[str] = []
-    salary_from: int | None = None
-    salary_to: int | None = None
+    salary_from: Salary | None = None
+    salary_to: Salary | None = None
     format: str
     city: str | None = Field(default=None, max_length=64)
 
@@ -115,8 +115,8 @@ class VacancyPatch(BaseModel):
     grade: str | None = None
     must: list[str] | None = None
     nice: list[str] | None = None
-    salary_from: int | None = None
-    salary_to: int | None = None
+    salary_from: Salary | None = None
+    salary_to: Salary | None = None
     format: str | None = None
     city: str | None = Field(default=None, max_length=64)
 
@@ -288,7 +288,7 @@ def list_vacancies(
     format: str | None = None,
     city: str | None = None,
     q: str | None = Query(default=None, max_length=100),
-    salary_min: int | None = Query(default=None, ge=0),
+    salary_min: int | None = Query(default=None, ge=0, le=catalog.SALARY_MAX),
     limit: int = Query(50, ge=1, le=200),
     c: Candidate | None = Depends(maybe_candidate),
     db: Session = Depends(get_db),

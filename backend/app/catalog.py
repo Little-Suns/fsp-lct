@@ -36,6 +36,8 @@ QUOTA_BASE = 10  # приглашений в неделю (сброс в пон�
 QUOTA_BONUS = 12  # при доле принятых ≥ QUOTA_BONUS_AT
 QUOTA_BONUS_AT = 0.5
 FORK_MAX_WIDTH = 0.4  # (to − from) / from
+# потолок любой суммы от пользователя, ₽/мес на руки: ×17 к p75 Lead в Москве — выше только опечатка; колонки integer (≤ 2³¹ − 1)
+SALARY_MAX = 10_000_000
 
 
 def load_penalty(load: int) -> float:
