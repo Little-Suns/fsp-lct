@@ -2,7 +2,7 @@
 
 Вилка в вакансии обязательна и проверяется теми же правилами, что и в приглашении.
 Защита от фиктивных вакансий, собирающих контакты:
-- до ответа компания видит анонимную карточку (matching.card) и заметку с замаскированными ПДн; ФИО, почта, Telegram
+- до ответа компания видит анонимную карточку (matching.card) и заметку с замаскированными контактами; ФИО, почта, Telegram
   и чат по отклику открываются, только когда компания приняла отклик (accepted); раскрытие пишется в журнал один раз (152-ФЗ);
 - срок публикации catalog.VACANCY_TTL_DAYS: истёкшая скрыта и не принимает отклики, компания продлевает её сама;
 - лимит открытых вакансий: VACANCY_LIMIT_UNVERIFIED у неподтверждённой компании, VACANCY_LIMIT_VERIFIED у подтверждённой;
@@ -10,6 +10,7 @@
 Статусы отклика: sent → seen → accepted | declined; кандидат может отозвать отклик (withdrawn), пока нет ответа.
 """
 
+import re
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -25,7 +26,7 @@ from app.models import Application, AuditLog, Candidate, Company, Vacancy
 from app.routers.employer import MSK, Salary, company_trust, validate_fork
 from app.services import matching
 from app.services.chat import may_talk, peers_linked
-from app.services.parsing import canon_skills, mask_pii
+from app.services.parsing import canon_skills, mask_contacts
 
 router = APIRouter(prefix="/api/vacancies", tags=["vacancies"])
 
@@ -60,10 +61,14 @@ def vacancy_limit(db: Session, co: Company) -> dict:
     return {"open": used, "max": mx, "verified": co.verified, "ttl_days": catalog.VACANCY_TTL_DAYS}
 
 
-def _check_limit(db: Session, co: Company) -> None:
-    """Под блокировкой строки компании: параллельные публикации и продления не проскочат мимо лимита."""
+def _check_limit(db: Session, co: Company, v: Vacancy | None = None) -> None:
+    """Под блокировкой строки компании: параллельные публикации и продления не проскочат мимо лимита.
+    v — продлеваемая вакансия: сама себе место не занимает (живую можно продлить, только если компания укладывается в лимит)."""
     _lock(db, Company, co.id)
     lim = vacancy_limit(db, co)
+    if v is not None:
+        db.refresh(v)
+        lim["open"] -= v.status == "open" and not _expired(v)
     if lim["open"] >= lim["max"]:
         db.rollback()
         more = "" if co.verified else f" Подтвердите компанию (ИНН и рабочая почта на домене сайта) — лимит вырастет до {catalog.VACANCY_LIMIT_VERIFIED}."
@@ -207,7 +212,7 @@ def _own_vacancy(db: Session, co: Company, vacancy_id: int) -> Vacancy:
 @router.post("")
 def create_vacancy(body: VacancyIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     # неподтверждённая компания тоже публикует, но меньше: лимит открытых вакансий (catalog.VACANCY_LIMIT_*)
-    v = Vacancy(company_id=co.id, expires_at=_now() + timedelta(days=catalog.VACANCY_TTL_DAYS), **body.model_dump())
+    v = Vacancy(company_id=co.id, **body.model_dump())  # срок публикации — default модели (VACANCY_TTL_DAYS)
     v.company = co
     warnings = _validate(v)
     _check_limit(db, co)
@@ -242,12 +247,14 @@ def close_vacancy(vacancy_id: int, co: Company = Depends(current_company), db: S
 
 @router.post("/{vacancy_id}/extend")
 def extend_vacancy(vacancy_id: int, co: Company = Depends(active_company), db: Session = Depends(get_db)):
-    """Продление: срок — VACANCY_TTL_DAYS от сегодня. Истёкшая вакансия снова становится открытой — значит, идёт в лимит."""
+    """Продление: срок — VACANCY_TTL_DAYS от сегодня. Лимит проверяется всегда: компания, потерявшая подтверждение,
+    не держит вакансии сверх лимита бесконечными продлениями."""
     v = _own_vacancy(db, co, vacancy_id)
     if v.status != "open":
         raise HTTPException(409, "Закрытую вакансию не продлить — опубликуйте новую")
-    if _expired(v):
-        _check_limit(db, co)
+    _check_limit(db, co, v)
+    if v.status != "open":  # закрыли параллельно, пока ждали блокировку
+        raise HTTPException(409, "Закрытую вакансию не продлить — опубликуйте новую")
     v.expires_at = _now() + timedelta(days=catalog.VACANCY_TTL_DAYS)
     v.updated_at = _now()
     db.commit()
@@ -295,15 +302,25 @@ def _shown(a: Application) -> bool:
     return a.status == "accepted" and may_talk(a.candidate, a.vacancy.company)
 
 
+def _note(a: Application) -> str:
+    """Заметка до принятия отклика: точные вхождения ФИО, почты и Telegram самого кандидата (их сервер знает) и любые
+    почта, телефон, Telegram, ссылки (mask_contacts) замаскированы — фейк мог попросить написать их в заметке.
+    Эвристику ФИО mask_pii не берём: на коротких фразах она путает слова с фамилиями («Готов к задаче»)."""
+    c, text = a.candidate, a.note
+    for w in sorted({x for x in (c.email, c.tg, (c.tg or "").lstrip("@"), *(c.name or "").split()) if x and len(x) > 1}, key=len, reverse=True):
+        text = re.sub(re.escape(w), "[личное]", text, flags=re.IGNORECASE)
+    return mask_contacts(text)
+
+
 def _employer_row(a: Application, v: Vacancy) -> dict:
     c = a.candidate
-    consent = matching.consent_ok(c, "processing")  # отозвал согласие (или не подтвердил новую редакцию) на обработку — ни карточки, ни контактов
+    # отозвал согласие (или не подтвердил новую редакцию) на обработку или скрыл профиль от компании — ни карточки, ни заметки, ни контактов
+    consent = matching.consent_ok(c, "processing") and v.company.inn not in (c.hidden_from or [])
     shown = _shown(a)
     return {
         "id": a.id,
         "status": a.status,
-        # заметка — свободный текст: до принятия отклика ПДн в ней замаскированы (фейк мог попросить написать почту или телефон)
-        "note": a.note if shown or not a.note else mask_pii(a.note),
+        "note": None if not consent or not a.note else a.note if shown else _note(a),
         "reason": catalog.DECLINE_REASONS.get(a.decline_reason),
         "created_at": a.created_at,
         "seen_at": a.seen_at,

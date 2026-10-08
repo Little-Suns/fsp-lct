@@ -155,11 +155,26 @@ def test_apply_anonymous_until_accepted(client):
         row = rows[IDS["app"]]
         assert row["contacts"] is None and row["chat_peer"] is None
         assert row["candidate"]["id"] == "A-1042" and "name" not in row["candidate"]
-        assert row["note"].startswith("Делал платёжный шлюз") and "[почта]" in row["note"]
+        assert row["note"] == "Делал платёжный шлюз, пишите [личное] или [личное]"
         for pii in ("Дмитрий Орлов", "d.orlov@example.ru", "@dorlov"):
             assert pii not in text
         assert not _reveals(IDS["cand"])
     assert client.get("/api/vacancies/applications/mine", headers=H["cand"]).json()["items"][0]["contacts_open"] is False
+    # точные ФИО и Telegram кандидата в заметке маскируются, даже без «@» и «фамильного» окончания; обычные слова не трогаются
+    with SessionLocal() as db:
+        db.get(Application, IDS["app"]).note = "Готов к задаче. Орлов Дмитрий, тг dorlov"
+        db.commit()
+    note = emp_view()[1][IDS["app"]]["note"]
+    assert note == "Готов к задаче. [личное] [личное], тг [личное]", note
+    # профиль скрыт от компании — ни карточки, ни заметки
+    with SessionLocal() as db:
+        db.get(Candidate, IDS["cand"]).hidden_from = ["7704123450"]
+        db.commit()
+    row = emp_view()[1][IDS["app"]]
+    assert row["hidden"] is True and row["candidate"] is None and row["note"] is None
+    with SessionLocal() as db:
+        db.get(Candidate, IDS["cand"]).hidden_from = []
+        db.commit()
 
     # принятый отклик: контакты в ответе на смену статуса и в списке, журнал — ровно одна запись
     sid = client.post(f"/api/vacancies/{vid}/apply", json={"note": "Мой Telegram @s0004"}, headers=H["shy"]).json()["id"]
@@ -228,7 +243,7 @@ def test_consent_revoked_hides_application(client):
     assert client.post(f"/api/vacancies/applications/{aid}/withdraw", headers=H["gone"]).status_code == 409  # после ответа не отозвать
     r = client.get(f"/api/vacancies/{vid}/applications", headers=H["emp"])
     row = r.json()["items"][0]
-    assert row["hidden"] is True and row["candidate"] is None and row["contacts"] is None and "Отозвал" not in r.text
+    assert row["hidden"] is True and row["candidate"] is None and row["contacts"] is None and row["note"] is None and "Отозвал" not in r.text
     with SessionLocal() as db:
         assert not db.scalars(select(AuditLog).where(AuditLog.subject_candidate_id == IDS["gone"])).all()
 
@@ -266,8 +281,14 @@ def test_vacancy_limit_expiry_extend(client):
     ext = client.post(f"/api/vacancies/{vac3}/extend", headers=H["emp"]).json()
     assert ext["expired"] is False and datetime.fromisoformat(ext["expires_at"]) > NOW + timedelta(days=catalog.VACANCY_TTL_DAYS - 1)
     assert any(i["id"] == vac3 for i in client.get("/api/vacancies").json()["items"])
-    # продление живой вакансии лимит не трогает: она уже открыта
+    # продление живой вакансии: сама себе место не занимает
     assert client.post(f"/api/vacancies/{vid}/extend", headers=H["emp"]).status_code == 200
+    # но компания сверх лимита (потеряла подтверждение) продлевать не может
+    with SessionLocal() as db:
+        db.add(Vacancy(company_id=IDS["co"], title="Сверх лимита", spec="Backend", grade="Middle", salary_from=250000, salary_to=300000, format="Гибрид"))
+        db.commit()
+    r = client.post(f"/api/vacancies/{vid}/extend", headers=H["emp"])
+    assert r.status_code == 409 and "лимит" in r.json()["detail"]
 
 
 def test_response_rate(client):

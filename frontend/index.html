@@ -1762,7 +1762,7 @@ function cVacancyView() {
         : `<div class="panel stack">
         <h3>Откликнуться</h3>
         <p class="small muted">Компания увидит анонимную карточку с результатом теста и заметку. ФИО, почта и Telegram откроются, только когда компания примет отклик.</p>
-        <label class="field"><span>Короткая заметка, по желанию</span><textarea class="input" id="ap-note" maxlength="300" style="min-height:70px" placeholder="Чем интересна вакансия">${esc(S.applyNote)}</textarea><span class="hint" id="ap-left">${left} символов</span></label>
+        <label class="field"><span>Короткая заметка, по желанию</span><textarea class="input" id="ap-note" maxlength="300" style="min-height:70px" placeholder="Чем интересна вакансия">${esc(S.applyNote)}</textarea><span class="hint" id="ap-left">${left} символов</span><span class="hint">Контакты в заметке не пишите: до принятия отклика компания их не увидит.</span></label>
         ${S.applyErr ? `<div class="alert bad">${esc(S.applyErr)}</div>` : ''}
         <div class="row"><button class="btn primary" data-act="apply" data-id="${v.id}" ${lim && lim.used >= lim.max ? 'disabled' : ''}>Откликнуться</button>${lim ? `<span class="small muted num">откликов за 7 дней: ${lim.used} / ${lim.max}</span>` : ''}</div>
       </div>`}
@@ -2595,7 +2595,7 @@ function eVacancyView() {
   <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>${esc(v.title)}</h2><span class="small muted">${vacMeta(v)} · откликов ${A.items.length}</span></div></div>
   <div class="alert info" style="margin-bottom:16px"><span>i</span><span>До ответа вы видите анонимную карточку. ФИО и контакты кандидата откроются, когда вы пригласите его на интервью (примете отклик); раскрытие записывается в журнал.</span></div>
   <div class="stack">
-    ${A.items.map(a => { const c = a.candidate, ct = a.contacts; if (a.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span>${appChip(a.status)}</div><span class="small muted">Согласие на обработку данных отозвано: карточка и контакты недоступны · ${DAYMON(a.created_at)}</span></div>`; return `<div class="panel stack-s">
+    ${A.items.map(a => { const c = a.candidate, ct = a.contacts; if (a.hidden || !c) return `<div class="panel stack-s"><div class="row sb"><span class="muted">Кандидат скрыл профиль</span>${appChip(a.status)}</div><span class="small muted">Согласие на обработку отозвано или профиль скрыт от компании: карточка и контакты недоступны · ${DAYMON(a.created_at)}</span></div>`; return `<div class="panel stack-s">
       <div class="row sb"><div class="row"><button class="btn ghost small" data-go="/e/cand/${esc(c.id)}">Кандидат ${esc(c.id)}</button>${catTag(c.spec, c.track, c.grade)}<span class="small muted">перцентиль ${c.pct ?? '—'}</span></div>${appChip(a.status)}</div>
       <div class="chips">${c.skills.map(s => `<span class="chip ${v.must.includes(s) || v.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
       ${a.note ? `<p class="small">«${esc(a.note)}»</p>` : ''}
