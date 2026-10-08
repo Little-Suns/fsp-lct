@@ -162,10 +162,10 @@ def test_apply_anonymous_until_accepted(client):
     assert client.get("/api/vacancies/applications/mine", headers=H["cand"]).json()["items"][0]["contacts_open"] is False
     # точные ФИО и Telegram кандидата в заметке маскируются, даже без «@» и «фамильного» окончания; обычные слова не трогаются
     with SessionLocal() as db:
-        db.get(Application, IDS["app"]).note = "Готов к задаче. Орлов Дмитрий, тг dorlov"
+        db.get(Application, IDS["app"]).note = "Готов к задаче. Орлов Дмитрий, тг dorlov."
         db.commit()
     note = emp_view()[1][IDS["app"]]["note"]
-    assert note == "Готов к задаче. [личное] [личное], тг [личное]", note
+    assert note == "Готов к задаче. [личное] [личное], тг [личное].", note
     # по границам слов: падеж ловится, похожие слова («developer» при нике «dev», «если» при имени «Ли») не портятся
     with SessionLocal() as db:
         c = db.get(Candidate, IDS["cand"])
