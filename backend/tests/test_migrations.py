@@ -4,6 +4,7 @@
 
 import os
 import re
+import time
 from datetime import UTC, datetime
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_migr")
@@ -243,11 +244,12 @@ def test_startup_seeds_bank_on_empty_db():
 
 
 def test_parallel_seed_has_no_duplicates():
-    # старт API и seed.generate / CLI одновременно: advisory-блокировка сериализует засев, второй ничего не добавляет
+    # старт API и seed.generate / CLI одновременно: advisory-блокировка сериализует засев, второй ничего не добавляет.
+    # Пересечение детерминировано: оба засева ждут блокировку, которую держит тест, и стартуют вместе после её снятия
     from concurrent.futures import ThreadPoolExecutor
 
     from app.models import Item
-    from app.services.items import generate_bank, seed_items
+    from app.services.items import SEED_LOCK, generate_bank, seed_items
 
     migrate()
 
@@ -255,8 +257,20 @@ def test_parallel_seed_has_no_duplicates():
         with SessionLocal() as db:
             return seed_items(db)
 
-    with ThreadPoolExecutor(2) as ex:
-        ns = sorted(ex.map(run, range(2)))
+    waiting = text("SELECT count(*) FROM pg_locks l JOIN pg_database d ON d.oid = l.database WHERE d.datname = current_database()"
+                   " AND l.locktype = 'advisory' AND l.objid = CAST(:k AS oid) AND NOT l.granted")
+    with ThreadPoolExecutor(2) as ex, engine.connect().execution_options(isolation_level="AUTOCOMMIT") as holder:
+        holder.execute(text("SELECT pg_advisory_lock(:k)"), {"k": SEED_LOCK})
+        try:  # блокировку снимаем при любом исходе, иначе засевы в потоках ждут вечно
+            futs = [ex.submit(run, i) for i in range(2)]
+            for _ in range(100):  # оба засева встали в очередь на блокировку
+                if holder.scalar(waiting, {"k": SEED_LOCK}) == 2:
+                    break
+                time.sleep(0.05)
+            assert not any(f.done() for f in futs)  # без блокировки засев прошёл бы сразу
+        finally:
+            holder.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": SEED_LOCK})
+        ns = sorted(f.result() for f in futs)
     total = len(generate_bank())
     assert ns == [0, total]
     with SessionLocal() as db:
