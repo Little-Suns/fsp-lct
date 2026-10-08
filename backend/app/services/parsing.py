@@ -562,20 +562,25 @@ def _name_words(text: str) -> set[str]:
     return {w for w in words if w.lower() not in _NOT_NAME and _spec(w.lower(), []) is None}
 
 
-def mask_pii(text: str) -> str:
-    """Текст для внешней модели: ПДн заменены метками, навыки, стаж и места работы остаются.
-    ponytail: правила, а не NER — редкое имя вне шапки без отчества, «фамильного» окончания и не из списка частых пройдёт;
-    NER (Natasha), если понадобится."""
-    names = _name_words(text)
-    lines = ["[личное]" if re.search(_PERSONAL_LINE_RX, ln, re.IGNORECASE) else ln for ln in text.split("\n")]
-    text = "\n".join(lines)
+def mask_contacts(text: str) -> str:
+    """Только каналы связи: почта, ссылки, Telegram, телефон, «Подпись: контакт». Для коротких реплик (заметка к отклику),
+    где эвристика ФИО mask_pii даёт ложные срабатывания («Готов к задаче» → фамилия на -ов)."""
     text = re.sub(_EMAIL_RX, "[почта]", text, flags=re.IGNORECASE)
     text = re.sub(_EMAIL_OBF_RX, "[почта]", text, flags=re.IGNORECASE)
     text = re.sub(_URL_RX, "[ссылка]", text, flags=re.IGNORECASE)
     text = re.sub(_TG_RX, "[telegram]", text, flags=re.IGNORECASE)
     text = re.sub(_HANDLE_RX, "[telegram]", text, flags=re.IGNORECASE)
     text = re.sub(_PHONE_RX, "[телефон]", text)  # до подписей: иначе «Телефон: +7 (999)…» съест только «+7»
-    text = re.sub(_LABELED_RX, r"\1: [контакт]", text, flags=re.IGNORECASE)
+    return re.sub(_LABELED_RX, r"\1: [контакт]", text, flags=re.IGNORECASE)
+
+
+def mask_pii(text: str) -> str:
+    """Текст для внешней модели: ПДн заменены метками, навыки, стаж и места работы остаются.
+    ponytail: правила, а не NER — редкое имя вне шапки без отчества, «фамильного» окончания и не из списка частых пройдёт;
+    NER (Natasha), если понадобится."""
+    names = _name_words(text)
+    lines = ["[личное]" if re.search(_PERSONAL_LINE_RX, ln, re.IGNORECASE) else ln for ln in text.split("\n")]
+    text = mask_contacts("\n".join(lines))
     if names:  # и все упоминания тех же слов дальше по тексту, с падежным окончанием
         alt = "|".join(re.escape(w) for w in sorted(names, key=len, reverse=True))
         text = re.sub(rf"{_B}(?:{alt})[а-яёa-z]{{0,3}}(?![{_W}])", "[имя]", text, flags=re.IGNORECASE)

@@ -87,3 +87,27 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
   await open(page, '/e/pipeline');
   await expect(page.getByRole('row', { name: /A-1042/ })).toContainText('Дмитрий Орлов');
 });
+
+test('«Новый Стартап»: лимит 2 открытых вакансии — кабинет показывает лимит, третья — 409, закрытие освобождает место', async ({ page }) => {
+  await demo(page, 'newco');
+  const h = await auth(page);
+  const body = t => ({ data: { title: t, spec: 'QA', track: 'Manual', grade: 'Junior', salary_from: 90000, salary_to: 110000, format: 'Удалённо' }, headers: h });
+  for (const t of ['QA лимит первая', 'QA лимит вторая']) expect((await page.request.post('/api/vacancies', body(t))).status()).toBe(200);
+  const over = await page.request.post('/api/vacancies', body('QA лимит третья'));
+  expect(over.status()).toBe(409);
+  expect((await over.json()).detail).toContain('Подтвердите компанию');
+
+  await open(page, '/e/vacancies');
+  const limit = page.locator('.panel', { hasText: 'Открытые вакансии' });
+  await expect(limit).toContainText('2 / 2');
+  await expect(limit).toContainText('Сейчас лимит исчерпан');
+  await expect(limit).toContainText('Подтвердите компанию (ИНН и рабочая почта на домене сайта) — лимит вырастет.');
+  await expect(page.getByRole('button', { name: 'Новая вакансия' })).toBeDisabled();
+  await page.locator('.panel', { hasText: 'QA лимит первая' }).getByRole('button', { name: 'Закрыть' }).click();
+  await expect(toast(page)).toHaveText('Вакансия закрыта');
+  await expect(limit).toContainText('1 / 2');
+  await expect(page.getByRole('button', { name: 'Новая вакансия' })).toBeEnabled();
+  // вторую тоже закрываем: вакансии «Нового Стартапа» не должны попадать в списки кандидатов в следующих сценариях
+  await page.locator('.panel', { hasText: 'QA лимит вторая' }).getByRole('button', { name: 'Закрыть' }).click();
+  await expect(limit).toContainText('0 / 2');
+});

@@ -783,9 +783,9 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
 
 def demo_dialogs(ladoga, smirnova, orlov, apps) -> list[Message]:
     """Короткие прочитанные диалоги, чтобы чат на стенде не был пустым. Только там, где переписка разрешена (services/chat.py):
-    «Ладога Пэй» ↔ Анна Смирнова — принятое приглашение; Орлов ↔ компания его просмотренного отклика — живой отклик.
+    «Ладога Пэй» ↔ Анна Смирнова — принятое приглашение; Орлов ↔ компания, принявшая его отклик.
     Орлов ↔ «Ладога Пэй» не трогаем: приглашение ещё без ответа, e2e принимает его и начинает чат с пустой истории."""
-    app = next((a for a in apps if a.candidate is orlov and a.status == "seen"), None)  # нет открытой Backend/Python — без второго диалога
+    app = next((a for a in apps if a.candidate is orlov and a.status == "accepted"), None)  # нет открытой Backend/Python — без второго диалога
     script = [
         (ladoga, smirnova, NOW - DAY * 5.8, [
             ("employer", "Анна, добрый день! Спасибо, что приняли приглашение. Удобно созвониться в четверг в 11:00?"),
@@ -884,8 +884,10 @@ def extras(db, g: Gen, ladoga, kiprey, lad_need, companies, hq, orlov, cands) ->
     """Вакансии, отклики, задания и решения; неподтверждённая демо-компания «Новый Стартап»."""
     r = g.rng
     demo = {"ladoga": ladoga, "kiprey": kiprey}
+    # срок публикации — от часов генератора, без случайных чисел (основной поток не сдвигается): демо — полный срок,
+    # синтетика — от 5 до VACANCY_TTL_DAYS дней, чтобы в кабинетах были вакансии, которые скоро пора продлевать
     vacancies = [Vacancy(company=demo[co], title=t, spec=sp, track=tr, grade=gr, must=mu, nice=ni, salary_from=f, salary_to=to,
-                         format=fm, city=ci, description=d)
+                         format=fm, city=ci, description=d, expires_at=NOW + DAY * C.VACANCY_TTL_DAYS)
                  for co, t, sp, tr, gr, mu, ni, f, to, fm, ci, d in DEMO_VACANCIES]
     for i in range(120):
         co = companies[i % len(companies)]
@@ -893,7 +895,8 @@ def extras(db, g: Gen, ladoga, kiprey, lad_need, companies, hq, orlov, cands) ->
         text = st.pop("text")
         vacancies.append(Vacancy(company=co, title=f"{SPEC_TITLE[st['spec']]} ({st['track']}), {st['grade']}",
                                  description=f"{text}\n\nКоманда {g.pick(TEAMS)}, {int(r.integers(4, 15))} человек.",
-                                 status="open" if r.random() < 0.9 else "closed", is_synthetic=True, **st))
+                                 status="open" if r.random() < 0.9 else "closed", is_synthetic=True,
+                                 expires_at=NOW + DAY * (5 + i % (C.VACANCY_TTL_DAYS - 4)), **st))
 
     # отклики: кандидаты с открытым профилем и согласием на показ откликаются на вакансии своей специализации
     pool: dict[str, list[Candidate]] = {}
@@ -917,9 +920,10 @@ def extras(db, g: Gen, ladoga, kiprey, lad_need, companies, hq, orlov, cands) ->
                                 seen_at=at + DAY * 0.5 if st != "sent" else None,
                                 responded_at=at + DAY * 2 if st in ("accepted", "declined") else None))
     bp = [v for v in vacancies[len(DEMO_VACANCIES):] if v.spec == "Backend" and v.track == "Python" and v.status == "open"]
-    for v, st in zip(bp[:2], ("seen", "sent")):  # свои отклики Орлова на этой неделе
+    for v, st in zip(bp[:2], ("accepted", "sent")):  # свои отклики Орлова на этой неделе: один компания приняла — открыт чат
         apps.append(Application(vacancy=v, candidate=orlov, status=st, note="Интересны высоконагруженные сервисы",
-                                created_at=NOW - DAY * 0.5, seen_at=NOW - DAY * 0.2 if st == "seen" else None))
+                                created_at=NOW - DAY * 0.5, seen_at=NOW - DAY * 0.4 if st == "accepted" else None,
+                                responded_at=NOW - DAY * 0.4 if st == "accepted" else None))
 
     # задания: витрина + два задания под потребность «Ладога Пэй»
     tasks = [Task(company=demo[co] if co else g.pick(companies), title=t, spec=sp, competency=cmp, kind=k, minutes=m, text=x,

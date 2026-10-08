@@ -1,11 +1,12 @@
 """Схема БД. Персональные данные (name/email/tg) живут только в Candidate и никогда не идут в ранжирование."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, text, true
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app import catalog
 from app.db import Base
 
 
@@ -311,6 +312,8 @@ class Vacancy(Base):
     format: Mapped[str] = mapped_column(String(16))
     city: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(8), default="open")  # open | closed
+    # срок публикации: после него вакансия скрыта и не принимает отклики, пока компания её не продлит
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC) + timedelta(days=catalog.VACANCY_TTL_DAYS))
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -319,7 +322,8 @@ class Vacancy(Base):
 
 
 class Application(Base):
-    """Отклик кандидата. Статусы: sent → seen → accepted | declined. Контакты кандидата видны сразу — он откликнулся сам."""
+    """Отклик кандидата. Статусы: sent → seen → accepted | declined. До accepted компания видит анонимную карточку,
+    контакты и чат открываются, когда компания приняла отклик (защита от фиктивных вакансий, собирающих контакты)."""
 
     __tablename__ = "applications"
     __table_args__ = (UniqueConstraint("vacancy_id", "candidate_id"),)
