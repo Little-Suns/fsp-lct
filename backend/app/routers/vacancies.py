@@ -288,7 +288,7 @@ def list_vacancies(
     format: str | None = None,
     city: str | None = None,
     q: str | None = Query(default=None, max_length=100),
-    salary_min: int | None = Query(default=None, ge=0, le=catalog.SALARY_MAX),
+    salary_min: Salary | None = Query(default=None, ge=0),
     limit: int = Query(50, ge=1, le=200),
     c: Candidate | None = Depends(maybe_candidate),
     db: Session = Depends(get_db),

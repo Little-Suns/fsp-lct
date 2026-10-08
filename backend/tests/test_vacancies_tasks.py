@@ -96,7 +96,7 @@ def test_vacancy_create_validation(client):
     assert client.post("/api/vacancies", json={**VAC, "format": "Где угодно"}, headers=H["emp"]).status_code == 422
     huge = client.post("/api/vacancies", json={**VAC, "salary_to": 10_000_000_000}, headers=H["emp"])  # больше SALARY_MAX — 422, а не 500 от integer
     assert huge.status_code == 422 and huge.json()["detail"][0]["type"] == "salary_max"
-    assert client.get("/api/vacancies", params={"salary_min": 10_000_000_000}).status_code == 422
+    assert client.get("/api/vacancies", params={"salary_min": 10_000_000_000}).json()["detail"][0]["type"] == "salary_max"
     assert client.post("/api/vacancies", json=VAC, headers=H["cand"]).status_code == 403
     r = client.post("/api/vacancies", json=VAC, headers=H["emp"])
     assert r.status_code == 200, r.text

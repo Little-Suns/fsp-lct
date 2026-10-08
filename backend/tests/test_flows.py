@@ -607,6 +607,8 @@ def test_salary_upper_bound(client):
     too_big(client.post("/api/candidate/profile", json=body, headers=hdr))
     ok = client.post("/api/candidate/profile", json={**body, "min_salary": catalog.SALARY_MAX}, headers=hdr)  # граница включительно и влезает в integer
     assert ok.status_code == 200, ok.text
+    with SessionLocal() as db:
+        assert db.query(Candidate.min_salary).filter(Candidate.user_id == u.id).scalar() == catalog.SALARY_MAX
     need = {"spec": "Backend", "grade": "Middle", "salary_from": 240000, "salary_to": 300000}
     too_big(client.post("/api/employer/needs", json={**need, "salary_to": huge}, headers=E))
     too_big(client.post("/api/employer/needs", json={**need, "salary_from": huge}, headers=E))
