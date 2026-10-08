@@ -307,8 +307,12 @@ def _note(a: Application) -> str:
     почта, телефон, Telegram, ссылки (mask_contacts) замаскированы — фейк мог попросить написать их в заметке.
     Эвристику ФИО mask_pii не берём: на коротких фразах она путает слова с фамилиями («Готов к задаче»)."""
     c, text = a.candidate, a.note
-    for w in sorted({x for x in (c.email, c.tg, (c.tg or "").lstrip("@"), *(c.name or "").split()) if x and len(x) > 1}, key=len, reverse=True):
-        text = re.sub(re.escape(w), "[личное]", text, flags=re.IGNORECASE)
+    # почта и Telegram — целиком, с «@» и без; слова ФИО — от границы слова с коротким падежным хвостом («Орлову»)
+    exact = {x for x in (c.email, c.tg, (c.tg or "").lstrip("@")) if x and len(x) > 1}
+    for w in sorted(exact, key=len, reverse=True):
+        text = re.sub(rf"(?<![\w@.]){re.escape(w)}(?![\w.])", "[личное]", text, flags=re.IGNORECASE)
+    for w in sorted({x for x in (c.name or "").split() if len(x) > 1}, key=len, reverse=True):
+        text = re.sub(rf"(?<!\w){re.escape(w)}\w{{0,3}}(?!\w)", "[личное]", text, flags=re.IGNORECASE)
     return mask_contacts(text)
 
 

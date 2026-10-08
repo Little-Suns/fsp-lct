@@ -166,6 +166,18 @@ def test_apply_anonymous_until_accepted(client):
         db.commit()
     note = emp_view()[1][IDS["app"]]["note"]
     assert note == "Готов к задаче. [личное] [личное], тг [личное]", note
+    # по границам слов: падеж ловится, похожие слова («developer» при нике «dev», «если» при имени «Ли») не портятся
+    with SessionLocal() as db:
+        c = db.get(Candidate, IDS["cand"])
+        c.name, c.tg = "Ли Орлов", "@dev"
+        db.get(Application, IDS["app"]).note = "Backend developer, если что. Пишите Орлову, @dev"
+        db.commit()
+    note = emp_view()[1][IDS["app"]]["note"]
+    assert note == "Backend developer, если что. Пишите [личное], [личное]", note
+    with SessionLocal() as db:
+        c = db.get(Candidate, IDS["cand"])
+        c.name, c.tg = "Дмитрий Орлов", "@dorlov"
+        db.commit()
     # профиль скрыт от компании — ни карточки, ни заметки
     with SessionLocal() as db:
         db.get(Candidate, IDS["cand"]).hidden_from = ["7704123450"]
