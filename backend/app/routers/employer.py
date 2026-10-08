@@ -2,10 +2,12 @@
 
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+from pydantic_core import PydanticCustomError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, defer, selectinload
 
@@ -53,6 +55,16 @@ def domain_match(email: str, site_domain: str | None) -> bool:
     dom = email.rsplit("@", 1)[1].lower()
     site = site_domain.lower().removeprefix("https://").removeprefix("http://").removeprefix("www.").strip("/")
     return dom == site or dom.endswith("." + site)
+
+
+def _salary_cap(v: int | None) -> int | None:
+    if v is not None and v > catalog.SALARY_MAX:
+        raise PydanticCustomError("salary_max", "Сумма больше {max} на руки в месяц — проверьте, нет ли лишних нулей.", {"max": rub(catalog.SALARY_MAX)})
+    return v
+
+
+# любая сумма от пользователя (₽/мес): больше SALARY_MAX — 422 с русским сообщением, а не 500 от integer-колонки
+Salary = Annotated[int, AfterValidator(_salary_cap)]
 
 
 def validate_fork(salary_from: int | None, salary_to: int | None, *, p25: int, cand_min: int | None, grade: str) -> tuple[list[str], list[str]]:
@@ -225,8 +237,8 @@ class NeedIn(BaseModel):
     grade: str
     must: list[str] = []
     nice: list[str] = []
-    salary_from: int | None = Field(default=None, gt=0)
-    salary_to: int | None = Field(default=None, gt=0)
+    salary_from: Salary | None = Field(default=None, gt=0)
+    salary_to: Salary | None = Field(default=None, gt=0)
     format: str | None = None
     city: str | None = Field(default=None, max_length=64)
     parsed_by: str = "rules"
@@ -298,7 +310,7 @@ class CategoryIn(BaseModel):
     track: str | None = Field(default=None, max_length=64)
     grade: str = Field(max_length=16)
     city: str | None = Field(default=None, max_length=64)
-    salary_to: int | None = Field(default=None, gt=0)
+    salary_to: Salary | None = Field(default=None, gt=0)
 
 
 @router.post("/needs/category")
@@ -547,8 +559,8 @@ class InviteIn(BaseModel):
     candidate_id: str  # public_id, например «A-1042»
     need_id: int | None = None
     role: str = Field(min_length=3, max_length=255)
-    salary_from: int | None = None
-    salary_to: int | None = None
+    salary_from: Salary | None = None
+    salary_to: Salary | None = None
     format: str = Field(max_length=64)  # «Гибрид» или «Гибрид, Москва, 2 дня в офисе»
     description: str = Field(default="", max_length=5000)
     task: str | None = Field(default=None, max_length=2000)

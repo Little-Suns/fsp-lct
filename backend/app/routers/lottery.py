@@ -12,6 +12,7 @@ from app.catalog import FORMATS
 from app.db import get_db
 from app.deps import active_company, current_company
 from app.models import Company, Lottery, Need
+from app.routers.employer import Salary
 from app.services import lottery as svc
 
 router = APIRouter(prefix="/api/lottery", tags=["lottery"])
@@ -25,7 +26,7 @@ class Threshold(BaseModel):
     grade_min: str | None = None  # ≥ грейд потребности − 1
     theta_min: float | None = None  # θ − SE ≥ theta_min
     must_skills: list[str] = []  # ⊂ skills_confirmed; need.must добавляются всегда
-    fork_to: int | None = Field(default=None, gt=0)  # min_salary ≤ fork_to ≤ need.salary_to
+    fork_to: Salary | None = Field(default=None, gt=0)  # min_salary ≤ fork_to ≤ need.salary_to
     formats: list[str] | None = None
     require_free: bool = True  # нагрузка < CANDIDATE_CAP
 

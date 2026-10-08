@@ -20,7 +20,7 @@ from app.db import get_db
 from app.deps import current_candidate, current_user
 from app.integrations.consent import lock_candidate, set_external_consent
 from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, Message, QuestSession, RetiredPublicId, TaskSubmission, User
-from app.routers.employer import company_trust
+from app.routers.employer import Salary, company_trust
 from app.services import matching, profile_pdf, reputation
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, canon_terms, parse_cv
@@ -39,7 +39,7 @@ class ProfileIn(BaseModel):
     spec: str
     track: str | None = None
     grade_claimed: str
-    min_salary: int = Field(gt=0)
+    min_salary: Salary = Field(gt=0)
     formats: list[str]
     city: str = Field(min_length=1, max_length=64)
     skills_claimed: list[str] = []

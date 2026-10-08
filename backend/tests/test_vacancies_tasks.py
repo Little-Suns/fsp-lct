@@ -94,6 +94,9 @@ def test_vacancy_create_validation(client):
     assert client.post("/api/vacancies", json={**VAC, "salary_from": None}, headers=H["emp"]).status_code == 422
     assert client.post("/api/vacancies", json={**VAC, "spec": "Cobol"}, headers=H["emp"]).status_code == 422
     assert client.post("/api/vacancies", json={**VAC, "format": "Где угодно"}, headers=H["emp"]).status_code == 422
+    huge = client.post("/api/vacancies", json={**VAC, "salary_to": 10_000_000_000}, headers=H["emp"])  # больше SALARY_MAX — 422, а не 500 от integer
+    assert huge.status_code == 422 and huge.json()["detail"][0]["type"] == "salary_max"
+    assert client.get("/api/vacancies", params={"salary_min": 10_000_000_000}).json()["detail"][0]["type"] == "salary_max"
     assert client.post("/api/vacancies", json=VAC, headers=H["cand"]).status_code == 403
     r = client.post("/api/vacancies", json=VAC, headers=H["emp"])
     assert r.status_code == 200, r.text
@@ -108,6 +111,7 @@ def test_edit_close_own_only(client):
     assert client.post(f"/api/vacancies/{vid}/close", headers=H["emp2"]).status_code == 404
     assert client.get(f"/api/vacancies/{vid}/applications", headers=H["emp2"]).status_code == 404
     assert client.patch(f"/api/vacancies/{vid}", json={"salary_to": 900000}, headers=H["emp"]).status_code == 422  # шире 40 %
+    assert client.patch(f"/api/vacancies/{vid}", json={"salary_from": 10_000_000_000}, headers=H["emp"]).json()["detail"][0]["type"] == "salary_max"
     r = client.patch(f"/api/vacancies/{vid}", json={"title": "Python-разработчик (платежи)", "salary_to": 320000}, headers=H["emp"])
     assert r.status_code == 200 and r.json()["to"] == 320000 and r.json()["updated_at"]
 
