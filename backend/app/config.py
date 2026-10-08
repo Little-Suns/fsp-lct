@@ -1,4 +1,5 @@
 import os
+import re
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp")
 
@@ -64,6 +65,21 @@ FSP_ID_CLIENT_ID = os.environ.get("FSP_ID_CLIENT_ID") or "fsp-career"
 FSP_ID_CLIENT_SECRET = os.environ.get("FSP_ID_CLIENT_SECRET") or (__import__("secrets").token_urlsafe(32) if FSP_ID_MOCK else "")
 FSP_ID_REDIRECT_URI = os.environ.get("FSP_ID_REDIRECT_URI") or PUBLIC_URL + "/api/auth/fsp/callback"
 FSP_ID_SCOPE = os.environ.get("FSP_ID_SCOPE") or "openid email profile"
+
+
+def _parse_idps(raw: str) -> dict[str, str]:
+    """«alias:Подпись,alias2:Подпись2» → {alias: подпись}. alias — Identity Provider в Keycloak (kc_idp_hint); кривые записи пропускаются."""
+    out = {}
+    for part in raw.split(","):
+        alias, _, label = part.partition(":")
+        alias, label = alias.strip(), label.strip()
+        if re.fullmatch(r"[a-z0-9_-]{1,32}", alias):
+            out[alias] = label[:40] or alias
+    return out
+
+
+# сторонние входы через брокер Keycloak (Яндекс ID, корпоративный SSO и т. п.); в моке по умолчанию два демо-провайдера
+FSP_ID_IDPS = _parse_idps(os.environ.get("FSP_ID_IDPS") or ("yandex:Яндекс ID,corp:Корпоративный SSO" if FSP_ID_MOCK else ""))
 
 # Песочница задач на код (сервис sandbox в compose, только внутренняя сеть). Пусто — задачи на код не выдаются.
 SANDBOX_URL = os.environ.get("SANDBOX_URL", "").rstrip("/")

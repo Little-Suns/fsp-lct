@@ -40,7 +40,8 @@ _lock = threading.Lock()
 _codes: dict[str, dict] = {}  # sha256(code) → заявка; код одноразовый
 _tokens: dict[str, tuple[str, float]] = {}  # sha256(access_token) → (sub, истекает)
 
-# демо-аккаунты ФСП ID — синтетика: Орлов есть в сиде (FSP-1042), Соколовой на платформе ещё нет
+# демо-аккаунты ФСП ID — синтетика: Орлов есть в сиде (FSP-1042), Соколовой на платформе ещё нет; сотрудники компаний —
+# без достижений: Ковалёва — демо-работодатель из сида («Ладога Пэй»), Белова на платформе нет (новая компания)
 ACCOUNTS = {
     "FSP-1042": {
         "name": "Дмитрий Орлов", "email": "d.orlov@example.ru", "email_verified": True,
@@ -54,6 +55,10 @@ ACCOUNTS = {
              "place": 2, "team": "Команда «Сапсан»", "role": "backend"},
         ],
     },
+    "KC-ladoga-0001": {"name": "Мария Ковалёва", "email": "m.kovaleva@ladoga-pay.example", "email_verified": True,
+                       "company": True, "achievements": []},
+    "KC-seversoft-0001": {"name": "Игорь Белов", "email": "i.belov@sever-soft.example", "email_verified": True,
+                          "company": True, "achievements": []},
     "FSP-2077": {
         "name": "Анна Соколова", "email": "a.sokolova@example.ru", "email_verified": True,
         "achievements": [
@@ -111,7 +116,7 @@ def discovery():
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
         "scopes_supported": ["openid", "email", "profile"],
-        "claims_supported": ["sub", "email", "email_verified", "name", "preferred_username", "fsp_achievements"],
+        "claims_supported": ["sub", "identity_provider", "email", "email_verified", "name", "preferred_username", "fsp_achievements"],
     }
 
 
@@ -123,36 +128,43 @@ def jwks():
 PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ФСП ID (демо)</title><style>body{{font:16px system-ui,sans-serif;background:#f4f4f7;color:#1b1c21;margin:0}}
 main{{max-width:420px;margin:48px auto;padding:28px;background:#fff;border-radius:16px}}h1{{font-size:22px;margin:0 0 6px}}
-p{{color:#555;font-size:14px}}button{{display:block;width:100%;padding:14px;margin:10px 0;border:1px solid #d0d0da;border-radius:10px;
+p{{color:#555;font-size:14px}}h2{{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:#777;margin:18px 0 0}}button{{display:block;width:100%;padding:14px;margin:10px 0;border:1px solid #d0d0da;border-radius:10px;
 background:#fff;font:inherit;text-align:left;cursor:pointer}}button.main{{background:#402fff;color:#fff;border-color:#402fff}}
 small{{display:block;color:inherit;opacity:.75}}@media(max-width:460px){{main{{margin:16px;padding:20px}}}}</style></head><body><main>
 <h1>ФСП ID (демо)</h1><p>Имитация единого входа ФСП на Keycloak (OpenID Connect). Пароль не нужен: выберите демо-аккаунт.
 Сервис «ФСП Карьера» получит ФСП ID, подтверждённую почту, имя и подтверждённые участия и места.</p>
-<form method="post" action="{action}">{hidden}{buttons}<button name="account" value="">Отмена</button></form></main></body></html>"""
+{via}<form method="post" action="{action}">{hidden}{buttons}<button name="account" value="">Отмена</button></form></main></body></html>"""
 
 
 @router.get("/authorize", response_class=HTMLResponse)
 def authorize(response_type: str = "", client_id: str = "", redirect_uri: str = "", scope: str = "", state: str = "",
-              nonce: str = "", code_challenge: str = "", code_challenge_method: str = ""):
+              nonce: str = "", code_challenge: str = "", code_challenge_method: str = "", kc_idp_hint: str = ""):
     if not _known_client(client_id, redirect_uri):
         # неизвестный клиент или адрес — не редиректим (RFC 6749 §4.1.2.1), показываем ошибку
         return HTMLResponse("<h1>ФСП ID (демо): неизвестный клиент или redirect_uri</h1>", status_code=400)
     if response_type != "code" or "openid" not in scope.split() or code_challenge_method != "S256" \
             or not 43 <= len(code_challenge) <= 128 or not state:
         return _back(redirect_uri, error="invalid_request", state=state)
-    fields = {"client_id": client_id, "redirect_uri": redirect_uri, "state": state, "nonce": nonce, "code_challenge": code_challenge}
+    fields = {"client_id": client_id, "redirect_uri": redirect_uri, "state": state, "nonce": nonce, "code_challenge": code_challenge,
+              "kc_idp_hint": kc_idp_hint}
     hidden = "".join(f'<input type="hidden" name="{k}" value="{html.escape(v)}">' for k, v in fields.items())
-    buttons = "".join(
-        f'<button class="main" name="account" value="{sub}">{html.escape(a["name"])}<small>{sub} · {html.escape(a["email"])}</small></button>'
-        for sub, a in ((html.escape(k), v) for k, v in ACCOUNTS.items())
-    )
-    return HTMLResponse(PAGE.format(action=html.escape(_issuer() + "/authorize"), hidden=hidden, buttons=buttons),
+    def group(title: str, company: bool) -> str:
+        rows = "".join(
+            f'<button class="main" name="account" value="{sub}">{html.escape(a["name"])}<small>{sub} · {html.escape(a["email"])}</small></button>'
+            for sub, a in ((html.escape(k), v) for k, v in ACCOUNTS.items()) if bool(a.get("company")) == company
+        )
+        return f"<h2>{title}</h2>{rows}" if rows else ""
+
+    buttons = group("Кандидаты", False) + group("Компании", True)
+    # как у Keycloak: с kc_idp_hint он сразу ведёт на стороннего провайдера (здесь — имитация того же выбора аккаунта)
+    via = f"<p><b>Вход через {html.escape(kc_idp_hint)}</b> (демо, брокер Keycloak)</p>" if kc_idp_hint else ""
+    return HTMLResponse(PAGE.format(action=html.escape(_issuer() + "/authorize"), hidden=hidden, buttons=buttons, via=via),
                         headers={"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'"})  # без кликджекинга
 
 
 @router.post("/authorize")
 def authorize_submit(client_id: str = Form(""), redirect_uri: str = Form(""), state: str = Form(""), nonce: str = Form(""),
-                     code_challenge: str = Form(""), account: str = Form("")):
+                     code_challenge: str = Form(""), account: str = Form(""), kc_idp_hint: str = Form("")):
     # ponytail: без CSRF-токена на форме — паролей нет, а чужой код без state и куки нашего клиента бесполезен
     if not _known_client(client_id, redirect_uri):
         return HTMLResponse("<h1>ФСП ID (демо): неизвестный клиент или redirect_uri</h1>", status_code=400)
@@ -164,7 +176,7 @@ def authorize_submit(client_id: str = Form(""), redirect_uri: str = Form(""), st
         for k in [k for k, v in _codes.items() if v["exp"] < now]:
             del _codes[k]
         _codes[_h(code)] = {"client_id": client_id, "redirect_uri": redirect_uri, "challenge": code_challenge,
-                            "nonce": nonce, "sub": account, "exp": now + CODE_TTL}
+                            "nonce": nonce, "sub": account, "idp": kc_idp_hint[:32], "exp": now + CODE_TTL}
     return _back(redirect_uri, code=code, state=state)
 
 
@@ -200,6 +212,8 @@ def token(grant_type: str = Form(""), code: str = Form(""), redirect_uri: str = 
     claims = {"iss": _issuer(), "sub": rec["sub"], "aud": client_id, "azp": client_id, "iat": now, "exp": now + int(TOKEN_TTL),
               "auth_time": now, "email": acc["email"], "email_verified": acc["email_verified"], "name": acc["name"],
               "preferred_username": rec["sub"]}
+    if rec["idp"]:
+        claims["identity_provider"] = rec["idp"]  # как protocol mapper Keycloak: через какой брокер вошли
     if rec["nonce"]:
         claims["nonce"] = rec["nonce"]
     return JSONResponse({"access_token": access, "token_type": "Bearer", "expires_in": int(TOKEN_TTL), "id_token": sign(claims),

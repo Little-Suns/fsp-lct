@@ -125,9 +125,10 @@ def discovery() -> dict:
     return _cached("discovery:" + issuer, load)
 
 
-def authorize_url(state: str) -> str:
+def authorize_url(state: str, idp: str | None = None) -> str:
     ep = discovery()["authorization_endpoint"]
     q = urlencode({
+        **({"kc_idp_hint": idp} if idp else {}),  # Keycloak сразу уводит на Identity Provider с этим alias, минуя свой экран входа
         "response_type": "code", "client_id": config.FSP_ID_CLIENT_ID, "redirect_uri": config.FSP_ID_REDIRECT_URI,
         "scope": config.FSP_ID_SCOPE, "state": state, "nonce": nonce(state),
         "code_challenge": challenge(verifier(state)), "code_challenge_method": "S256",

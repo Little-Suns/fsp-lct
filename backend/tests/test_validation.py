@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
+from app import config
 from app.config import DATABASE_URL
 from app.db import get_db, reset_schema
 from app.models import Candidate
@@ -144,9 +145,10 @@ def test_run_shape(db, tmp_path, monkeypatch):
     assert "Разделяющая сила теста" in V.report(res) and "AUC" in V.report(res)
     assert V.run(db, k=5, seed=1)["market"] == res["market"]  # детерминировано
 
-    # API: до прогона — 404, пересчёт — только организатору, потом GET отдаёт сохранённое
+    # API: до прогона — 404, пересчёт — только организатору (вне DEMO), потом GET отдаёт сохранённое
     monkeypatch.setattr(V, "OUT", tmp_path / "validation.json")
     monkeypatch.setenv("ORGANIZER_TOKEN", "org-secret")
+    monkeypatch.setattr(config, "DEMO", False)
     app = FastAPI()
     app.include_router(router_mod.router)
     app.dependency_overrides[get_db] = lambda: db
@@ -160,6 +162,18 @@ def test_run_shape(db, tmp_path, monkeypatch):
     org = {"Authorization": "Bearer org-secret"}
     assert cl.post("/api/validation/run?k=5&seed=1&today=вчера", headers=org).status_code == 422
     assert cl.post("/api/validation/run?k=5&seed=1&today=now", headers=org).json()["today"] is None  # засев от реального времени
+    # демо-стенд: кнопка на /v запускает прогон без входа; второй одновременный и прогон без синтетики — 409
+    monkeypatch.setattr(config, "DEMO", True)
+    assert cl.post("/api/validation/run?k=5&seed=1").status_code == 200
+    assert router_mod._running.acquire(blocking=False)
+    try:
+        r = cl.post("/api/validation/run?k=5&seed=1")
+        assert r.status_code == 409 and "уже идёт" in r.json()["detail"]
+    finally:
+        router_mod._running.release()
+    app.dependency_overrides[get_db] = lambda: type("Empty", (), {"scalar": lambda *_: None})()
+    r = cl.post("/api/validation/run?k=5&seed=1")
+    assert r.status_code == 409 and "нет синтетики" in r.json()["detail"]
 
 
 @pytest.mark.slow  # два прогона валидации + второй засев

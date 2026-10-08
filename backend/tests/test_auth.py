@@ -54,12 +54,22 @@ def test_app_wiring(client):
     assert client.get("/api/health").json() == {"ok": True}
     meta = client.get("/api/meta").json()
     assert meta["cap"] == catalog.CANDIDATE_CAP and meta["invite_ttl_days"] == catalog.INVITE_TTL_DAYS and "Backend" in meta["specs"]
+    assert meta["demo"] is config.DEMO
     paths = set(app.openapi()["paths"])
     for p in ("/api/auth/verify", "/api/candidate/me", "/api/employer/search", "/api/quest/start", "/api/achievements",
               "/api/lottery/{lottery_id}/public", "/api/validation", "/api/vacancies", "/api/tasks/mine"):
         assert p in paths, p
     if os.path.isdir(config.FRONTEND_DIR):  # фронт раздаётся тем же сервером
         assert client.get("/").status_code == 200
+
+
+def test_index_without_frontend_is_503(client, tmp_path, monkeypatch):
+    # каталог фронта пропал уже после старта (пересоздан на хосте): 503 с понятным текстом, а не 500 из FileResponse
+    monkeypatch.setattr("app.main._front", tmp_path)
+    r = client.get("/")
+    assert r.status_code == 503 and r.json()["detail"].startswith("Фронт недоступен")
+    (tmp_path / "index.html").write_text("<html>ok</html>", encoding="utf8")  # файл вернулся — страница отдаётся без рестарта
+    assert client.get("/").status_code == 200
 
 
 def test_otp_hashed_and_login(client):

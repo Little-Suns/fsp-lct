@@ -4,7 +4,9 @@
   не войдёт и не привяжет чужой ФСП ID (login CSRF). state одноразовый — повтор callback не пройдёт.
 * Наш Bearer-токен не попадает в URL: callback кладёт во фрагмент одноразовый билет на минуту, фронт меняет его
   на токен POST /exchange с той же кукой.
-* Пользователь создаётся только по подтверждённой в ФСП ID почте и только кандидатом. Существующий аккаунт с той же
+* Пользователь создаётся только по подтверждённой в ФСП ID почте, ролью из /start (кандидат или компания; компания после
+  входа всё равно проходит ИНН и рабочую почту, причём почта входа считается подтверждённой только нашим кодом
+  (users.email_confirmed), а не Keycloak или сторонним IdP). Сторонние входы (Яндекс ID, корпоративный SSO) — брокер Keycloak по kc_idp_hint. Существующий аккаунт с той же
   почтой связывается автоматически, только пока у него нет ни профиля кандидата, ни компании (роль — как во входе
   по коду, deps.verify); аккаунт с данными привязывается только из настроек после входа по коду — доверять одному
   email_verified провайдера, когда есть что угнать, не будем.
@@ -42,6 +44,8 @@ log = logging.getLogger(__name__)
 
 class StartIn(BaseModel):
     mode: Literal["login", "link"] = "login"
+    role: Literal["candidate", "employer"] = "candidate"  # при mode=link игнорируется: привязка — только у кандидата
+    idp: str | None = Field(default=None, max_length=32)  # alias Identity Provider из FSP_ID_IDPS (kc_idp_hint)
 
 
 class TicketIn(BaseModel):
@@ -69,22 +73,25 @@ def start(body: StartIn, response: Response, authorization: str = Header(default
     """Адрес авторизации у провайдера; фронт уводит туда браузер. mode=link — привязать ФСП ID к вошедшему кандидату."""
     if not fsp_id.enabled():
         raise HTTPException(503, "Вход через ФСП ID не настроен (FSP_ID_ISSUER, FSP_ID_CLIENT_ID, FSP_ID_CLIENT_SECRET)")
-    user_id = None
+    if body.idp is not None and body.idp not in config.FSP_ID_IDPS:
+        raise HTTPException(422, "Неизвестный провайдер входа")
+    user_id, role = None, body.role
     if body.mode == "link":
+        role = "candidate"
         user = current_user(authorization, db)
         if user.role != "candidate":
             raise HTTPException(403, "ФСП ID привязывается только к аккаунту кандидата")
         user_id = user.id
     state, browser = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     try:
-        url = fsp_id.authorize_url(state)
+        url = fsp_id.authorize_url(state, body.idp)
     except FspIdError as e:
         log.warning("ФСП ID: %s", e)
         raise HTTPException(502, "ФСП ID недоступен — попробуйте позже") from None
     now = datetime.now(UTC)
     # ponytail: незавершённые входы чистятся здесь же; лимит на /start по IP — на прокси, как и для /api/auth/email
     db.execute(delete(FspLogin).where(FspLogin.expires_at < now))
-    db.add(FspLogin(state_hash=hash_secret(state), browser_hash=hash_secret(browser), mode=body.mode, user_id=user_id,
+    db.add(FspLogin(state_hash=hash_secret(state), browser_hash=hash_secret(browser), mode=body.mode, role=role, user_id=user_id,
                     expires_at=now + FLOW_TTL))
     db.commit()
     response.set_cookie(COOKIE, browser, max_age=int(FLOW_TTL.total_seconds()), path=COOKIE_PATH, httponly=True,
@@ -92,8 +99,8 @@ def start(body: StartIn, response: Response, authorization: str = Header(default
     return {"url": url}
 
 
-def _login_user(db: Session, ident: dict) -> User:
-    """Кто входит: по ФСП ID; иначе по подтверждённой почте (связываем); иначе новый кандидат."""
+def _login_user(db: Session, ident: dict, role: str) -> User:
+    """Кто входит: по ФСП ID; иначе по подтверждённой почте (связываем); иначе новый пользователь с выбранной ролью."""
     user = db.scalar(select(User).where(User.fsp_id == ident["sub"]).with_for_update())
     if not user:
         if not ident["email"] or not EMAIL_RE.fullmatch(ident["email"]):
@@ -101,18 +108,21 @@ def _login_user(db: Session, ident: dict) -> User:
         user = db.scalar(select(User).where(func.lower(User.email) == ident["email"]).with_for_update())
         if user and user.fsp_id:
             raise Fail("other")  # к этой почте уже привязан другой ФСП ID
-        if user and _has_profile(db, user):
-            raise Fail("link")  # аккаунт с данными: войти по коду и привязать ФСП ID в настройках
+        if user and (user.email_confirmed or _has_profile(db, user)):
+            # почту подтвердил владелец кодом (предзахват через брокер после его входа) или в аккаунте есть данные:
+            # войти по коду и привязать ФСП ID в настройках
+            raise Fail("link")
         if not user:
-            user = User(email=ident["email"], role="candidate")
+            user = User(email=ident["email"], role=role)
             db.add(user)
             db.flush()
         user.fsp_id = ident["sub"]
         db.add(AuditLog(actor_user_id=user.id, action="fsp_id_linked", detail=None))
-    if user.role != "candidate":
+    if user.role != role:
         if user.role == "admin" or _has_profile(db, user):
-            raise Fail("role")  # организатора в кандидата не превращаем
-        user.role = "candidate"  # как во входе по коду: роль меняется, пока нет ни профиля, ни компании
+            raise Fail("role")  # организатора не превращаем, аккаунт с данными другой роли не переключаем
+        db.add(AuditLog(actor_user_id=user.id, action="role_changed", detail=None))  # без ПДн: только идентификатор
+        user.role = role  # как во входе по коду: роль меняется, пока нет ни профиля, ни компании
     return user
 
 
@@ -143,7 +153,7 @@ def callback(state: str = Query(""), code: str = Query(""), error: str = Query("
         update(FspLogin)
         .where(FspLogin.state_hash == hash_secret(state), FspLogin.browser_hash == hash_secret(fsp_flow), FspLogin.expires_at > now)
         .values(state_hash=None)
-        .returning(FspLogin.id, FspLogin.mode, FspLogin.user_id)
+        .returning(FspLogin.id, FspLogin.mode, FspLogin.role, FspLogin.user_id)
     ).first() if state and fsp_flow else None
     db.commit()
     if not flow:
@@ -154,7 +164,7 @@ def callback(state: str = Query(""), code: str = Query(""), error: str = Query("
         claims, access = fsp_id.exchange(code, state)
         info = fsp_id.userinfo(access, claims["sub"])
         ident = fsp_id.identity(claims, info)
-        user = _link_user(db, flow.user_id, ident["sub"]) if flow.mode == "link" else _login_user(db, ident)
+        user = _link_user(db, flow.user_id, ident["sub"]) if flow.mode == "link" else _login_user(db, ident, flow.role)
         db.flush()
         db.commit()  # связь с ФСП ID — до импорта: import_protocol ищет кандидата по User.fsp_id и коммитит сам
     except IntegrityError:  # параллельный вход занял тот же ФСП ID или почту
@@ -167,9 +177,12 @@ def callback(state: str = Query(""), code: str = Query(""), error: str = Query("
         db.rollback()
         log.warning("ФСП ID: %s", e)  # причина без ПДн: тип ошибки и поле протокола
         return _abort(db, flow.id, e.code)
-    cand = db.scalar(select(Candidate).where(Candidate.user_id == user.id))
-    ach = fsp_id.import_achievements(db, cand, ident["sub"], info)
-    ach = "consent" if ach is None else str(ach)
+    if user.role == "candidate":  # достижения — только кандидату
+        cand = db.scalar(select(Candidate).where(Candidate.user_id == user.id))
+        ach = fsp_id.import_achievements(db, cand, ident["sub"], info)
+        ach = "consent" if ach is None else str(ach)
+    else:
+        ach = "0"
     if flow.mode == "link":
         db.execute(delete(FspLogin).where(FspLogin.id == flow.id))
         db.commit()
@@ -201,7 +214,7 @@ def exchange(body: TicketIn, response: Response, fsp_flow: str = Cookie(default=
         db.rollback()
         raise HTTPException(401, "Вход через ФСП ID устарел — начните заново")
     response.delete_cookie(COOKIE, path=COOKIE_PATH)
-    has_profile = bool(db.scalar(select(Candidate.id).where(Candidate.user_id == user.id)))
+    has_profile = _has_profile(db, user)  # у кандидата — профиль, у компании — карточка компании
     return login_token(user, db) | {"has_profile": has_profile}  # login_token коммитит удаление билета
 
 

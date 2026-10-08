@@ -15,7 +15,7 @@ from sqlalchemy.orm import object_session, Session, selectinload
 
 from app import catalog
 from app.db import get_db
-from app.deps import current_candidate, current_company, current_user
+from app.deps import active_company, current_candidate, current_company, current_user
 from app.models import Application, AuditLog, Candidate, Company, Vacancy
 from app.routers.employer import MSK, company_trust, validate_fork
 from app.services import matching
@@ -148,7 +148,7 @@ def _own_vacancy(db: Session, co: Company, vacancy_id: int) -> Vacancy:
 
 
 @router.post("")
-def create_vacancy(body: VacancyIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def create_vacancy(body: VacancyIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     # неподтверждённая компания тоже публикует: в карточке вакансии company.verified → плашка у кандидата
     v = Vacancy(company_id=co.id, **body.model_dump())
     v.company = co
@@ -159,7 +159,7 @@ def create_vacancy(body: VacancyIn, co: Company = Depends(current_company), db: 
 
 
 @router.patch("/{vacancy_id}")
-def edit_vacancy(vacancy_id: int, body: VacancyPatch, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def edit_vacancy(vacancy_id: int, body: VacancyPatch, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     v = _own_vacancy(db, co, vacancy_id)
     for k, val in body.model_dump(exclude_unset=True).items():
         if val is not None or k in ("track", "city"):  # null сбрасывает только необязательные поля
@@ -258,7 +258,7 @@ class AppStatusIn(BaseModel):
 
 
 @router.post("/applications/{application_id}/status")
-def set_application_status(application_id: int, body: AppStatusIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
+def set_application_status(application_id: int, body: AppStatusIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     if body.status not in EMPLOYER_MOVES:
         raise HTTPException(422, f"Статус: один из {', '.join(EMPLOYER_MOVES)}")
     if body.status == "declined" and body.reason not in catalog.DECLINE_REASONS:
@@ -294,7 +294,7 @@ def list_vacancies(
     db: Session = Depends(get_db),
 ):
     """Открытые вакансии. Кандидату — по убыванию соответствия, остальным — сначала новые."""
-    stmt = select(Vacancy).where(Vacancy.status == "open").options(selectinload(Vacancy.company))
+    stmt = select(Vacancy).join(Company).where(Vacancy.status == "open", Company.blocked_at.is_(None)).options(selectinload(Vacancy.company))
     for col, val in ((Vacancy.spec, spec), (Vacancy.track, track), (Vacancy.grade, grade), (Vacancy.format, format), (Vacancy.city, city)):
         if val:
             stmt = stmt.where(col == val)
@@ -363,7 +363,7 @@ def withdraw(application_id: int, c: Candidate = Depends(current_candidate), db:
 @router.get("/{vacancy_id}")
 def get_vacancy(vacancy_id: int, c: Candidate | None = Depends(maybe_candidate), db: Session = Depends(get_db)):
     v = db.get(Vacancy, vacancy_id)
-    if not v:
+    if not v or v.company.blocked_at:
         raise HTTPException(404, "Вакансия не найдена")
     applied = db.scalar(select(Application.status).where(Application.vacancy_id == v.id, Application.candidate_id == c.id)) if c else None
     return vacancy_out(v, c, applied)
@@ -384,7 +384,7 @@ def apply(vacancy_id: int, body: ApplyIn, c: Candidate = Depends(current_candida
         raise HTTPException(403, "Нужно согласие на обработку персональных данных: при отклике контакты увидит работодатель")
     if c.theta is None:
         raise HTTPException(403, "Откликаться можно после теста: работодатель видит категорию и результат")
-    if v.status != "open":
+    if v.status != "open" or v.company.blocked_at:
         raise HTTPException(409, "Вакансия закрыта")
     if db.scalar(select(Application.id).where(Application.vacancy_id == v.id, Application.candidate_id == c.id)):
         raise HTTPException(409, "Вы уже откликались на эту вакансию")

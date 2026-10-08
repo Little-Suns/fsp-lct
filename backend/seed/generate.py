@@ -532,7 +532,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     db.add_all(events)
 
     # ── демо: кандидат Дмитрий Орлов ──
-    u_orlov = User(email="d.orlov@example.ru", role="candidate", fsp_id="FSP-1042")
+    u_orlov = User(email="d.orlov@example.ru", role="candidate", fsp_id="FSP-1042", email_confirmed=True)
     orlov = persona(g, "A-1042", 78, 1.12, 0.18, ["Python", "PostgreSQL", "Kafka", "asyncio"], 0,
                     claimed=["Python", "PostgreSQL", "Kafka", "asyncio", "Kubernetes", "Docker"],
                     name="Дмитрий Орлов", competencies=ORLOV_COMP, min_salary=230000, formats=["Гибрид", "Удалённо"],
@@ -631,7 +631,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
                                           rank=cf_rank(rt), fetched_at=NOW - DAY * float(r.uniform(0, 7))))
 
     # ── компании ──
-    u_lad = User(email="m.kovaleva@ladoga-pay.example", role="employer")
+    u_lad = User(email="m.kovaleva@ladoga-pay.example", role="employer", fsp_id="KC-ladoga-0001", email_confirmed=True)  # вход через мок Keycloak
     ladoga = Company(inn=LADOGA_INN, name="Ладога Пэй", about="Финтех, платёжный процессинг, 420 сотрудников",
                      color="#402FFF", site_domain="ladoga-pay.example", recruiter_name="Мария Ковалёва",
                      recruiter_email="m.kovaleva@ladoga-pay.example", recruiter_tg="@mkovaleva", verified=True, quota_max=10)
@@ -696,6 +696,9 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
                    ttl=6 + 5 / 1440))  # «осталось 6 дней»
     add(invitation(kiprey, orlov, kip_need, "sent", NOW - DAY * 4, role="Python-разработчик, сервис маршрутизации",
                    frm=190000, to=225000, fmt="Удалённо", synthetic=False, description=kip_need.text))  # «осталось 3 дня»
+    # принято больше недели назад — у Орлова открыт отзыв о компании (services/reputation.py); без rng: поток засева не сдвигается
+    add(invitation(companies[0], orlov, None, "accepted", NOW - DAY * 12, role="Python-разработчик, внутренние сервисы",
+                   frm=220000, to=270000, fmt="Удалённо", synthetic=False))
     P = personas
     pay, af = "Backend (Python), платежи", "Backend (Python), антифрод"
     add(invitation(ladoga, P["F-0911"], lad_need, "accepted", NOW - DAY * 7, role=pay, frm=240000, to=300000, synthetic=False))
@@ -959,7 +962,7 @@ def extras(db, g: Gen, ladoga, kiprey, lad_need, companies, hq, orlov, cands) ->
                                        auto_ok=autocheck.check(at_, opts, ref, text_, choices)))
 
     # неподтверждённая демо-компания: работает с урезанной квотой, лотерея ей доступна
-    u_new = User(email="newco.hr@gmail.com", role="employer")
+    u_new = User(email="newco.hr@gmail.com", role="employer", email_confirmed=True)
     db.add(u_new)
     db.flush()
     newco = Company(user_id=u_new.id, inn=inn_make("773300112"), name="Новый Стартап", about="Edtech, MVP, 12 сотрудников",
@@ -1024,6 +1027,7 @@ def summary(db, res: dict, secs: float) -> None:
 def main():
     ap = argparse.ArgumentParser(description="Синтетические данные ФСП Карьеры")
     ap.add_argument("--reset", action="store_true", help="пустая схема (DROP SCHEMA public CASCADE) + все миграции перед генерацией")
+    ap.add_argument("--if-empty", action="store_true", help="засеянную базу не трогать и выйти без ошибки (автозасев стенда при DEMO=1)")
     ap.add_argument("--candidates", type=int, default=1500)
     ap.add_argument("--needs", type=int, default=250)
     ap.add_argument("--seed", type=int, default=42)
@@ -1037,6 +1041,12 @@ def main():
     t0 = time.time()
     with SessionLocal() as db:
         if db.scalar(select(User).where(User.email == "d.orlov@example.ru")):
+            if a.if_empty:
+                # банк коммитится после build отдельно: оборванный засев и изменённые шаблоны догоняются на каждом старте
+                from app.services.items import seed_items
+
+                print(f"База уже засеяна — пропускаю; банк заданий: seed_items → {seed_items(db)}")
+                return
             raise SystemExit("База уже засеяна — запустите с --reset")
         res = build(db, a.candidates, a.needs, a.seed, a.today)
         secs = time.time() - t0
