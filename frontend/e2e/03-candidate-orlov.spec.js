@@ -131,6 +131,30 @@ test('сбой /api/candidate/me: «Не удалось загрузить пр�
   await page.getByRole('button', { name: 'Повторить', exact: true }).click();
   await expect(page.getByRole('switch', { name: /Обработка персональных данных/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toHaveCount(0);
+
+  // действие сохранилось, а перечитать /me не вышло — экран сразу сменяется ошибкой, а не остаётся с устаревшим переключателем
+  const pub = page.getByRole('switch', { name: /Публикация обезличенной карточки/ });
+  const was = await pub.getAttribute('aria-checked');
+  await page.route('**/api/candidate/me', r => r.fulfill({ status: 503, json: { detail: 'Сервис временно недоступен' } }));
+  const patched = api(page, 'PATCH', '/api/candidate/consents');
+  await pub.click();
+  expect((await patched).ok()).toBe(true);
+  await expect(toast(page)).toHaveText('Сервис временно недоступен');
+  await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toBeVisible();
+  await page.unroute('**/api/candidate/me');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await expect(pub).toHaveAttribute('aria-checked', was === 'true' ? 'false' : 'true');  // сервер изменение принял
+  await pub.click();  // вернуть как было: от публикации Орлова зависят другие сценарии
+  await expect(pub).toHaveAttribute('aria-checked', was);
+
+  // холодный старт при упавшем /api/meta: до /me не дошли — та же ошибка, а не «Профиль ещё не создан»
+  await page.route('**/api/meta', r => r.fulfill({ status: 500, json: { detail: 'Внутренняя ошибка сервера' } }));
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toBeVisible();
+  await expect(page.getByText('Профиль ещё не создан')).toHaveCount(0);
+  await page.unroute('**/api/meta');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await expect(pub).toBeVisible();
 });
 
 test('профиль и результат теста демо-кандидата', async ({ page }) => {
