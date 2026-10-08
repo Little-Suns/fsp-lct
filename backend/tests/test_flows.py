@@ -588,3 +588,32 @@ def test_profile_waits_for_withdrawal(client):
     assert out["r"].status_code == 403, out["r"].text
     with SessionLocal() as db:
         assert db.get(Candidate, cid).consent_publish is False
+
+
+def test_salary_upper_bound(client):
+    """Сумма больше catalog.SALARY_MAX — 422 с русским сообщением во всех входах, а не 500 «integer out of range»."""
+    huge = 10_000_000_000
+
+    def too_big(r):
+        assert r.status_code == 422, r.text
+        assert any(e["type"] == "salary_max" and "10 000 000 ₽" in e["msg"] for e in r.json()["detail"]), r.text
+
+    with SessionLocal() as db:
+        u = User(email="rich@example.ru", role="candidate")
+        db.add(u)
+        db.commit()
+        hdr = {"Authorization": "Bearer " + issue_token(db, u)}
+    body = {"name": "Богач", "spec": "Backend", "grade_claimed": "Middle", "min_salary": huge, "formats": ["Гибрид"], "city": "Москва", "consent_152": True}
+    too_big(client.post("/api/candidate/profile", json=body, headers=hdr))
+    ok = client.post("/api/candidate/profile", json={**body, "min_salary": catalog.SALARY_MAX}, headers=hdr)  # граница включительно и влезает в integer
+    assert ok.status_code == 200, ok.text
+    with SessionLocal() as db:
+        assert db.query(Candidate.min_salary).filter(Candidate.user_id == u.id).scalar() == catalog.SALARY_MAX
+    need = {"spec": "Backend", "grade": "Middle", "salary_from": 240000, "salary_to": 300000}
+    too_big(client.post("/api/employer/needs", json={**need, "salary_to": huge}, headers=E))
+    too_big(client.post("/api/employer/needs", json={**need, "salary_from": huge}, headers=E))
+    too_big(client.post("/api/employer/needs/category", json={"spec": "Backend", "grade": "Middle", "salary_to": huge}, headers=E))
+    inv = {"candidate_id": "A-1042", "role": "Backend-разработчик", "format": "Гибрид", "salary_from": 240000, "salary_to": huge}
+    too_big(client.post("/api/employer/invites", json=inv, headers=E))
+    too_big(client.post("/api/employer/invites", json={**inv, "salary_from": huge}, headers=E))
+    too_big(client.post("/api/lottery/", json={"need_id": 1, "threshold": {"fork_to": huge}, "draw_count": 1}, headers=E))
