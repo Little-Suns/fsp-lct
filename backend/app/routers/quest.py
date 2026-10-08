@@ -270,7 +270,7 @@ def start(body: StartIn, cand: Candidate = Depends(current_candidate), db: Sessi
         raise HTTPException(422, "В профиле не указана специализация")
     bank = _bank(db, cand.spec)
     if not bank:
-        raise HTTPException(503, "Банк заданий пуст: запустите seed")
+        raise HTTPException(503, "Банк заданий пуст: перезапустите API (банк засевается при старте) или python -m app.services.items")
     if body.mode not in MODES:
         raise HTTPException(422, f"mode — одно из: {', '.join(MODES)}")
     target = body.target_grade or (cand.grade_claimed if cand.grade_claimed in catalog.GRADES else None)
