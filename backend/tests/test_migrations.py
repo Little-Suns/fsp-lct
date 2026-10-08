@@ -267,7 +267,7 @@ def test_parallel_seed_has_no_duplicates():
                 if holder.scalar(waiting, {"k": SEED_LOCK}) == 2:
                     break
                 time.sleep(0.05)
-            assert not any(f.done() for f in futs)  # без блокировки засев прошёл бы сразу
+            assert holder.scalar(waiting, {"k": SEED_LOCK}) == 2 and not any(f.done() for f in futs)  # без блокировки засев прошёл бы сразу
         finally:
             holder.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": SEED_LOCK})
         ns = sorted(f.result() for f in futs)
