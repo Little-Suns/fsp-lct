@@ -2989,7 +2989,7 @@ async function show(keep) {
     await load(r);
     if (my === seq) ME_ERR = false;
   } catch (e) {
-    if (my === seq) { ME_ERR = !!e.noMe && e.status !== 401; fail(e); }
+    if (my === seq) { ME_ERR = side === 'c' && !!e.noMe && e.status !== 401; fail(e); }
     if (e.status === 401) { if (my === seq && r === route()) busy(false); return; }
   }
   if (my !== seq || r !== route()) return;
