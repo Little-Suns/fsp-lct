@@ -151,7 +151,9 @@ def test_quest_flow(env):
     t = res["target"]
     assert t["grade"] == "Middle" and t["result_grade"] == res["category"]["grade"]
     assert t["verdict"] == {-1: "below", 0: "confirmed", 1: "above"}[(catalog.GRADES.index(t["result_grade"]) > 2) - (catalog.GRADES.index(t["result_grade"]) < 2)]
-    assert 0 <= res["percentile"] <= 100 and res["percentile_scope"] == "category"
+    # выбор заданий случаен (клоны против утечки), поэтому θ = 1.0 изредка даёт не Middle; в фикстуре 15 соседей — все Middle,
+    # так что вне Middle категория меньше PERCENTILE_MIN_N и перцентиль считается по специализации (ветки — test_percentile_scope)
+    assert 0 <= res["percentile"] <= 100 and res["percentile_scope"] == ("category" if res["category"]["grade"] == "Middle" else "spec")
     assert [c["n"] for c in res["competencies"]] == catalog.COMPETENCIES["Backend"]
     assert "too_fast" in res["flags"] and "review_required" in res["flags"]  # TestClient отвечает мгновенно
     assert res["upgrade"]["allowed_at"] and res["minutes"] is not None
@@ -205,6 +207,33 @@ def test_quest_flow(env):
         rows = db.scalars(select(QuestSession).where(QuestSession.candidate_id == cand_id).order_by(QuestSession.id.desc())).all()
         assert [r.applied for r in rows] == [h["applied"] for h in hist] and [r.grade for r in rows] == [h["grade"] for h in hist]
         assert rows[0].grade == up2["category"]["grade"]
+
+
+def test_percentile_scope():
+    """Перцентиль — по категории spec × track × grade, если в ней не меньше PERCENTILE_MIN_N других; иначе — по специализации;
+    без других кандидатов со θ — нет перцентиля. Отдельная специализация, чтобы чужие кандидаты базы не мешали."""
+    tag = secrets.token_hex(3)
+    mk = dict(MK, spec=f"Pct-{tag}")
+
+    def cand(i, theta, grade="Middle", **kw):
+        return Candidate(public_id=f"P{tag}{i:03d}", name="p", email="p@p", theta=theta, se=0.3, grade=grade, **{**mk, **kw})
+
+    with SessionLocal() as db:
+        alone = cand(0, 0.5, spec=f"Solo-{tag}")
+        me = cand(1, 0.45)
+        peers = [cand(10 + i, i / 10) for i in range(quest.PERCENTILE_MIN_N)]  # θ 0.0…0.9: ниже 0.45 — пятеро
+        other_track = [cand(50 + i, 5.0, track="Go") for i in range(3)]  # в категорию не входят, в специализацию — да
+        senior = cand(2, 0.95, grade="Senior")
+        db.add_all([alone, me, *peers, *other_track, senior])
+        db.flush()
+        assert quest._percentile(db, alone) == (None, None)
+        assert quest._percentile(db, me) == (50, "category")
+        # Senior в категории один → специализация: из 14 других (10 Middle Python, сам me, 3 Go с θ 5.0) ниже 0.95 — 11
+        assert quest._percentile(db, senior) == (round(100 * 11 / 14), "spec")
+        db.delete(peers[0])
+        db.flush()  # категория стала меньше порога → тоже специализация
+        assert quest._percentile(db, me)[1] == "spec"
+        db.rollback()
 
 
 def test_express_mode(env):
