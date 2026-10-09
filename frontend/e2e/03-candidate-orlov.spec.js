@@ -192,7 +192,7 @@ test('профиль и результат теста демо-кандидат�
   await expect(sw).toHaveAttribute('aria-checked', 'false');
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
   await expect(toast(page)).toHaveText('Профиль сохранён');
-  await expect(page.getByRole('heading', { name: 'Ночь, пейджер, падает приём платежей' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
 
   await open(page, '/c/result');
   await expect(page.getByText('Ваша категория')).toBeVisible();

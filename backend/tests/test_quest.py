@@ -28,6 +28,7 @@ from app.deps import issue_token  # noqa: E402
 from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession, User  # noqa: E402
 from app.routers import candidate, quest  # noqa: E402
 from app.services import irt, matching, profile_pdf  # noqa: E402
+from app.services.items import STORY  # noqa: E402
 from app.services.items import generate_bank, plan_for_need, seed_items  # noqa: E402
 
 NEED_TEXT = "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. Уровень — мидл, до 300 на руки. Гибрид, Москва."
@@ -121,6 +122,9 @@ def _run(client, items, ok, start: dict | None = None) -> dict:
     while not r["done"]:
         it = r["item"]
         item = items[it["id"]]
+        # сюжет — из items.STORY: название квеста и часы сцены по её номеру в сессии, а не по семейству
+        clock = STORY[item.spec]["clock"]
+        assert r["quest_title"] == STORY[item.spec]["title"] and it["time"] == clock[min(r["progress"]["n"], len(clock)) - 1]
         keys = item.payload["key"] if isinstance(item.payload["key"], list) else [item.payload["key"]]
         if ok(item):
             resp = keys[0]

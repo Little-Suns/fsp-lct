@@ -48,13 +48,17 @@ async function answerAll(page, checks = false) {
       await expect(page.getByText('Отмечена строка 2.')).toBeVisible();
       if (await page.locator('#rv-comment').count()) await page.locator('#rv-comment').fill('Гонка: нет блокировки строки при повторе.');
     }
-    if (checks && answered === 0) {  // таймер сцены идёт
+    if (checks && answered === 0) {  // таймер сцены идёт; с сюжетом у сцены — часы смены
       const t = await page.locator('#timer span').textContent();
       await expect(page.locator('#timer span')).not.toHaveText(t, { timeout: 3000 });
+      await expect(page.locator('.story .t')).toHaveText(/^\d\d:\d\d$/);
     }
-    if (checks && answered === 1) {  // сюжет можно выключить посреди теста — задание то же, без истории
+    if (checks && answered === 1) {  // сюжет можно выключить посреди теста — задание и его условие те же, без часов и заголовка сцены
+      const cond = await page.locator('.story').textContent();
       await page.getByRole('switch', { name: 'сюжет' }).click();
       await expect(page.locator('.crumbs b')).toHaveText(/^Задание \d+$/);
+      await expect(page.locator('.story .t')).toHaveCount(0);
+      expect(cond).toContain(await page.locator('.story').textContent());
       if (await opts.count()) await opts.first().click(); else await page.locator('.code button[data-act=mark]').nth(1).click();
     }
     await expect(next).toBeEnabled();
@@ -173,7 +177,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(toast(page)).toHaveText('Профиль сохранён');
 
   // тест-квест: вводная, выбор грейда, сюжет
-  await expect(page.getByRole('heading', { name: 'Ночь, пейджер, падает приём платежей' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
   await page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Middle' }).click();
   await expect(page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Middle' })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('switch', { name: /Сюжет включён/ }).click();
@@ -189,6 +193,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.locator('#timer span')).toHaveText(/^(1:00|0:5\d)$/);
   expect(await answerAll(page)).toBe(5);
   await expect(page.getByText('Экспресс-тест · Все задания пройдены · 5 из 5')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Смена сдана' })).toBeVisible();  // финал сюжета Backend (items.STORY)
   const exFin = api(page, 'POST', '/api/quest/finish');
   await page.getByRole('button', { name: 'Посмотреть категорию' }).click();
   expect(await (await exFin).json()).toMatchObject({ applied: true, express: true, mode: 'express', assessment_label: 'экспресс-оценка' });
