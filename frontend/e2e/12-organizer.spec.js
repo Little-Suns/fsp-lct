@@ -12,7 +12,7 @@ async function login(page, token = TOKEN) {
 
 test('организатор: вход по токену, импорт примера протокола ФСП и повтор', async ({ page }) => {
   await open(page, '/v');
-  await page.getByRole('button', { name: 'Организатору: импорт протоколов →' }).click();
+  await page.getByRole('link', { name: 'Организатору: импорт протоколов →' }).click();
   await expect(page.getByRole('heading', { name: 'Импорт протоколов соревнований' })).toBeVisible();
   await page.getByRole('button', { name: 'Войти', exact: true }).click();
   await expect(toast(page)).toHaveText('Введите токен организатора');
@@ -26,7 +26,7 @@ test('организатор: вход по токену, импорт прим�
   await page.getByRole('button', { name: 'Импортировать' }).click();
   expect((await bad).status()).toBe(401);
   await expect(page.getByRole('alert')).toHaveText(/Токен организатора не подошёл/);
-  await expect(page).toHaveURL(/#\/org$/);
+  await expect(page).toHaveURL(/\/org$/);
   // токен организатора не попадает в localStorage
   expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.includes('org')))).toEqual([]);
 
@@ -59,7 +59,7 @@ test('организатор: вход по токену, импорт прим�
 });
 
 test('организатор: подтверждение CTFtime файлом JSON, ошибки формата без XSS', async ({ page }) => {
-  await open(page, '/org');  // прямая ссылка, как у /v
+  await open(page, '/org');  // прямой адрес, как у /v
   await login(page);
   await page.getByLabel('Источник').selectOption('ctftime');
   await page.getByLabel('Идентификатор события').fill('2950');

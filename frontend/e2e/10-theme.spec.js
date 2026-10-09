@@ -57,7 +57,7 @@ test.describe('системная тёмная', () => {
 
   test('hover основной кнопки: фон отличается от текста и от --blue-ink', async ({ page }) => {
     await open(page, '/');
-    const btn = page.getByRole('button', { name: 'Я разработчик' });
+    const btn = page.getByRole('link', { name: 'Создать профиль' });
     await btn.hover();
     await expect.poll(() => btn.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(75, 61, 240)');  // --blue-hover
     const s = await btn.evaluate(el => ({ bg: getComputedStyle(el).backgroundColor, fg: getComputedStyle(el).color }));

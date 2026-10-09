@@ -30,7 +30,7 @@ services:
       SMTP_FROM: ${SMTP_FROM:-no-reply@fsp-career.local}
       # перец для HMAC кодов входа; задайте постоянный на стенде, иначе коды сгорают при рестарте
       SECRET_KEY: ${SECRET_KEY:-}
-      # токен организатора: импорт протоколов (страница /#/org, POST /api/achievements/import); пусто — только роль admin
+      # токен организатора: импорт протоколов (страница /org, POST /api/achievements/import); пусто — только роль admin
       ORGANIZER_TOKEN: ${ORGANIZER_TOKEN:-}
       # адрес стенда в браузере: redirect_uri ФСП ID и issuer мок-провайдера
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
