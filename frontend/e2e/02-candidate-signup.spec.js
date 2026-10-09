@@ -133,7 +133,7 @@ test('без согласия на обработку ПДн профиль не
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
   expect((await saved).request().postDataJSON()).toMatchObject({ consent_152: true, consent_publish: false });
   await expect(page).toHaveURL(/\/candidate\/test$/);
-  await expect(page.getByRole('heading', { name: 'Ночь, пейджер, падает приём платежей' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
 });
 
 test('кандидат: регистрация → профиль и PDF → тест на грейд → вердикт и история → настройки → выгрузка → удаление', async ({ page }) => {
