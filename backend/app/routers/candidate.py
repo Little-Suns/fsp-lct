@@ -441,7 +441,7 @@ def _detail(db: Session, inv: Invitation, c: Candidate) -> dict:
         else f"Вилка покрывает ваш минимум {c.min_salary:,} ₽".replace(",", " "),
     }
     out["why"] = None
-    if inv.need:
+    if inv.need and matching.tested(c):  # после смены специализации категории нет: объяснения подбора тоже
         r = matching.score_candidates(db, inv.need, [c], limit=1)
         out["why"] = r[0].explanation["why"] if r else None
     out["company_knows"] = "contacts" if inv.status == "accepted" else "anonymous"

@@ -25,7 +25,7 @@ from sqlalchemy import delete
 from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
-from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, QuestSession, RetiredPublicId, User, Vacancy
+from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Need, QuestSession, RetiredPublicId, User, Vacancy
 from app.routers import candidate, employer, lottery, quest
 from app.services import llm, matching, ocr, profile_pdf
 
@@ -356,8 +356,20 @@ def test_category_change_invalidates_assessment(client, spec, track):
         assert quest_client.get("/api/quest/result", headers=headers).status_code == 404
         hist = quest_client.get("/api/quest/history", headers=headers).json()
         assert hist[0]["spec"] == "Backend" and hist[0]["track"] == "Python"
+        nid = client.post("/api/employer/needs", json={"spec": "Backend", "track": "Python", "grade": "Middle", "must": ["Python"], "salary_to": 330000}, headers=E).json()["id"]
         with SessionLocal() as db:
             assert db.get(Candidate, cid).next_upgrade_at == until
+            need = db.get(Need, nid)
+            inv = Invitation(company_id=need.company_id, candidate_id=cid, need_id=need.id, role="Backend", salary_from=280000,
+                             salary_to=330000, format="Удалённо", expires_at=datetime.now(UTC) + timedelta(days=5))
+            db.add(inv)
+            db.commit()
+            iid = inv.id
+        # приглашение, отправленное до смены трека: открывается и принимается без объяснения подбора
+        got = client.get(f"/api/candidate/invites/{iid}", headers=headers)
+        assert got.status_code == 200, got.text
+        assert got.json()["why"] is None
+        assert client.post(f"/api/candidate/invites/{iid}/accept", headers=headers).status_code == 200
     finally:
         with SessionLocal() as db:
             db.execute(delete(Candidate).where(Candidate.id == cid))

@@ -630,7 +630,7 @@ def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Sessi
     base_fmt = next((f for f in catalog.FORMATS if body.format.startswith(f)), None)
     if not base_fmt:
         raise HTTPException(422, {"errors": [f"Формат начинается с одного из: {', '.join(catalog.FORMATS)}"], "warnings": []})
-    grade = matching.category_grade(c)  # без теста — заявленный: вилка по рынку того грейда, о котором договариваются
+    grade = matching.category_grade(c)  # видимый кандидат — только с категорией по тесту (matching.visible)
     mkt = catalog.market(c.spec, grade, (n.city if n else None) or c.city)
     errors, warnings = validate_fork(body.salary_from, body.salary_to, p25=mkt["p25"], cand_min=c.min_salary, grade=grade)
     if errors:
