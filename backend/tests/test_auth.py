@@ -19,6 +19,7 @@ from app.db import Base, SessionLocal, engine, reset_schema
 from app.deps import hash_secret, issue_token, otp_hash
 from app.main import app
 from app.models import Candidate, Company, LoginChallenge, User
+from app.services.items import STORY
 
 config.LLM_BASE_URL = ""
 
@@ -55,6 +56,8 @@ def test_app_wiring(client):
     meta = client.get("/api/meta").json()
     assert meta["cap"] == catalog.CANDIDATE_CAP and meta["invite_ttl_days"] == catalog.INVITE_TTL_DAYS and "Backend" in meta["specs"]
     assert meta["demo"] is config.DEMO
+    # вводная и финал теста на фронте — тот же сюжет, что в items.STORY (без часов: их подставляет /api/quest)
+    assert meta["stories"] == {spec: {k: v for k, v in st.items() if k != "clock"} for spec, st in STORY.items()}
     paths = set(app.openapi()["paths"])
     for p in ("/api/auth/verify", "/api/candidate/me", "/api/employer/search", "/api/quest/start", "/api/achievements",
               "/api/lottery/{lottery_id}/public", "/api/validation", "/api/vacancies", "/api/tasks/mine"):
