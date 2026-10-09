@@ -15,9 +15,7 @@ must_skills ⊇ need.must, fork_to ≤ need.salary_to, formats ⊂ {need.format}
   fork_to (min_salary ≤ fork_to), formats?[] (пересечение с форматами кандидата), require_free (нагрузка < CAP).
 Всегда: статус open, действующие согласия на обработку и публикацию (matching.consent_ok), тест пройден, ИНН компании не в hidden_from, нет открытого приглашения от этой компании
 и нет её отклонённого / истёкшего приглашения за последние 90 дней.
-Тест обязателен, хотя в подборке и поиске не подтверждённые тестом видны: порог лотереи — квалификация, а жребий
-уравнивает всех прошедших его. Заявленный грейд не проверен, и «Senior со слов» вытягивал бы приглашение наравне
-с подтверждённым — тогда как в подборке он стоит строго ниже (matching.order_key).
+Тест обязателен, как и в подборке и поиске (matching.visible): без теста категории нет, заявленный грейд не проверен.
 
 Протокол: create — соль salt = token_hex(32) (наружу не отдаётся никогда), пул замораживается как отсортированные
 псевдонимы p = sha256(salt + public_id)[:16]; seed = token_hex(32), публикуются sha256(seed) и commitment.
@@ -37,7 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.catalog import CANDIDATE_CAP, GRADES
 from app.models import Candidate, Company, Invitation, Lottery
-from app.services.matching import consent_ok, published
+from app.services.matching import consent_ok, published, tested
 
 COOLDOWN_DAYS = 90  # отказ или молчание (истёкшее приглашение) этой компании — не навязываемся 90 дней
 POOL_MAX = 500  # ponytail: больше — порог слишком мягкий, просим сузить; пагинация пула, если понадобится
@@ -251,12 +249,12 @@ def public_state(db: Session, lot: Lottery) -> dict:
 
 
 def _cards(db: Session, lot: Lottery) -> list[dict]:
-    """Карточки вытянутых — только при действующем согласии на обработку и публикацию (могли отозвать после жребия);
-    иначе {pseudonym, hidden: true} без public_id. Удалённые кандидаты тоже hidden."""
+    """Карточки вытянутых — только при действующем согласии на обработку и публикацию и пройденном тесте (могли отозвать
+    согласие или сбросить тест сменой специализации после жребия); иначе {pseudonym, hidden: true} без public_id. Удалённые кандидаты тоже hidden."""
     loads = open_loads(db)
     found = dict(drawn_candidates(db, lot))
     return [{**card(c, loads.get(c.id, 0)), "pseudonym": p}
-            if (c := found.get(p)) and consent_ok(c, "processing") and consent_ok(c, "publish")
+            if (c := found.get(p)) and consent_ok(c, "processing") and consent_ok(c, "publish") and tested(c)
             else {"pseudonym": p, "hidden": True}
             for p in lot.drawn_ids or []]
 

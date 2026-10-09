@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app import catalog
@@ -21,6 +21,7 @@ from app.deps import current_candidate, current_user
 from app.integrations.consent import lock_candidate, set_external_consent
 from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, Message, QuestSession, RetiredPublicId, TaskSubmission, User
 from app.routers.employer import Salary, company_trust
+from app.routers.quest import reset_cap
 from app.services import matching, ocr, profile_pdf, reputation
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, canon_terms, parse_cv
@@ -170,9 +171,10 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
         raise HTTPException(422, f"Формат: один или несколько из {', '.join(catalog.FORMATS)}")
     c = db.scalar(select(Candidate).where(Candidate.user_id == user.id))
     skills = canon_skills(body.skills_claimed)
+    keep = c is not None and c.spec == body.spec  # смена специализации сбрасывает тест (_reset_test)
     # эмбеддинг (HTTP к модели) — до блокировки, чтобы не держать строку на время запроса
-    vec = matching.embed_candidate(SimpleNamespace(spec=body.spec, track=body.track, grade=c.grade if c else None, grade_claimed=body.grade_claimed,
-                                                   skills_confirmed=c.skills_confirmed if c else [], skills_claimed=skills))
+    vec = matching.embed_candidate(SimpleNamespace(spec=body.spec, track=body.track, grade=c.grade if keep else None, grade_claimed=body.grade_claimed,
+                                                   skills_confirmed=c.skills_confirmed if keep else [], skills_claimed=skills))
     if c:
         # FOR UPDATE с перечитыванием: проверка согласия и запись сериализуются с PATCH /consents (отзыв не проскочит)
         c = lock_candidate(db, c.id)
@@ -185,6 +187,7 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
         c = Candidate(user_id=user.id, public_id=_new_public_id(db), consent_152=False, consent_publish=False, consent_external=False)
         db.add(c)
     new = c.id is None
+    reset = not new and c.spec != body.spec and _reset_test(db, c, body.spec)
     c.name, c.email, c.tg = body.name, body.email or user.email, body.tg
     c.spec, c.track, c.grade_claimed = body.spec, body.track, body.grade_claimed
     c.min_salary, c.formats, c.city = body.min_salary, list(body.formats), body.city
@@ -210,7 +213,30 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
     c.embedding = vec
     db.commit()
     db.expire(c, ["achievements", "accounts"])  # удаление было bulk-запросом мимо загруженных коллекций
-    return me(c, db)
+    return {**me(c, db), "test_reset": reset}
+
+
+def _reset_test(db: Session, c: Candidate, new_spec: str) -> bool:
+    """Смена специализации: результат теста привязан к специализации, в которой его проходили, и в новую не переносится.
+    Грейд, θ, компетенции, подтверждённые тестом навыки, разбор решения и подтверждения работодателей сбрасываются;
+    первый тест по новой специализации — первое присвоение. Срок кулдауна повышения остаётся: пока он идёт, первый тест
+    даёт грейд не выше прежнего (quest.reset_cap), иначе сменой специализации туда и обратно кулдаун обходился бы.
+    Незаконченная попытка по старой специализации удаляется (её задания из чужого банка). До нового теста кандидат работодателям не виден (matching.visible).
+    В AuditLog — test_reset без ПДн. Возвращает True, если было что сбрасывать."""
+    had = c.tested_at is not None or c.grade is not None
+    db.execute(delete(QuestSession).where(QuestSession.candidate_id == c.id, QuestSession.finished_at.is_(None)))
+    if had:
+        grade = c.grade
+        # в кулдаун потолок не «отмывается» через промежуточную специализацию: пишем не выше действующего потолка
+        until = c.next_upgrade_at.replace(tzinfo=UTC) if c.next_upgrade_at and c.next_upgrade_at.tzinfo is None else c.next_upgrade_at
+        if grade and until and until > _now() and (cap := reset_cap(db, c)) and catalog.GRADES.index(grade) > catalog.GRADES.index(cap):
+            grade = cap
+        db.add(AuditLog(actor_user_id=c.user_id, action="test_reset", subject_candidate_id=c.id,
+                        detail={"reason": "spec_changed", "from_spec": c.spec, "to_spec": new_spec, "grade": grade}))
+    c.grade = c.theta = c.se = c.percentile = c.tested_at = None
+    c.competencies, c.skills_confirmed = [], []
+    c.grade_express, c.review_passed, c.employer_confirmed = False, False, 0
+    return had
 
 
 def _open_count(db: Session, c: Candidate) -> int:
@@ -239,7 +265,7 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
         "format": matching.format_text(c.formats, c.city),
         "city": c.city,
         "status": c.status,
-        "visible": matching.visible(c),  # карточку видят работодатели (статус, действующие согласия); без теста — с пометкой
+        "visible": matching.visible(c),  # карточку видят работодатели: статус, действующие согласия и пройденный тест
         "notif": c.notif,
         "hidden_from": c.hidden_from or [],
         "years_exp": c.years_exp,

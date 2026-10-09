@@ -263,7 +263,7 @@ def _need_out(n: Need) -> dict:
 
 
 def _category_count(db: Session, spec: str, track: str | None, grade: str) -> int:
-    # вместе с не подтверждёнными тестом: они в выдаче, с пометкой и ниже прошедших
+    # только прошедшие тест: без теста категории нет (category_grade_sql — NULL)
     q = select(func.count()).select_from(Candidate).where(Candidate.spec == spec, matching.category_grade_sql() == grade, Candidate.status == "open", matching.published())
     if track:
         q = q.where(Candidate.track == track)
@@ -466,7 +466,7 @@ def candidate_card(public_id: str, need_id: int | None = None, co: Company = Dep
     if r is None:
         out["load"] = matching.candidate_loads(db, [c.id])[c.id]
         out["busy"] = out["load"] >= catalog.CANDIDATE_CAP
-    out["competencies"] = (c.competencies or []) if matching.tested(c) else []
+    out["competencies"] = c.competencies or []
     out["explanation"] = r.explanation if r else None
     out["breakdown"] = r.explanation["parts"] if r else None
     out["market"] = catalog.market(c.spec, matching.category_grade(c), n.city if n else c.city)
@@ -515,7 +515,7 @@ def search(
     db: Session = Depends(get_db),
 ):
     """Поиск по всему банку без потребности: фильтры + ранжирование по силе подтверждённого профиля (matching.strength);
-    не подтверждённые тестом — после прошедших (matching.search_key), грейд у них — заявленный.
+    только прошедшие тест (matching.visible).
     q — свободный текст, из него берутся навыки справочника. Фасеты spec/grade считаются без своего фильтра."""
     want = list(dict.fromkeys(canon_skills(skills.split(",")) + extract_skills(q))) if skills or q else []
     base = db.scalars(
@@ -650,7 +650,7 @@ def send_invite(body: InviteIn, bg: BackgroundTasks, co: Company = Depends(activ
     base_fmt = next((f for f in catalog.FORMATS if body.format.startswith(f)), None)
     if not base_fmt:
         raise HTTPException(422, {"errors": [f"Формат начинается с одного из: {', '.join(catalog.FORMATS)}"], "warnings": []})
-    grade = matching.category_grade(c)  # без теста — заявленный: вилка по рынку того грейда, о котором договариваются
+    grade = matching.category_grade(c)  # по тесту: без теста кандидат не виден (visible) и приглашение не дойдёт до сюда
     mkt = catalog.market(c.spec, grade, (n.city if n else None) or c.city)
     errors, warnings = validate_fork(body.salary_from, body.salary_to, p25=mkt["p25"], cand_min=c.min_salary, grade=grade)
     if errors:

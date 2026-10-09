@@ -20,7 +20,7 @@ TRACKS = {
 }
 
 GRADES = ["Intern", "Junior", "Middle", "Senior", "Lead"]
-# пороги θ: грейд присваивается, если θ − SE ≥ порог (гистерезис против «дрожания» при пересдаче)
+# пороги θ: грейд присваивается, если θ − SE ≥ порог (запас SE против «дрожания» при пересдаче); вниз — только по решению кандидата
 GRADE_TH = {"Intern": -9.0, "Junior": -0.5, "Middle": 0.5, "Senior": 1.5, "Lead": 2.3}
 UPGRADE_COOLDOWN_DAYS = 90
 REVIEW_REQUIRED_FROM = "Senior"  # «разбор решения» для Senior+

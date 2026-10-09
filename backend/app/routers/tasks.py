@@ -171,8 +171,9 @@ def _own_task(db: Session, co: Company, task_id: int) -> Task:
 
 
 def _published(c: Candidate, co: Company) -> bool:
-    """Решение видно работодателю, только пока кандидат согласен на обработку ПДн и публикацию карточки и не скрылся от компании."""
-    return matching.consent_ok(c, "processing") and matching.consent_ok(c, "publish") and co.inn not in (c.hidden_from or [])
+    """Решение видно работодателю, только пока кандидат согласен на обработку ПДн и публикацию карточки, не скрылся от компании
+    и тест пройден (сбросил сменой специализации — скрыт до нового теста, как в выдаче)."""
+    return matching.tested(c) and matching.consent_ok(c, "processing") and matching.consent_ok(c, "publish") and co.inn not in (c.hidden_from or [])
 
 
 def _submission_row(s: TaskSubmission, co: Company) -> dict:
@@ -324,6 +325,8 @@ def submit(task_id: int, body: SubmitIn, c: Candidate = Depends(current_candidat
         raise HTTPException(404, "Задание не найдено")
     if not matching.consent_ok(c, "processing"):
         raise HTTPException(403, "Нужно согласие на обработку персональных данных")
+    if not matching.tested(c):
+        raise HTTPException(403, "Решать задания можно после теста: работодатель видит решение вместе с категорией")
     if db.scalar(select(TaskSubmission.id).where(TaskSubmission.task_id == t.id, TaskSubmission.candidate_id == c.id)):
         raise HTTPException(409, "Решение уже отправлено")  # до сверки: повтор не тратит время на шаблон
     try:
