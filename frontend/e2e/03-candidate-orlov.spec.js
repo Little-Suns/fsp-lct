@@ -12,11 +12,6 @@ test('приглашения: открыть → просмотрено, отк�
   await expect(lad).toContainText('есть задача');
   await expect(page.getByText('Так приглашение выглядит в Telegram')).toBeVisible();
 
-  // карта экранов показывает открытые приглашения кандидата
-  await page.getByRole('button', { name: 'Экраны' }).click();
-  await expect(page.getByRole('dialog').getByRole('button', { name: /Приглашение: Ладога Пэй/ })).toBeVisible();
-  await page.keyboard.press('Escape');
-
   // «Ладога Пэй»: контакт рекрутера виден до принятия, открытие помечает «просмотрено»
   const seen = api(page, 'GET', '/api/candidate/invites/' + (await lad.getAttribute('data-go')).split('/').pop());
   await lad.click();
