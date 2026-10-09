@@ -180,7 +180,7 @@ def test_quest_flow(env):
     up = _run(client, items, lambda it: True)["result"]
     assert up["category"]["grade"] == grade1
 
-    # 3) пересдача в кулдаун, всё неверно: понижение сразу, срок повышения не сдвигается
+    # 3) пересдача в кулдаун, всё неверно: принудительного понижения нет, срок не сдвигается
     down = _run(client, items, lambda it: False)["result"]
     assert not down["applied"] and down["attempt"]["theta"] < theta1 and down["target"]["verdict"] == "below"
     assert down["category"]["grade"] == grade1

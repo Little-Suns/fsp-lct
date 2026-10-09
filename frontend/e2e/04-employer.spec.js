@@ -373,8 +373,7 @@ test('Ладога: без теста нет выдачи и доступа к �
   await demo(page, 'e');
   await page.locator('.brand').click();
   await expect(page.getByText('В подборку входят только кандидаты с категорией, присвоенной по тесту.')).toBeVisible();
-  // подборка и поиск: не подтверждённые тестом — строго после прошедших, без перцентиля и θ
-  const tail = items => { const t = items.map(c => c.grade_tested), i = t.indexOf(false); return [i, t.slice(i).every(x => x === false)]; };
+  // подборка и поиск: кандидатов без теста нет
   const P = await page.evaluate(() => api('GET', `/api/employer/needs/${S.needId}/picks?limit=500`));
   expect(P.items.every(c => c.grade_tested)).toBe(true);
   expect(P.items.find(c => c.id === 'K-2077')).toBeUndefined();

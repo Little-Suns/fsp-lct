@@ -283,9 +283,9 @@ def test_unconfirmed_grade(client):
     # тест показал грейд ниже заявленного: категория по тесту, заявленный виден
     j = client.get("/api/employer/candidates/J-0003", headers=E).json()
     assert (j["grade"], j["grade_claimed"], j["grade_tested"], j["pct"]) == ("Junior", "Middle", True, 60) and j["competencies"]
-    with SessionLocal() as db:  # счётчик категории — по тесту (J-0003 в Junior), без теста — по заявленному
+    with SessionLocal() as db:  # счётчик категории — только по тесту (J-0003 в Junior), заявленный грейд не считается
         assert employer._category_count(db, "Backend", "Python", "Junior") == 1
-    # ярусы во всех вариантах подбора: без теста — после прошедших
+    # во всех вариантах подбора кандидатов без теста нет
     for variant in ("embed", "rerank", "full"):
         ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks?variant={variant}", headers=E).json()["items"]]
         assert "U-0004" not in ids and len(ids) > 1, (variant, ids)
