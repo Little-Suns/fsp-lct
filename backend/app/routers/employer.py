@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, defer, selectinload
 
 from app import catalog, config, mail
 from app.db import get_db
-from app.deps import active_company, current_company, current_user
+from app.deps import DEMO_PERSONAS, active_company, current_company, current_user
 from app.models import Candidate, Company, Invitation, Lottery, Need, Task, User, Vacancy
 from app.services import lottery as lottery_svc
 from app.services import matching, reputation
@@ -669,10 +669,13 @@ def send_invite(body: InviteIn, bg: BackgroundTasks, co: Company = Depends(activ
     )
     db.add(inv)
     db.commit()
-    if config.SMTP_HOST and (c.notif or {}).get("mail", True):
+    # адрес входа (подтверждён кодом или ФСП ID), а не почта из анкеты: её кандидат вписывает сам — письмо ушло бы постороннему.
+    # Без аккаунта (синтетика) и демо-персонажу на стенде письма нет: адреса не настоящие
+    to = db.scalar(select(User.email).where(User.id == c.user_id)) if c.user_id else None
+    if config.SMTP_HOST and to and (c.notif or {}).get("mail", True) and not (config.DEMO and to in DEMO_PERSONAS.values()):
         # ponytail: фоном в том же процессе, без очереди и повторов — упавшее письмо теряется (приглашение видно в кабинете);
-        # Telegram-бота нет (table.md)
-        bg.add_task(mail.invite_notice, c.email)
+        # расширять — outbox-таблица и воркер с повтором. Telegram-бота нет (table.md)
+        bg.add_task(mail.invite_notice, to)
     return {"invite": _row(inv), "warnings": warnings, "quota": quota(db, co)}
 
 

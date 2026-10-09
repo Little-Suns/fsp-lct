@@ -1454,7 +1454,7 @@ V['/c/home'] = () => {
   const list = (D.invites && D.invites.items) || [];
   const open = D.invites ? D.invites.open : 0;
   const invErr = !D.invites;
-  const mailOn = !!(META && META.mail && ME.notif && ME.notif.mail);  // письмо уходит, только если SMTP настроен и кандидат не выключил
+  const mailOn = !!(META && META.mail) && (ME.notif || {}).mail !== false;  // письмо уходит, только если SMTP настроен и кандидат не выключил
   return `
   ${crumbs([['Главная', '/'], ['Кабинет кандидата']])}
   ${subnav('c')}
@@ -1494,7 +1494,7 @@ V['/c/home'] = () => {
     <aside class="stack">
       <div class="panel tight stack-s">
         <span class="label">Уведомления</span>
-        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.mail)}" data-act="notif" data-k="mail" ${withdrawn() ? 'disabled' : ''}><i></i> Почта</button>
+        <button class="switch" role="switch" aria-checked="${(ME.notif || {}).mail !== false}" data-act="notif" data-k="mail" ${withdrawn() ? 'disabled' : ''}><i></i> Почта</button>
         <span class="hint">${META && META.mail ? 'Письмо о каждом новом приглашении, без названия компании — подробности в кабинете.' : 'На этом стенде письма не отправляются (почтовый сервер не настроен): приглашения — только в кабинете.'}</span>
       </div>
       <div class="panel tight stack-s">
@@ -3268,7 +3268,7 @@ const ACT = {
 
   // кабинет кандидата
   async status(a, d) { await api('PATCH', '/api/candidate/status', { status: d.v }); ME.status = d.v; rerender(); },
-  async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: !(ME.notif && ME.notif[d.k]) })).notif; rerender(); },
+  async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: (ME.notif || {})[d.k] === false })).notif; rerender(); },
   async accept(a, d) { D.inv = await api('POST', `/api/candidate/invites/${d.id}/accept`); toast('Приглашение принято. Компания получила ваши контакты'); rerender(); },
   'co-fb': (a, d) => { S.coFb = d.v; rerender(); },
   async 'co-fb-send'(a, d) {
