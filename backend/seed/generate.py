@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from app import catalog as C
 from app.db import SessionLocal, engine, init_db, reset_schema
 from app.integrations.scoring import place_weight, result_of
-from app.services import autocheck
+from app.services import autocheck, matching
 from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Message, Need, Task,
                         TaskSubmission, User, Vacancy)
 
@@ -453,24 +453,29 @@ def refresh_demo(db) -> int:
     """Освежить демо-приглашения DEMO_OPEN, истёкшие без ответа: статус, отправка и срок — как в свежем засеве от NOW.
     Берётся последнее приглашение пары; принятое, отклонённое или ещё открытое (действия на стенде) не трогается,
     как и приглашение кандидату, которого компания сейчас не видит (согласие, статус) или у которого полная ёмкость."""
-    from app.services.matching import candidate_loads, visible
-
-    n = 0
-    for (co_name, pid), (status, ago, ttl) in DEMO_OPEN.items():
-        inv = db.scalar(select(Invitation).join(Company, Invitation.company_id == Company.id)
-                        .join(Candidate, Invitation.candidate_id == Candidate.id)
-                        .where(Company.name == co_name, Candidate.public_id == pid)
-                        .order_by(Invitation.sent_at.desc(), Invitation.id.desc()).limit(1))
-        if not inv or not (inv.status == "expired" or inv.status in ("sent", "seen") and inv.expires_at <= NOW):
-            continue
-        if not visible(inv.candidate, inv.company) or candidate_loads(db, [inv.candidate_id])[inv.candidate_id] >= C.CANDIDATE_CAP:
-            continue
-        inv.status, inv.sent_at = status, NOW - DAY * ago
-        inv.expires_at = inv.sent_at + DAY * ttl
-        inv.seen_at = inv.sent_at + DAY * 0.3 if status == "seen" else None  # как invitation()
-        n += 1
+    clock = matching.CLOCK.set(NOW)  # ёмкость — на те же часы, что и срок (--today)
+    try:
+        n = sum(_refresh_one(db, co_name, pid, *spec) for (co_name, pid), spec in DEMO_OPEN.items())
+    finally:
+        matching.CLOCK.reset(clock)
     db.commit()
     return n
+
+
+def _refresh_one(db, co_name: str, pid: str, status: str, ago: float, ttl: float) -> bool:
+    inv = db.scalar(select(Invitation).join(Company, Invitation.company_id == Company.id)
+                    .join(Candidate, Invitation.candidate_id == Candidate.id)
+                    .where(Company.name == co_name, Candidate.public_id == pid)
+                    .order_by(Invitation.sent_at.desc(), Invitation.id.desc()).limit(1))
+    if not inv or not (inv.status == "expired" or inv.status in ("sent", "seen") and inv.expires_at <= NOW):
+        return False
+    if not matching.visible(inv.candidate, inv.company) or matching.candidate_loads(db, [inv.candidate_id])[inv.candidate_id] >= C.CANDIDATE_CAP:
+        return False
+    inv.status, inv.sent_at = status, NOW - DAY * ago
+    inv.expires_at = inv.sent_at + DAY * ttl
+    inv.seen_at = inv.sent_at + DAY * 0.3 if status == "seen" else None  # как invitation()
+    db.flush()  # следующая пара считает ёмкость уже с этим приглашением
+    return True
 
 
 def consent(at: datetime) -> dict:

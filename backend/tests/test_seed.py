@@ -169,6 +169,18 @@ def test_refresh_demo(seeded):
             assert generate.refresh_demo(s) == 0
         db.refresh(j)
         assert j.status == "expired"
+        # у кандидата полная ёмкость (чужие открытые приглашения) — тоже не освежается
+        j.candidate.status = "open"
+        others = db.scalars(select(Company).where(Company.name.not_in(["Ладога Пэй"])).limit(catalog.CANDIDATE_CAP)).all()
+        db.add_all(Invitation(company_id=co.id, candidate_id=j.candidate_id, role="Backend", salary_from=200000, salary_to=250000,
+                              format="Удалённо", sent_at=later, expires_at=later + timedelta(days=3)) for co in others)
+        db.commit()
+        with SessionLocal() as s:
+            assert generate.refresh_demo(s) == 0
+        db.execute(delete(Invitation).where(Invitation.candidate_id == j.candidate_id, Invitation.role == "Backend", Invitation.sent_at == later))
+        db.commit()
+        with SessionLocal() as s:  # ёмкость освободилась — освежается
+            assert generate.refresh_demo(s) == 1
     finally:
         sys.argv = argv
         generate.set_clock(None)
