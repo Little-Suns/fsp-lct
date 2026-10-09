@@ -5,7 +5,7 @@ const anim = (page, sel) => page.locator(sel).first().evaluate(el => getComputed
 
 test('клик по чипу в анкете: без анимации, прокрутка, фокус и ввод сохранены; смена экрана — с анимацией', async ({ page }) => {
   await demo(page, 'c');
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   expect(await anim(page, '#app .fade')).toBe('fade');  // смена экрана — анимация есть
 
   const name = page.locator('#p-name');
@@ -37,6 +37,6 @@ test('клик по чипу в анкете: без анимации, прок�
   await expect(name).toHaveValue('Тест Перерисовки');
 
   // смена экрана снова с анимацией
-  await open(page, '/c/home');
+  await open(page, '/candidate');
   expect(await anim(page, '#app .fade')).toBe('fade');
 });

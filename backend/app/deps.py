@@ -196,9 +196,12 @@ def verify(body: VerifyIn, db: Session = Depends(get_db)):
     from app.routers.employer import refresh_verified  # поздний импорт: employer сам зависит от deps
 
     refresh_verified(db, user)  # доменная почта могла подтвердиться этим входом
+    # has_profile — куда фронту вести после входа (как в ФСП ID): кандидата — в кабинет или на шаг «Профиль»,
+    # компанию — в подборку или к данным компании
+    has_profile = _has_profile(db, user)
     # один commit: код удалён, пользователь создан, токен выдан — или ничего. В демо вход по почте персонажа даёт общий
     # токен: код там приходит в ответе, и любой зритель иначе выбил бы остальных
-    return login_token(user, db)
+    return login_token(user, db) | {"has_profile": has_profile}
 
 
 def _has_profile(db: Session, user: User) -> bool:
