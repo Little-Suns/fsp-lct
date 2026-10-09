@@ -241,7 +241,6 @@ test.describe('телефон: вход и тест', () => {
     const email = `mobile-${uniq()}@example.ru`;
     await open(page, '/candidate/signup');
     await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
-    await page.getByLabel('Присылать приглашения в Telegram').uncheck();
     await page.getByLabel('Почта').fill(email);
     await page.getByLabel('Почта').press('Enter');  // клавиша «Отправить» — получить код
     await expect(toast(page)).toHaveText('Код отправлен на ' + email);
