@@ -12,7 +12,6 @@ async function signup(page, email, { c152 = true, publish = false } = {}) {
   await page.getByLabel('Почта').fill(email);
   if (c152) await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
   if (publish) await page.getByLabel(/Показывать мою обезличенную карточку/).check();
-  await page.getByLabel('Присылать приглашения в Telegram').uncheck();
   await page.getByRole('button', { name: 'Получить код на почту' }).click();
   await expect(toast(page)).toHaveText('Код отправлен на ' + email);
   await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
@@ -287,14 +286,17 @@ test('кандидат: регистрация → профиль и PDF → т�
   // кабинет: карточка не опубликована → предупреждение; статус и уведомления
   await page.locator('.brand').click();  // логотип в кабинете — его дом
   await expect(page.getByText('Карточка не опубликована')).toBeVisible();
-  await expect(page.getByText('Приглашений пока нет')).toBeVisible();
+  await expect(page.getByText('Приглашений пока нет.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Не ищу' }).click();
   await expect(page.getByText('Профиль скрыт из подборок')).toBeVisible();
   await page.getByRole('button', { name: 'Открыт к предложениям' }).click();
-  await expect(page.getByText('Ничего делать не нужно')).toBeVisible();
-  await expect(page.getByRole('switch', { name: 'Telegram' })).toHaveAttribute('aria-checked', 'false');
-  await page.getByRole('switch', { name: 'Telegram' }).click();
-  await expect(page.getByRole('switch', { name: 'Telegram' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('Ничего делать не нужно. Новые приглашения появятся в этом кабинете.')).toBeVisible();
+  // письма о приглашениях: без SMTP стенд честно говорит, что не шлёт; Telegram-уведомлений нет
+  await expect(page.getByText('На этом стенде письма не отправляются (почтовый сервер не настроен): приглашения — только в кабинете.')).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Telegram' })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: 'Почта' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('switch', { name: 'Почта' }).click();
+  await expect(page.getByRole('switch', { name: 'Почта' })).toHaveAttribute('aria-checked', 'false');
 
   // достижения: согласие на внешние профили, Codeforces и CTFtime (живые API подменены)
   await open(page, '/candidate/profile');
@@ -391,7 +393,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.getByRole('button', { name: 'Изменить список' })).toBeDisabled();
   await open(page, '/candidate');
   await expect(banner).toBeVisible();
-  await expect(page.getByRole('switch', { name: 'Telegram' })).toBeDisabled();
+  await expect(page.getByRole('switch', { name: 'Почта' })).toBeDisabled();
   await open(page, '/candidate/profile');
   await expect(banner).toBeVisible();
   await expect(page.getByLabel('Имя и фамилия')).toBeDisabled();

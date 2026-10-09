@@ -20,6 +20,9 @@ test('главная: «Кандидатам» и «Компаниям» → о�
   await open(page, '/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('работодатели сами приходят');
   await expect(page.getByText('У кандидата не больше 4 открытых приглашений')).toBeVisible();
+  // без SMTP на стенде письма не обещаем, Telegram-уведомлений нет вовсе
+  await expect(page.getByText('Компания сама находит вас и присылает приглашение с вилкой, ответ — «Интересно» или «Нет: причина».', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Telegram|каждый день/)).toHaveCount(0);
   const cand = page.getByRole('region', { name: 'Кандидатам' }), comp = page.getByRole('region', { name: 'Компаниям' });
   // двери — ссылки с настоящими адресами: открываются и в новой вкладке
   await expect(cand.getByRole('link', { name: 'Создать профиль' })).toHaveAttribute('href', '/candidate/signup');

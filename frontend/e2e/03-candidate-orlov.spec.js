@@ -10,7 +10,8 @@ test('приглашения: открыть → просмотрено, отк�
   const kip = page.locator('button.inv', { hasText: 'Кипрей Логистик' });
   await expect(lad).toContainText('новое');
   await expect(lad).toContainText('есть задача');
-  await expect(page.getByText('Так приглашение выглядит в Telegram')).toBeVisible();
+  await expect(page.getByText('Ничего делать не нужно. Новые приглашения появятся в этом кабинете.')).toBeVisible();
+  await expect(page.getByText(/Telegram/)).toHaveCount(0);  // макета Telegram-уведомления больше нет: бот не сделан
 
   // «Ладога Пэй»: контакт рекрутера виден до принятия, открытие помечает «просмотрено»
   const seen = api(page, 'GET', '/api/candidate/invites/' + (await lad.getAttribute('data-go')).split('/').pop());

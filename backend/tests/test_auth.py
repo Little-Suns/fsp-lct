@@ -55,7 +55,7 @@ def test_app_wiring(client):
     assert client.get("/api/health").json() == {"ok": True}
     meta = client.get("/api/meta").json()
     assert meta["cap"] == catalog.CANDIDATE_CAP and meta["invite_ttl_days"] == catalog.INVITE_TTL_DAYS and "Backend" in meta["specs"]
-    assert meta["demo"] is config.DEMO
+    assert meta["demo"] is config.DEMO and meta["mail"] is bool(config.SMTP_HOST)
     # вводная и финал теста на фронте — тот же сюжет, что в items.STORY (без часов: их подставляет /api/quest)
     assert meta["stories"] == {spec: {k: v for k, v in st.items() if k != "clock"} for spec, st in STORY.items()}
     paths = set(app.openapi()["paths"])
