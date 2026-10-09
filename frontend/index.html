@@ -536,11 +536,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .tbl.heat caption { position: sticky; left: 0; }
 }
 
-.tg { background: #E7EBF0; border-radius: 16px; padding: 14px; max-width: 360px; font-family: var(--sans); }
-.tg .bubble { background: #fff; border-radius: 12px 12px 12px 4px; padding: 10px 12px; font-size: 13px; line-height: 1.45; color: #111; }
-.tg .bubble b { font-weight: 600; }
-.tg .kb { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; }
-.tg .kb span { background: rgba(255,255,255,.7); border-radius: 8px; text-align: center; padding: 7px; font-size: 13px; color: #2D6BB5; font-weight: 500; }
 
 .bars { display: flex; flex-direction: column; gap: 10px; }
 .bar { display: grid; grid-template-columns: minmax(130px, 200px) minmax(0, 1fr) 52px; gap: 12px; align-items: center; font-size: 13px; }
@@ -687,7 +682,7 @@ const S = {
   story: true,
   quest: null, qAns: null, codeMark: null, qComment: '', qItem: null, qShownAt: 0, finish: null,
   qLang: 'python', qCode: {}, qRun: null, qPasted: 0, edEsc: false,   // задача на код: язык, черновики по языкам, запуск на примерах, вставлено символов
-  signup: { email: '', otp: '', sent: false, c152: false, publish: false, tg: true },
+  signup: { email: '', otp: '', sent: false, c152: false, publish: false },
   esignup: { email: '', otp: '', sent: false },
   confirm: null,                     // ключ открытого инлайн-подтверждения (удаление аккаунта, отзыв согласий)
   target: null,                      // грейд, на который проходится тест
@@ -769,7 +764,7 @@ async function verifyLogin(role, email, otp) {
 async function fspStart(mode, role = 'c', idp = '') {
   const side = mode === 'link' ? 'c' : role;
   const r = await api('POST', '/api/auth/fsp/start', { mode, role: side === 'e' ? 'employer' : 'candidate', ...(idp ? { idp } : {}) }, side);
-  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
+  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, c152: S.signup.c152, publish: S.signup.publish })); } catch { /* приватный режим */ }
   location.assign(r.url);
 }
 // кнопки входа через Keycloak: кандидату — «ФСП ID» (подтянем достижения), компании — SSO; плюс сторонние провайдеры брокера (META.fsp_idps)
@@ -1018,7 +1013,7 @@ V['/'] = () => `
   <div class="steps" style="margin-top:24px">
     <div><span class="n">Шаг 1 · 40–60 мин</span><h3>Тест-квест</h3><p class="prose small">Смена дежурного или неделя до релиза. Каждая сцена — отдельное откалиброванное задание, сложность подстраивается.</p></div>
     <div><span class="n">Шаг 2 · сразу</span><h3>Категория и перцентиль</h3><p class="prose small">Например, «Backend · Python · Middle», 78-й перцентиль. Компетенции с доверительным интервалом, а не одна цифра.</p></div>
-    <div><span class="n">Шаг 3 · без действий</span><h3>Приглашения с вилкой</h3><p class="prose small">Письмо и Telegram с кнопками «Интересно» и «Нет: причина». Не нужно заходить каждый день.</p></div>
+    <div><span class="n">Шаг 3 · без действий</span><h3>Приглашения с вилкой</h3><p class="prose small">Компания сама находит вас и присылает приглашение с вилкой, ответ — «Интересно» или «Нет: причина».${META && META.mail ? ' О новом приглашении сообщим письмом — заходить каждый день не нужно.' : ''}</p></div>
   </div>
 
   <div class="grid g3" style="margin-top:24px">
@@ -1046,7 +1041,6 @@ V['/c/signup'] = () => `
       <label class="field"><span>Почта</span><input class="input" id="su-mail" type="email" autocomplete="email" autocapitalize="off" enterkeyhint="send" placeholder="you@example.ru" value="${esc(S.signup.email)}"></label>
       <label class="check"><input type="checkbox" id="su-152" ${S.signup.c152 ? 'checked' : ''}> Согласен на обработку персональных данных по 152-ФЗ (обязательно). Работодатели не видят ФИО и контакты, пока я не приму приглашение.</label>
       <label class="check"><input type="checkbox" id="su-pub" ${S.signup.publish ? 'checked' : ''}> Показывать мою обезличенную карточку работодателям. Без этого согласия компании меня не найдут; включить можно позже в настройках.</label>
-      <label class="check"><input type="checkbox" id="su-tg" ${S.signup.tg ? 'checked' : ''}> Присылать приглашения в Telegram</label>
       ${S.signup.sent ? `
       <label class="field"><span>Код из письма</span><input class="input num" id="su-otp" inputmode="numeric" autocomplete="one-time-code" enterkeyhint="go" maxlength="6" value="${esc(S.signup.otp)}" style="max-width:200px"></label>
       ${S.signup.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
@@ -1460,7 +1454,7 @@ V['/c/home'] = () => {
   const list = (D.invites && D.invites.items) || [];
   const open = D.invites ? D.invites.open : 0;
   const invErr = !D.invites;
-  const tg = list.find(isOpen) || list[0];
+  const mailOn = !!(META && META.mail && ME.notif && ME.notif.mail);  // письмо уходит, только если SMTP настроен и кандидат не выключил
   return `
   ${crumbs([['Главная', '/'], ['Кабинет кандидата']])}
   ${subnav('c')}
@@ -1481,7 +1475,7 @@ V['/c/home'] = () => {
         ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: ${ME.visible ? 'пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля.' : 'без него грейд — только с ваших слов.'} <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
         ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
-          ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`
+          ? `<p class="prose small">Ничего делать не нужно. ${mailOn ? 'О новых приглашениях сообщим письмом на почту.' : 'Новые приглашения появятся в этом кабинете.'} Активность на сайте не влияет на позицию в выдаче.</p>`
           : `<div class="alert warn">Профиль скрыт из подборок. Уже отправленные приглашения остаются в силе до срока ответа.</div>`}
       </div>
 
@@ -1495,20 +1489,13 @@ V['/c/home'] = () => {
             <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)} на руки</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
           </span>
           <span class="stack-s inv-st">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
-        </button>`).join('') || (invErr ? '' : '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>')}
+        </button>`).join('') || (invErr ? '' : `<div class="panel small muted">Приглашений пока нет.${mailOn ? ' О новом придёт письмо на почту.' : ''}</div>`)}
     </div>
     <aside class="stack">
-      ${tg ? `<div class="panel tight stack">
-        <span class="label">Так приглашение выглядит в Telegram</span>
-        <div class="tg">
-          <div class="bubble"><b>ФСП Карьера</b><br>Новое приглашение: <b>${esc(tg.role)}</b><br>${esc(tg.company)} · ${esc(tg.format[0].toLowerCase() + tg.format.slice(1))}<br>${Math.round(tg.from / 1000)}–${Math.round(tg.to / 1000)} тыс. ₽ на руки<br>Ответить до ${DAYMON(tg.expires_at)}</div>
-          <div class="kb"><span>Интересно</span><span>Нет: причина</span></div>
-        </div>
-      </div>` : ''}
       <div class="panel tight stack-s">
         <span class="label">Уведомления</span>
         <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.mail)}" data-act="notif" data-k="mail" ${withdrawn() ? 'disabled' : ''}><i></i> Почта</button>
-        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.tg)}" data-act="notif" data-k="tg" ${withdrawn() ? 'disabled' : ''}><i></i> Telegram</button>
+        <span class="hint">${META && META.mail ? 'Письмо о каждом новом приглашении, без названия компании — подробности в кабинете.' : 'На этом стенде письма не отправляются (почтовый сервер не настроен): приглашения — только в кабинете.'}</span>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Витрина задач</span>
@@ -3032,7 +3019,7 @@ function capture() {
     Object.assign(S.pf, { name: v('p-name').trim(), tg: v('p-tg').trim(), city: v('p-city').trim(), spec: v('p-spec'), track: v('p-track') || null });
     S.pf.min = num(v('p-min'));
   }
-  if (v('su-mail') != null) Object.assign(S.signup, { email: v('su-mail').trim(), c152: ck('su-152'), publish: ck('su-pub'), tg: ck('su-tg') });
+  if (v('su-mail') != null) Object.assign(S.signup, { email: v('su-mail').trim(), c152: ck('su-152'), publish: ck('su-pub') });
   if (v('su-otp') != null) S.signup.otp = v('su-otp').trim();
   if (v('es-mail') != null) S.esignup.email = v('es-mail').trim();
   if (v('es-otp') != null) S.esignup.otp = v('es-otp').trim();
@@ -3188,7 +3175,6 @@ const ACT = {
       // резюме, загруженное до профиля: сервер его не хранил, сохранит вместе с согласием
       ...(first && S.cv && S.cv.text ? { cv_text: S.cv.text, cv_filename: S.cv.filename } : {}),
     });
-    if (first) await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
     toast('Профиль сохранён'); go('/c/quest');
   },
   async 'consent-ext'() {
@@ -3534,7 +3520,7 @@ document.addEventListener('submit', async e => {
       task: f.task ? 'Разбор инцидента с дублями платежей: ~45 минут, заменяет первый созвон' : null,
     });
     S.inviteForm = null;
-    toast(r.warnings.length ? 'Приглашение отправлено. ' + r.warnings[0] : 'Приглашение отправлено. Кандидат получит письмо и сообщение в Telegram');
+    toast(r.warnings.length ? 'Приглашение отправлено. ' + r.warnings[0] : 'Приглашение отправлено. Кандидат увидит его в кабинете' + (META && META.mail ? ' и получит письмо, если не отключил уведомления' : ''));
     go('/e/pipeline');
   } catch (err) {
     if (err.status === 422 && err.detail && err.detail.errors) { f.server = err.detail; rerender(); }

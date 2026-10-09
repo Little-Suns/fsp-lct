@@ -75,6 +75,7 @@ def meta():
         "fsp_id": fsp_id_client.enabled(),  # кнопка «Войти через ФСП ID»
         "fsp_idps": [{"alias": a, "label": l} for a, l in config.FSP_ID_IDPS.items()] if fsp_id_client.enabled() else [],  # брокер Keycloak
         "demo": config.DEMO,  # кнопка «Запустить прогон» на /v
+        "mail": bool(config.SMTP_HOST),  # письма о приглашениях уходят: без SMTP фронт их не обещает
     }
 
 

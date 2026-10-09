@@ -234,6 +234,8 @@ test('Ладога: подборка и фильтры, карточка с об
   const body = (await inv).request().postDataJSON();
   expect(body).toMatchObject({ candidate_id: fresh.id, salary_from: +f0, salary_to: +t0, format: 'Удалённо', task: null, role: 'Backend (Python), платежи — e2e' });
   await expect(toast(page)).toContainText('Приглашение отправлено');
+  await expect(toast(page)).toContainText('Кандидат увидит его в кабинете');  // без SMTP письмо не обещаем
+  await expect(toast(page)).not.toContainText('Telegram');
   await expect(page).toHaveURL(/#\/e\/pipeline$/);
   const row = page.getByRole('row', { name: new RegExp(fresh.id) });
   await expect(row).toContainText('отправлено');

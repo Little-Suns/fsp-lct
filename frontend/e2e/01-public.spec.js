@@ -9,6 +9,9 @@ test('главная: герой, двери ролей и ссылка на в�
   await open(page, '/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('работодатели сами приходят');
   await expect(page.getByText('У кандидата не больше 4 открытых приглашений')).toBeVisible();
+  // без SMTP на стенде письма не обещаем, Telegram-уведомлений нет вовсе
+  await expect(page.getByText('Компания сама находит вас и присылает приглашение с вилкой, ответ — «Интересно» или «Нет: причина».', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Telegram|каждый день/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Я разработчик' }).click();
   await expect(page.getByRole('heading', { name: 'Создайте профиль' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Войти через ФСП ID/ })).toBeVisible();  // сам вход — 09-fsp-id.spec.js

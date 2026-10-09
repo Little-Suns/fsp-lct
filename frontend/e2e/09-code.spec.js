@@ -13,7 +13,6 @@ async function toCodeTask(page) {
   await open(page, '/c/signup');
   await page.getByLabel('Почта').fill(`code-${uniq()}@example.ru`);
   await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
-  await page.getByLabel('Присылать приглашения в Telegram').uncheck();
   await page.getByRole('button', { name: 'Получить код на почту' }).click();
   await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
   await page.getByRole('button', { name: 'Войти', exact: true }).click();
