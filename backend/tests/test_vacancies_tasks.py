@@ -348,6 +348,8 @@ def test_tasks_flow(client):
 
     assert client.post(f"/api/tasks/{pub['id']}/submit", json={"answer": "x" * 5001}, headers=H["cand"]).status_code == 422
     assert client.post(f"/api/tasks/{pub['id']}/submit", json={"answer": "a"}, headers=H["old"]).status_code == 403  # старая редакция согласия
+    r = client.post(f"/api/tasks/{pub['id']}/submit", json={"answer": "a"}, headers=H["raw"])  # без теста работодатель кандидата не видит
+    assert r.status_code == 403 and "после теста" in r.json()["detail"]
     r = client.post(f"/api/tasks/{pub['id']}/submit", json={"answer": "Ключ идемпотентности + уникальный индекс"}, headers=H["cand"])
     assert r.status_code == 200
     assert client.post(f"/api/tasks/{pub['id']}/submit", json={"answer": "ещё раз"}, headers=H["cand"]).status_code == 409
@@ -368,6 +370,14 @@ def test_tasks_flow(client):
     assert client.post(f"/api/tasks/submissions/{items[True]['id']}/review", json={"review": "ok"}, headers=H["emp"]).status_code == 404
     sid = items[False]["id"]
     assert items[False]["candidate"]["id"] == "A-1042"
+    with SessionLocal() as db:  # тест сброшен (смена специализации) — решение скрыто, как кандидат в выдаче
+        db.get(Candidate, IDS["cand"]).theta = None
+        db.commit()
+    hid = client.get(f"/api/tasks/{pub['id']}/submissions", headers=H["emp"]).json()["items"]
+    assert all(i["hidden"] and i["candidate"] is None for i in hid)
+    with SessionLocal() as db:
+        db.get(Candidate, IDS["cand"]).theta = 1.0
+        db.commit()
 
     with SessionLocal() as db:
         assert tasks.task_signal(db, IDS["cand"]) is None

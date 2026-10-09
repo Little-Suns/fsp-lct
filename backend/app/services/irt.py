@@ -209,7 +209,7 @@ if __name__ == "__main__":
     cheat_resp = [[(it.a, it.b, int(it.b > 1)) for it in rng.sample([x for x in bank if x.b > 1 or x.b < 0], 12)] for _ in range(200)]
     caught = np.mean([lz(eap(r)[0], r) < LZ_CUT for r in cheat_resp])
     print(f"корреляция θ: {corr:.3f}; средняя SE: {ses.mean():.3f}; заданий в среднем: {np.mean([s[2] for s in s1]):.1f}")
-    print(f"совпадение грейда при пересдаче: без гистерезиса {raw:.0%}, с гистерезисом {hyst:.0%}")
+    print(f"совпадение грейда при пересдаче: сырая оценка {raw:.0%}, в профиле (без понижения) {hyst:.0%}")
     print(f"флаг inconsistent: ложные срабатывания {fp:.0%}, пойманы «читеры» {caught:.0%}")
     assert corr > 0.85, corr
     assert ses.mean() < 0.35, ses.mean()

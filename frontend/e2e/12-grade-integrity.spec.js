@@ -28,7 +28,7 @@ async function answerWeak(page) {
 test('слабая пересдача: грейд не понижен, «Принять грейд» — по решению кандидата', async ({ page }) => {
   test.setTimeout(180_000);
   await demo(page, 'c');
-  await open(page, '/c/quest');
+  await open(page, '/candidate/test');
   await expect(page.getByText(/Слабая попытка грейд не понижает — принять нижний грейд можете только вы/)).toBeVisible();
   const start = api(page, 'POST', '/api/quest/start');
   await page.getByRole('button', { name: 'Полный тест (~40 мин)' }).click();
@@ -45,8 +45,15 @@ test('слабая пересдача: грейд не понижен, «При�
   await expect(page.locator('.cat').first()).toHaveText('BackendPythonMiddle');
   await expect(page.locator('#lower-offer')).toContainText(`Последняя попытка показала ${low}`);
   await expect(page.locator('table.tbl tbody tr').first()).toContainText('не применён');
-  const acc = api(page, 'POST', '/api/quest/accept-lower');
+  // понижение — только после подтверждения; «Отмена» ничего не меняет
   await page.getByRole('button', { name: `Принять грейд ${low}` }).click();
+  await expect(page.getByRole('alertdialog')).toContainText(`Принять грейд ${low} вместо Middle?`);
+  await page.getByRole('button', { name: 'Отмена' }).click();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(page.locator('.cat').first()).toHaveText('BackendPythonMiddle');
+  await page.getByRole('button', { name: `Принять грейд ${low}` }).click();
+  const acc = api(page, 'POST', '/api/quest/accept-lower');
+  await page.getByRole('button', { name: `Принять ${low}`, exact: true }).click();
   expect(await (await acc).json()).toMatchObject({ applied: true, category: { grade: low }, lower_offer: null });
   await expect(toast(page)).toHaveText(`Грейд ${low} принят`);
   await expect(page.locator('.cat').first()).toHaveText(`BackendPython${low}`);
@@ -58,7 +65,7 @@ test('слабая пересдача: грейд не понижен, «При�
 test('смена специализации: тест не переносится, до нового теста работодатели не видят', async ({ page }) => {
   await demo(page, 'c');
   await expect(page.getByText('Работодатели вас не видят, пока вы не пройдёте тест')).toHaveCount(0);
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   await expect(page.locator('#spec-reset')).toHaveCount(0);
   await page.getByLabel('Специализация').selectOption('Frontend');
   await expect(page.locator('#spec-reset')).toContainText('Результат теста привязан к специализации Backend');
@@ -67,18 +74,18 @@ test('смена специализации: тест не переноситс�
   await expect(page.locator('#spec-reset')).toHaveCount(0);
   await page.getByLabel('Специализация').selectOption('Frontend');
   const saved = api(page, 'POST', '/api/candidate/profile');
-  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
   expect(await (await saved).json()).toMatchObject({ test_reset: true, spec: 'Frontend', grade: null, visible: false, skills_confirmed: [] });
   await expect(toast(page)).toHaveText('Специализация изменена: пройдите тест по Frontend — до него работодатели вас не видят');
-  await open(page, '/c/home');
+  await open(page, '/candidate');
   await expect(page.getByText('Работодатели вас не видят, пока вы не пройдёте тест по специализации Frontend.')).toBeVisible();
-  await open(page, '/c/result');
+  await open(page, '/candidate/test/result');
   await expect(page.getByRole('heading', { name: 'Тест ещё не пройден' })).toBeVisible();
 
   // работодатель: A-1042 нет ни в поиске, ни по прямой ссылке
   await demo(page, 'e');
   const R = await page.evaluate(() => api('GET', '/api/employer/search?limit=100&q=Kafka'));
   expect(R.items.find(c => c.id === 'A-1042')).toBeUndefined();
-  await open(page, '/e/cand/A-1042');
+  await open(page, '/employer/candidates/A-1042');
   await expect(page.getByText('Кандидат не найден или скрыл профиль.')).toBeVisible();
 });

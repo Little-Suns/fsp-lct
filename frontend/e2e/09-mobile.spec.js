@@ -1,12 +1,12 @@
 // Мобильная вёрстка: телефон 375×812 и планшет 768×1024 (сенсорный экран). Ключевые экраны обоих кабинетов без
-// горизонтальной прокрутки страницы; шапка в одну строку, роли и выход — в меню; разделы кабинета — одной строкой
+// горизонтальной прокрутки страницы; шапка в одну строку: логотип, тема и «Выйти», роль — с главной; разделы кабинета — одной строкой
 // с прокруткой; фильтры сворачиваются, а список не уезжает под боковые панели; чат — список или диалог; тест —
 // прилипающие таймер и «Дальше»; поля не меньше 16 px (iOS не увеличивает страницу); манифест для домашнего экрана.
 const { test, expect, demo, open, settled, toast } = require('./fixtures');
 const { uniq } = require('./helpers');
 
-const C_SCREENS = ['/c/home', '/c/vacancies', '/c/applications', '/c/tasks', '/c/chat', '/c/result', '/c/settings', '/c/profile'];
-const E_SCREENS = ['/e/picks', '/e/search', '/e/need', '/e/pipeline', '/e/vacancies', '/e/tasks', '/e/chat'];
+const C_SCREENS = ['/candidate', '/candidate/vacancies', '/candidate/applications', '/candidate/tasks', '/candidate/chat', '/candidate/test/result', '/candidate/settings', '/candidate/profile'];
+const E_SCREENS = ['/employer', '/employer/search', '/employer/needs/new', '/employer/invites', '/employer/vacancies', '/employer/tasks', '/employer/chat'];
 
 // страница не шире окна: ни один блок не вылез за край (таблицы прокручиваются внутри своей обёртки)
 async function noHScroll(page, label) {
@@ -22,15 +22,16 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
   test.describe(name, () => {
     test.use({ viewport, hasTouch: true, isMobile: true });
 
-    test(`${name}: публичные экраны, шапка и меню`, async ({ page }) => {
-      for (const r of ['/', '/c/signup', '/e/signup', '/v']) {
+    test(`${name}: публичные экраны и шапка`, async ({ page }) => {
+      for (const r of ['/', '/candidate/signup', '/candidate/login', '/employer/signup', '/employer/login', '/v']) {
         await open(page, r);
         await noHScroll(page, r);
       }
-      // шапка — одна строка: роли и «Выйти» спрятаны, вместо «Экраны» — «Меню»
+      // шапка — одна строка: переключателя ролей нет (кабинет выбирается на главной), без входа «Выйти» нет
       expect((await box(page.locator('header.top'))).h).toBeLessThanOrEqual(64);
-      await expect(page.locator('header .roles')).toBeHidden();
-      // тема: в шапке — значок (подпись в aria-label), в меню — кнопка с подписью; обе переключают тему
+      await expect(page.getByRole('navigation', { name: 'Роль' })).toHaveCount(0);
+      await expect(page.locator('#logout')).toBeHidden();
+      // тема: в шапке — значок, подпись — в aria-label
       const theme = page.locator('#theme');
       await expect(theme).toHaveAttribute('aria-label', 'Тёмная тема');
       await expect(theme.locator('.on-wide')).toBeHidden();
@@ -38,22 +39,14 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
       await expect(theme).toHaveAttribute('aria-label', 'Светлая тема');
       await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#17181D');  // строка состояния телефона — тёмная
-      await page.getByRole('button', { name: 'Меню' }).click();
-      await expect(page.locator('#overlay')).toContainText('Карточка кандидата');
-      await noHScroll(page, 'меню экранов');
-      await expect(page.locator('#theme-m')).toHaveText('☀ Светлая тема');
-      await page.locator('#theme-m').click();
+      await theme.click();
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-      await expect(page.locator('#theme-m')).toHaveText('☾ Тёмная тема');
-      expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).toBe('hidden');  // страница под меню не прокручивается
-      // роль переключается из меню, меню закрывается
-      const roles = page.locator('#overlay').getByRole('navigation', { name: 'Роль' });
-      await expect(roles.getByRole('button', { name: 'Валидация' })).toHaveAttribute('aria-current', 'true');
-      await roles.getByRole('button', { name: 'Работодатель' }).click();
+      await expect(page.getByRole('button', { name: 'Меню' })).toHaveCount(0);  // карты экранов больше нет
+      // кабинет — с главной: логотип → «Компаниям» → «Войти»
+      await page.locator('.brand').click();
+      await page.getByRole('region', { name: 'Компаниям' }).getByRole('link', { name: 'Войти' }).click();
       await settled(page);
       await expect(page.getByRole('heading', { name: 'Вход для компаний' })).toBeVisible();
-      await expect(page.locator('#overlay')).toBeEmpty();
-      expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).not.toBe('hidden');
 
       // иконка и манифест: стенд можно добавить на домашний экран телефона
       const man = await page.evaluate(async () => {
@@ -73,20 +66,20 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
         await noHScroll(page, r);
       }
       // разделы — одна строка с прокруткой, активный раздел виден целиком
-      await open(page, '/c/settings');
+      await open(page, '/candidate/settings');
       const nav = page.locator('nav.subnav');
       expect(await oneLine(nav.locator('.chip'))).toBe(true);
       const [n, on] = [await box(nav), await box(nav.locator('.chip.on'))];
       expect(on.left).toBeGreaterThanOrEqual(n.left);
       expect(on.right).toBeLessThanOrEqual(n.right);
-      // «Выйти» — в меню, а не в шапке
-      await expect(page.locator('#logout')).toBeHidden();
-      await page.getByRole('button', { name: 'Меню' }).click();
-      await expect(page.locator('#overlay').getByRole('button', { name: 'Выйти из кабинета кандидата' })).toBeVisible();
-      await page.locator('#overlay').getByRole('button', { name: 'Закрыть' }).click();
+      // «Выйти» — в шапке рядом с темой, шапка осталась одной строкой
+      await expect(page.locator('#logout')).toBeVisible();
+      const mid = async sel => { const b = await box(page.locator(sel)); return b.top + b.h / 2; };  // элементы разной высоты — по центру
+      for (const sel of ['#theme', '#logout']) expect(Math.abs(await mid(sel) - await mid('header .brand'))).toBeLessThan(4);
+      expect((await box(page.locator('header.top'))).h).toBeLessThanOrEqual(64);
 
       // вакансии: на телефоне и планшете (одна колонка) фильтры свёрнуты, список — сразу под ними
-      await open(page, '/c/vacancies');
+      await open(page, '/candidate/vacancies');
       const q = page.locator('#vf-q');
       const vacancies = qv => page.waitForResponse(r => new URL(r.url()).pathname === '/api/vacancies' && (new URL(r.url()).searchParams.get('q') || '') === qv);
       await expect(q).toBeHidden();
@@ -106,10 +99,10 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       expect((await reset).ok()).toBe(true);
       await expect(page.getByText('Фильтры · 1')).toHaveCount(0);
 
-      await open(page, '/c/home');
+      await open(page, '/candidate');
       await page.locator('.inv').first().click();
       await settled(page);
-      await expect(page).toHaveURL(/#\/c\/invite\/\d+$/);
+      await expect(page).toHaveURL(/\/candidate\/invites\/\d+$/);
       await noHScroll(page, 'приглашение');
       // сумма вилки не рвётся посередине: каждая — одной строкой
       for (const m of await page.locator('.stat .money').all()) expect(await m.evaluate(e => e.getClientRects().length)).toBe(1);
@@ -125,7 +118,7 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
         await noHScroll(page, r);
       }
       // подборка: первая карточка — выше карты регионов и рекомендованных категорий (они под списком)
-      await open(page, '/e/picks');
+      await open(page, '/employer');
       expect((await box(page.locator('.cand').first())).top).toBeLessThan((await box(page.locator('img[alt^="Карта России"]'))).top);
       expect((await box(page.locator('.cand').first())).top).toBeLessThan((await box(page.getByText('Рекомендованные категории'))).top);
       // лотерея свёрнута, разворачивается по кнопке
@@ -135,7 +128,7 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await expect(lot).toBeVisible();
 
       // поиск по банку: фильтры свёрнуты, Enter в поле — «Найти»
-      await open(page, '/e/search');
+      await open(page, '/employer/search');
       await expect(page.locator('#sf-q')).toBeHidden();
       await page.getByRole('button', { name: 'Развернуть фильтры' }).click();
       await page.locator('#sf-skills').fill('Kafka');
@@ -144,25 +137,25 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       expect((await searched).ok()).toBe(true);
       await expect(page.getByText('Фильтры · 1')).toBeVisible();
       // потребность: навык добавляется клавишей Enter
-      await open(page, '/e/need');
+      await open(page, '/employer/needs/new');
       await page.getByRole('button', { name: 'Разобрать' }).click();
       await page.locator('button.chip.dim', { hasText: '+ навык' }).first().click();
       await page.locator('#need-skill').fill('Redis');
       await page.locator('#need-skill').press('Enter');
       await expect(page.locator('button.chip.on', { hasText: 'Redis' })).toBeVisible();
-      await open(page, '/e/picks');
+      await open(page, '/employer');
 
       await page.locator('.cand').first().click();
       await settled(page);
-      await expect(page).toHaveURL(/#\/e\/cand\//);
+      await expect(page).toHaveURL(/\/employer\/candidates\//);
       await noHScroll(page, 'карточка кандидата');
       // форма приглашения — по адресу: после предыдущих сценариев первый из подборки может быть уже приглашён
-      await open(page, '/e/invite/' + page.url().split('/e/cand/')[1]);
+      await open(page, new URL(page.url()).pathname + '/invite');
       await noHScroll(page, 'форма приглашения');
       // «от» и «до» вилки — рядом, в одной строке
       expect(await oneLine(page.locator('#inv-form .pfx'))).toBe(true);
 
-      await open(page, '/e/pipeline');
+      await open(page, '/employer/invites');
       const thead = page.locator('table.tbl.stack thead');
       if (phone) {
         await expect(thead).toBeHidden();  // на телефоне строка воронки — карточка с подписями
@@ -172,12 +165,12 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
         await expect(thead).toBeVisible();
       }
       // сенсорный экран: разделы кабинета — зона нажатия не меньше 36 px
-      for (const b of await page.locator('nav.chips button.chip').all()) expect((await b.boundingBox()).height).toBeGreaterThanOrEqual(36);
+      for (const b of await page.locator('nav.chips .chip').all()) expect((await b.boundingBox()).height).toBeGreaterThanOrEqual(36);
     });
 
     test(`${name}: чат — список или диалог`, async ({ page }) => {
       await demo(page, 'e');
-      await open(page, '/e/chat');
+      await open(page, '/employer/chat');
       // без открытого диалога — только список, пустой панели «Выберите диалог» нет
       await expect(page.locator('.chat-box')).toBeHidden();
       await expect(page.locator('#chat-list')).toBeVisible();
@@ -203,7 +196,7 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       }
       await page.getByRole('button', { name: '← Диалоги' }).click();
       await settled(page);
-      await expect(page).toHaveURL(/#\/e\/chat$/);
+      await expect(page).toHaveURL(/\/employer\/chat$/);
       await expect(page.locator('#chat-list')).toBeVisible();
 
       if (phone) {
@@ -221,15 +214,15 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
           const r = await fetch('/api/chat/A-1042', { method: 'POST', headers: h('e'), body: JSON.stringify({ text: 'Дмитрий, добрый день! Удобно созвониться завтра?' }) });
           if (!r.ok) throw new Error('POST ' + r.status);
         });
-        await open(page, '/c/chat');
+        await open(page, '/candidate/chat');
         const fits = el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight && el.clientWidth >= 18;
-        const badge = page.locator('nav.subnav').getByRole('button', { name: /^Чат/ }).locator('.unread');
+        const badge = page.locator('nav.subnav').getByRole('link', { name: /^Чат/ }).locator('.unread');
         await expect(badge).toHaveText(/^\d+$/);
         expect(await badge.evaluate(fits)).toBe(true);
         expect(await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
 
         // новое сообщение приходит само (SSE) — бейдж в строке разделов обновляется, прокрутка строки не сбрасывается
-        await open(page, '/c/settings');
+        await open(page, '/candidate/settings');
         const nav = page.locator('nav.subnav'), before = Number(await badge.textContent());
         const x = await nav.evaluate(n => n.scrollLeft);
         expect(x).toBeGreaterThan(0);  // «Настройки и приватность» в конце строки — прокручено к ним
@@ -246,7 +239,7 @@ test.describe('телефон: вход и тест', () => {
 
   test('вход клавишей Enter, профиль, тест с прилипающими таймером и «Дальше»', async ({ page }) => {
     const email = `mobile-${uniq()}@example.ru`;
-    await open(page, '/c/signup');
+    await open(page, '/candidate/signup');
     await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
     await page.getByLabel('Присылать приглашения в Telegram').uncheck();
     await page.getByLabel('Почта').fill(email);
@@ -301,24 +294,25 @@ for (const [name, viewport] of [['узкий телефон', { width: 320, heig
     test.use({ viewport, hasTouch: true, isMobile: true });
 
     test(`${name}: экраны без горизонтальной прокрутки`, async ({ page }) => {
-      for (const r of ['/', '/c/signup', '/e/signup', '/v']) {
+      for (const r of ['/', '/candidate/signup', '/candidate/login', '/employer/signup', '/employer/login', '/v']) {
         await open(page, r);
         await noHScroll(page, r);
       }
       // Enter в почте компании — «Получить код»
-      await page.goto('/#/e/signup');
+      await page.goto('/employer/login');
       await settled(page);
       const email = `hr-${uniq()}@example.ru`;
       await page.getByLabel('Рабочая почта').fill(email);
       await page.getByLabel('Рабочая почта').press('Enter');
       await expect(toast(page)).toHaveText('Код отправлен на ' + email);
       await demo(page, 'c');
-      for (const r of ['/c/home', '/c/vacancies', '/c/profile', '/c/quest', '/c/settings']) {
+      await expect(page.locator('#logout')).toBeVisible();  // «Выйти» помещается в шапку и на 320 px
+      for (const r of ['/candidate', '/candidate/vacancies', '/candidate/profile', '/candidate/test', '/candidate/settings']) {
         await open(page, r);
         await noHScroll(page, r);
       }
       await demo(page, 'e');
-      for (const r of ['/e/picks', '/e/search', '/e/pipeline', '/e/vacancies', '/e/chat']) {
+      for (const r of ['/employer', '/employer/search', '/employer/invites', '/employer/vacancies', '/employer/chat']) {
         await open(page, r);
         await noHScroll(page, r);
       }
@@ -334,7 +328,7 @@ for (const [name, viewport] of [['узкий телефон', { width: 320, heig
           localStorage.setItem('fsp.tok.c', token);
         }, `side-${uniq()}@example.ru`);
         await page.reload();
-        await open(page, '/c/quest');
+        await open(page, '/candidate/test');
         await page.getByRole('button', { name: 'Полный тест (~40 мин)' }).click();
         await expect(page.locator('#timer')).toBeVisible();  // экран задания, а не вводной
         await noHScroll(page, 'задание');

@@ -28,6 +28,7 @@ from app.deps import issue_token  # noqa: E402
 from app.models import AuditLog, Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession, User  # noqa: E402
 from app.routers import candidate, quest  # noqa: E402
 from app.services import irt, matching, profile_pdf  # noqa: E402
+from app.services.items import STORY  # noqa: E402
 from app.services.items import generate_bank, plan_for_need, seed_items  # noqa: E402
 
 NEED_TEXT = "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. Уровень — мидл, до 300 на руки. Гибрид, Москва."
@@ -118,9 +119,15 @@ def _run(client, items, ok, start: dict | None = None) -> dict:
     _no_leak(r)
     assert client.post("/api/quest/start", json={"story": False}).json()["session_id"] == r["session_id"]  # возобновление
     assert client.post("/api/quest/answer", json={"item_id": -1, "response": 0}).status_code == 409
+    scene = r["progress"]["n"] - 1  # сессия может продолжаться с уже отвеченными заданиями
     while not r["done"]:
         it = r["item"]
         item = items[it["id"]]
+        scene += 1
+        # сюжет — из items.STORY: название квеста и часы сцены по её номеру в сессии (первая — clock[0]), а не по семейству
+        clock = STORY[item.spec]["clock"]
+        assert r["progress"]["n"] == scene and r["quest_title"] == STORY[item.spec]["title"]
+        assert it["time"] == clock[min(scene, len(clock)) - 1]
         keys = item.payload["key"] if isinstance(item.payload["key"], list) else [item.payload["key"]]
         if ok(item):
             resp = keys[0]
@@ -234,8 +241,9 @@ def test_decide_grade_never_lowers():
 
 
 def test_spec_change_resets_test(env):
-    """Смена специализации: результат теста не переносится — грейд, θ, компетенции, подтверждённые навыки и кулдаун
-    сбрасываются, кандидат скрыт до нового теста, событие в журнале; первый тест по новой специализации — без кулдауна."""
+    """Смена специализации: результат теста не переносится — грейд, θ, компетенции, подтверждённые навыки сбрасываются,
+    кандидат скрыт до нового теста, событие в журнале. Первый тест по новой специализации применяется, но в кулдаун грейд
+    не выше прежнего: сменой специализации туда и обратно кулдаун не обойти."""
     tag = secrets.token_hex(3)
     with SessionLocal() as db:
         u = User(email=f"spec-{tag}@example.ru", role="candidate")
@@ -260,7 +268,7 @@ def test_spec_change_resets_test(env):
     assert same["grade"] == "Senior" and same["test_reset"] is False and same["visible"]
     r = client.post("/api/candidate/profile", json={**body, "spec": "Frontend", "track": "React", "grade_claimed": "Senior"}).json()
     assert r["test_reset"] is True and r["spec"] == "Frontend" and r["grade"] is None and r["theta"] is None and not r["visible"]
-    assert r["skills_confirmed"] == [] and r["competencies"] == [] and r["next_upgrade_at"] is None and not r["review_passed"]
+    assert r["skills_confirmed"] == [] and r["competencies"] == [] and r["next_upgrade_at"] and not r["review_passed"]
     assert client.get("/api/quest/result").status_code == 404
     with SessionLocal() as db:
         c = db.get(Candidate, cid)
@@ -269,14 +277,26 @@ def test_spec_change_resets_test(env):
         log = db.scalar(select(AuditLog).where(AuditLog.action == "test_reset", AuditLog.subject_candidate_id == cid))
         assert log.detail == {"reason": "spec_changed", "from_spec": "Backend", "to_spec": "Frontend", "grade": "Senior"}
         fe = {it.id: it for it in db.scalars(select(Item).where(Item.spec == "Frontend"))}
-    # первый тест по новой специализации: кулдауна нет, грейд присваивается, кулдаун стартует с него
+        until = c.next_upgrade_at
+    # первый тест по новой специализации применяется (кандидат снова виден), но кулдаун идёт: грейд не выше прежнего Senior
     start = client.post("/api/quest/start", json={"story": False}).json()
-    assert not start["cooldown"]["active"]
-    res = _run(client, fe, lambda it: False)["result"]
-    assert res["applied"] and res["category"]["spec"] == "Frontend" and res["category"]["grade"] == "Intern" and res["lower_offer"] is None
+    assert start["cooldown"]["active"]
+    res = _run(client, fe, lambda it: True)["result"]
+    assert res["applied"] and res["category"]["spec"] == "Frontend" and res["category"]["grade"] == "Senior" and "не выше прежнего Senior" in res["note"]
     with SessionLocal() as db:
         c = db.get(Candidate, cid)
-        assert c.next_upgrade_at and matching.visible(c)
+        assert c.next_upgrade_at == until and matching.visible(c)  # кулдаун не продлён и не снят
+    # обратно в Backend — снова сброс и снова потолок Senior
+    back = client.post("/api/candidate/profile", json=body).json()
+    assert back["test_reset"] and back["grade"] is None
+    res = _run(client, env["items"], lambda it: True)["result"]
+    assert res["applied"] and res["category"]["grade"] == "Senior"
+    # слабый первый тест после сброса применяется как есть (первое присвоение, не понижение)
+    client.post("/api/candidate/profile", json={**body, "spec": "Frontend", "track": "React"})
+    res = _run(client, fe, lambda it: False)["result"]
+    assert res["applied"] and res["category"]["grade"] == "Intern" and res["lower_offer"] is None
+    with SessionLocal() as db:
+        c = db.get(Candidate, cid)
         db.delete(c)
         db.delete(db.get(User, c.user_id))
         db.commit()

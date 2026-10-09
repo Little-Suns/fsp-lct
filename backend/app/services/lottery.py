@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.catalog import CANDIDATE_CAP, GRADES
 from app.models import Candidate, Company, Invitation, Lottery
-from app.services.matching import consent_ok, published
+from app.services.matching import consent_ok, published, tested
 
 COOLDOWN_DAYS = 90  # отказ или молчание (истёкшее приглашение) этой компании — не навязываемся 90 дней
 POOL_MAX = 500  # ponytail: больше — порог слишком мягкий, просим сузить; пагинация пула, если понадобится
@@ -249,12 +249,12 @@ def public_state(db: Session, lot: Lottery) -> dict:
 
 
 def _cards(db: Session, lot: Lottery) -> list[dict]:
-    """Карточки вытянутых — только при действующем согласии на обработку и публикацию (могли отозвать после жребия);
-    иначе {pseudonym, hidden: true} без public_id. Удалённые кандидаты тоже hidden."""
+    """Карточки вытянутых — только при действующем согласии на обработку и публикацию и пройденном тесте (могли отозвать
+    согласие или сбросить тест сменой специализации после жребия); иначе {pseudonym, hidden: true} без public_id. Удалённые кандидаты тоже hidden."""
     loads = open_loads(db)
     found = dict(drawn_candidates(db, lot))
     return [{**card(c, loads.get(c.id, 0)), "pseudonym": p}
-            if (c := found.get(p)) and consent_ok(c, "processing") and consent_ok(c, "publish")
+            if (c := found.get(p)) and consent_ok(c, "processing") and consent_ok(c, "publish") and tested(c)
             else {"pseudonym": p, "hidden": True}
             for p in lot.drawn_ids or []]
 

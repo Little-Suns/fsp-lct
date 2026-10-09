@@ -19,6 +19,7 @@ from app.db import Base, SessionLocal, engine, reset_schema
 from app.deps import hash_secret, issue_token, otp_hash
 from app.main import app
 from app.models import Candidate, Company, LoginChallenge, User
+from app.services.items import STORY
 
 config.LLM_BASE_URL = ""
 
@@ -55,6 +56,8 @@ def test_app_wiring(client):
     meta = client.get("/api/meta").json()
     assert meta["cap"] == catalog.CANDIDATE_CAP and meta["invite_ttl_days"] == catalog.INVITE_TTL_DAYS and "Backend" in meta["specs"]
     assert meta["demo"] is config.DEMO
+    # вводная и финал теста на фронте — тот же сюжет, что в items.STORY (без часов: их подставляет /api/quest)
+    assert meta["stories"] == {spec: {k: v for k, v in st.items() if k != "clock"} for spec, st in STORY.items()}
     paths = set(app.openapi()["paths"])
     for p in ("/api/auth/verify", "/api/candidate/me", "/api/employer/search", "/api/quest/start", "/api/achievements",
               "/api/lottery/{lottery_id}/public", "/api/validation", "/api/vacancies", "/api/tasks/mine"):
@@ -72,6 +75,25 @@ def test_index_without_frontend_is_503(client, tmp_path, monkeypatch):
     assert client.get("/").status_code == 200
 
 
+def test_cabinet_paths_serve_index_only_on_explicit_prefixes(client, tmp_path, monkeypatch):
+    # маршруты фронта через History API: страница на адресах кабинетов и /v, 503 без файла — как на «/»
+    monkeypatch.setattr("app.main._front", tmp_path)
+    paths = ("/v", "/candidate", "/candidate/", "/candidate/test/result", "/candidate/chat/12", "/employer",
+             "/employer/candidates/A-1042/invite", "/employer/опечатка")
+    for p in paths:
+        r = client.get(p)
+        assert r.status_code == 503 and r.json()["detail"].startswith("Фронт недоступен"), p
+    (tmp_path / "index.html").write_text("<html>ok</html>", encoding="utf8")
+    for p in paths:
+        r = client.get(p)
+        assert r.status_code == 200 and r.text == "<html>ok</html>", p
+    # без catch-all: опечатка в API и чужие адреса — обычный 404 JSON, а не страница
+    for p in ("/api/опечатка", "/api/candidate/опечатка", "/candidates", "/employers/x", "/v/x", "/index.html"):
+        r = client.get(p)
+        assert r.status_code == 404 and r.json() == {"detail": "Not Found"}, p
+    assert client.get("/docs").status_code == 200 and "<html>ok</html>" not in client.get("/docs").text
+
+
 def test_otp_hashed_and_login(client):
     email = "Otp.User@Example.ru "
     otp = _code(client, email)
@@ -83,6 +105,7 @@ def test_otp_hashed_and_login(client):
     assert ch.expires_at - datetime.now(UTC) <= deps.OTP_TTL
     r = client.post("/api/auth/verify", json={"email": email, "otp": f" {otp} "})
     assert r.status_code == 200 and r.json()["role"] == "candidate"
+    assert r.json()["has_profile"] is False  # фронт ведёт на шаг «Профиль», а не в кабинет
     token = r.json()["token"]
     u = _user("otp.user@example.ru")
     assert u.token == hash_secret(token) and token not in u.token and _ch("otp.user@example.ru") is None  # код одноразовый
@@ -107,7 +130,8 @@ def test_role_fixed_after_profile(client):
         db.add(Company(inn="7707083893", name="ООО Тест", recruiter_name="HR", recruiter_email="hr@example.ru", user_id=u.id))
         db.commit()
     otp = _code(client, "has.company@example.ru", role="candidate")
-    assert client.post("/api/auth/verify", json={"email": "has.company@example.ru", "otp": otp}).json()["role"] == "employer"
+    r = client.post("/api/auth/verify", json={"email": "has.company@example.ru", "otp": otp}).json()
+    assert r["role"] == "employer" and r["has_profile"] is True  # компания есть — фронт ведёт в кабинет, а не к данным компании
 
 
 def test_send_code_validation(client):

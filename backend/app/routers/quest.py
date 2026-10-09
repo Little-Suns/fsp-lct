@@ -16,7 +16,9 @@ EXPRESS_TIME_LIMIT_S на каждое, тот же адаптивный выб�
 Грейд принудительно не понижается: попытка, измеренный грейд которой (θ − SE) ниже текущего, в профиль не идёт
 (applied = False, грейд, θ и компетенции прежние) — кандидат видит результат попытки и может сам принять нижний грейд
 (POST /accept-lower, событие grade_lowered в AuditLog). Результат задан специализацией: при её смене в профиле
-(candidate.save_profile) тест сбрасывается, и первый тест по новой специализации — первое присвоение, без кулдауна.
+(candidate.save_profile) тест сбрасывается, и первый тест по новой специализации — первое присвоение: он применяется
+всегда, но если кулдаун повышения ещё идёт, грейд не выше того, что был до смены (_reset_cap) — сменой специализации
+туда и обратно кулдаун не обойти.
 """
 
 import json
@@ -208,7 +210,8 @@ def _cf_rating(db: Session, cand: Candidate) -> float | None:
 
 def _cooldown(cand: Candidate) -> dict:
     until = _utc(cand.next_upgrade_at)
-    active = bool(cand.tested_at and until and until > _now())
+    # без tested_at кулдаун тоже действует: смена специализации сбрасывает тест, но не кулдаун (иначе обход через смену)
+    active = bool(until and until > _now())
     return {"active": active, "until": until.isoformat() if active else None,
             "note": f"Повышение грейда возможно с {_ru_date(until)}. До этого пересдача грейд не повысит, а понизить его можете только вы сами." if active else None}
 
@@ -243,7 +246,7 @@ def _serve(sess: QuestSession, bank: dict[int, Item]) -> Item | None:
 
 def _public(item: Item, n: int) -> dict:
     p = {k: v for k, v in item.payload.items() if k != "key"}
-    clock = STORY.get(item.spec, ("", []))[1]
+    clock = STORY[item.spec]["clock"] if item.spec in STORY else []
     if clock:
         p["time"] = clock[min(n, len(clock)) - 1]  # «часы» сюжета идут по номеру сцены, а не по семейству
     return {"id": item.id, "kind": item.kind, "competency": item.competency, **p}
@@ -257,7 +260,7 @@ def _state(sess: QuestSession, bank: dict[int, Item], spec: str) -> dict:
         total = min(irt.EXPRESS_ITEMS, n_fam)
     else:
         total = min(irt.MAX_ITEMS, n_fam) + (1 if any(it.pilot for it in items) else 0)
-    out = {"session_id": sess.id, "quest_title": STORY.get(spec, ("Тест",))[0], "mode": sess.mode,
+    out = {"session_id": sess.id, "quest_title": STORY[spec]["title"] if spec in STORY else "Тест", "mode": sess.mode,
            "story": sess.story, "target_grade": sess.target_grade, "focus": sess.focus, "done": pend is None, "progress": {"n": len(sess.answers), "total": max(total, len(sess.answers))},
            "item": None, "time_limit_s": None, "remaining_s": None}
     if pend and pend["item_id"] in bank:
@@ -271,6 +274,8 @@ def _state(sess: QuestSession, bank: dict[int, Item], spec: str) -> dict:
 @router.post("/start")
 def start(body: StartIn, cand: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
     """Начать тест или вернуться к незаконченной сессии (новая сессия не выдаёт новых заданий взамен уже показанных)."""
+    # строка кандидата под блокировкой: смена специализации (save_profile) не проскочит между чтением spec и созданием сессии
+    cand = db.scalar(select(Candidate).where(Candidate.id == cand.id).with_for_update().execution_options(populate_existing=True))
     if cand.spec not in catalog.COMPETENCIES:
         raise HTTPException(422, "В профиле не указана специализация")
     bank = _bank(db, cand.spec)
@@ -484,6 +489,14 @@ def _lower_offer(cand: Candidate, sess: QuestSession | None) -> dict | None:
     return {"session_id": sess.id, "grade": sess.grade, "theta": round(sess.theta, 2), "se": round(sess.se, 2)}
 
 
+def _reset_cap(db: Session, cand: Candidate) -> str | None:
+    """Грейд до последнего сброса теста сменой специализации (AuditLog test_reset) — потолок первого теста в кулдаун."""
+    log = db.scalar(select(AuditLog).where(AuditLog.action == "test_reset", AuditLog.subject_candidate_id == cand.id)
+                    .order_by(AuditLog.id.desc()).limit(1))
+    g = (log.detail or {}).get("grade") if log else None
+    return g if g in catalog.GRADES else None
+
+
 def _estimate(sess: QuestSession, bank: dict[int, Item], spec: str) -> tuple[float, float, list[dict]]:
     """θ, SE и компетенции попытки — с нейтральным априором N(0, 1): CF-рейтинг только ускоряет подбор заданий."""
     theta, se = irt.eap(_responses(sess, bank))
@@ -571,14 +584,22 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
         note = (f"Результат попытки — {catalog.grade_from_theta(theta, se)}, ниже вашего грейда {prev}. Грейд не понижен: "
                 "категория и место в выдаче прежние. Если согласны с результатом, можете принять нижний грейд сами.")
     else:
-        # в кулдаун пересдача не повышает: применяется только θ ниже прежнего в пределах того же грейда (не «выуживать» θ)
-        applied = not cooldown or cand.theta is None or theta < cand.theta
+        # первое присвоение применяется всегда; в кулдаун пересдача не повышает: применяется только θ ниже прежнего
+        # в пределах того же грейда (не «выуживать» θ)
+        applied = prev is None or not cooldown or theta < cand.theta
         if not applied:
             note = f"Результат не ниже текущего, поэтому категория не изменилась. Повышение возможно с {_ru_date(_utc(cand.next_upgrade_at))}."
     if applied:
         grade = irt.decide_grade(prev, theta, se, upgrade_allowed=not cooldown)
+        # первый тест после смены специализации в кулдаун: грейд не выше того, что был до смены, — иначе сменой
+        # специализации туда и обратно кулдаун обходился бы; сам кулдаун не продлевается
+        cap = _reset_cap(db, cand) if not express and prev is None and cooldown else None
+        if cap and catalog.GRADES.index(grade) > catalog.GRADES.index(cap):
+            note = (f"Результат попытки — {grade}, но до {_ru_date(_utc(cand.next_upgrade_at))} идёт кулдаун повышения: "
+                    f"после смены специализации грейд не выше прежнего {cap}.")
+            grade = cap
         # кулдаун 90 дней — только с первого присвоения грейда полным тестом или фактического повышения
-        if not express and (prev is None or catalog.GRADES.index(grade) > catalog.GRADES.index(prev)):
+        if not express and ((prev is None and not cooldown) or (prev and catalog.GRADES.index(grade) > catalog.GRADES.index(prev))):
             cand.next_upgrade_at = now + timedelta(days=catalog.UPGRADE_COOLDOWN_DAYS)
         cand.theta, cand.se, cand.grade, cand.competencies = theta, se, grade, comps
         # по одному заданию на компетенцию навыки не подтверждаются: в экспресс-оценке — только заявленные

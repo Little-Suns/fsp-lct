@@ -92,15 +92,21 @@ def to_callback(client, q: dict, sub: str) -> str:
     return r.headers["location"]
 
 
-def back(client, callback_url: str) -> dict:
+# адреса возврата во фронт: вход — на экран входа своей роли, привязка — в настройки, неизвестный поток — на главную
+BACK_PATHS = {"/", "/candidate/login", "/employer/login", "/candidate/settings"}
+
+
+def back(client, callback_url: str, path: str | None = None) -> dict:
     r = client.get(callback_url, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/#") and r.headers["cache-control"] == "no-store"
-    return dict(parse_qsl(urlsplit(r.headers["location"]).fragment))
+    loc = urlsplit(r.headers["location"])
+    assert r.status_code == 303 and r.headers["cache-control"] == "no-store" and not loc.query and not loc.netloc
+    assert loc.path in BACK_PATHS and (path is None or loc.path == path), loc.path
+    return dict(parse_qsl(loc.fragment))
 
 
-def flow(client, sub: str, mode: str = "login", headers=None, **extra) -> dict:
+def flow(client, sub: str, mode: str = "login", headers=None, path: str | None = None, **extra) -> dict:
     _, q = authorize(client, mode, headers, **extra)
-    return back(client, to_callback(client, q, sub))
+    return back(client, to_callback(client, q, sub), path)
 
 
 def login(client, sub: str, **extra) -> dict:
@@ -301,6 +307,21 @@ def test_state_cookie_and_replay(client):
     assert back(client, cb) == {"fsp": "error", "e": "state"}
     assert back(client, "/api/auth/fsp/callback?code=x") == {"fsp": "error", "e": "state"}  # без state
     assert back(client, "/api/auth/fsp/callback?code=x&state=" + "s" * 3000) == {"fsp": "error", "e": "state"}  # не 422
+
+
+def test_return_path_by_role_and_mode(client):
+    """Адрес возврата — по роли и режиму потока (redirect_uri провайдера один): фронт сам ведёт дальше по has_profile."""
+    make_candidate("back.c@example.ru", fsp=account("FSP-T-back-c", "back.c@example.ru"))
+    assert flow(client, "FSP-T-back-c", path="/candidate/login")["fsp"] == "login"
+    assert flow(client, account("FSP-T-back-e", "back.e@company.example"), role="employer", path="/employer/login")["fsp"] == "login"
+    # отказ внутри потока — туда же, на вход своей роли: кандидат с профилем не входит как компания
+    assert flow(client, "FSP-T-back-c", role="employer", path="/employer/login") == {"fsp": "error", "e": "role"}
+    # привязка и её ошибки — в настройки кандидата
+    _, h = make_candidate("back.link@example.ru")
+    assert flow(client, account("FSP-T-back-l", "back.l@example.ru"), "link", h, path="/candidate/settings")["fsp"] == "linked"
+    assert flow(client, "FSP-T-back-c", "link", h, path="/candidate/settings") == {"fsp": "error", "e": "other"}
+    # поток не найден — роль неизвестна, на главную
+    assert back(client, "/api/auth/fsp/callback?code=x&state=nope", "/") == {"fsp": "error", "e": "state"}
 
 
 # ---------- привязка из настроек ----------
