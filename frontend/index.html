@@ -2813,7 +2813,7 @@ function vsep(Sp) {
 
 /* ===================== организатор: импорт протоколов ===================== */
 // POST /api/achievements/import с Bearer ORGANIZER_TOKEN (или токеном пользователя с ролью admin).
-// Токен живёт только в памяти вкладки (TOK.org, без localStorage): перезагрузка страницы — вход заново.
+// Токен живёт только в памяти вкладки (TOK.org, без localStorage): уход со страницы или перезагрузка — вход заново.
 const ORG_SRC = { hackathon: 'Хакатон', fsp: 'Соревнование ФСП', ctftime: 'CTFtime — подтверждение мест команды' };
 const ORG_LEVEL = { '': 'не указан', international: 'международный', national: 'всероссийский', regional: 'региональный', local: 'локальный' };
 const ORG_FIELDS = ['source', 'external_id', 'title', 'date', 'level', 'discipline', 'participants', 'url', 'tags'];
@@ -3133,6 +3133,7 @@ function capture() {
   if (v('dc-comment') != null) S.dcComment = v('dc-comment');
   if (v('ap-note') != null) S.applyNote = v('ap-note');
   if (v('tk-answer') != null) S.answer = v('tk-answer');
+  if (v('org-text') != null) orgCapture();
   if (S.lot && v('lot-fork') != null) {
     S.lot.fork_to = num(v('lot-fork'));
     S.lot.draw_count = Math.max(1, Math.min(50, parseInt(v('lot-k'), 10) || 1));
@@ -3218,7 +3219,6 @@ const ACT = {
   'org-sample': () => { org().form = ORG_SAMPLE(); rerender(); },
   'org-pick': () => document.getElementById('org-file').click(),
   async 'org-import'() {
-    orgCapture();
     const o = org();
     o.err = null; o.res = null;
     try { o.res = await api('POST', '/api/achievements/import', orgBody(o.form), 'org'); toast('Протокол импортирован'); }
@@ -3566,7 +3566,7 @@ document.addEventListener('keydown', e => {
 // вставка в редактор кода: сколько символов пришло из буфера (сигнал для флага code_pasted, на оценку не влияет)
 document.addEventListener('paste', e => { if (e.target.id === 'code-ed') S.qPasted += ((e.clipboardData && e.clipboardData.getData('text')) || '').length; });
 
-addEventListener('hashchange', () => { closeMap(); show(); });
+addEventListener('hashchange', () => { closeMap(); if (route() !== '/org') TOK.org = null; show(); });  // токен организатора — только пока открыта его страница
 
 document.addEventListener('click', e => {
   const g = e.target.closest('[data-go]');
@@ -3595,7 +3595,9 @@ document.addEventListener('change', async e => {
   if (t.id === 'org-file' && t.files[0]) {  // файл протокола — в поле текста: видно, что уйдёт, и один путь отправки
     orgCapture();
     if (t.files[0].size > 2 * 1024 * 1024) { toast('Файл протокола больше 2 МБ'); return; }
-    org().form.text = await t.files[0].text();
+    try { org().form.text = new TextDecoder('utf-8', { fatal: true }).decode(await t.files[0].arrayBuffer()); }
+    catch { toast('Сохраните протокол в UTF-8'); return; }  // CP1251 молча стал бы кракозябрами
+    finally { t.value = ''; }  // тот же файл можно выбрать снова
     rerender();
   }
   if (t.id === 'cv-file' && t.files[0]) {

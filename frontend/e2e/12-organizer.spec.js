@@ -91,4 +91,12 @@ test('организатор: подтверждение CTFtime файлом JS
   expect((await bad).status()).toBe(422);
   await expect(page.getByRole('alert')).toContainText('discipline: «<img');
   expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+  // файл не в UTF-8 (CP1251) — понятная ошибка, поле не портится
+  await page.locator('#org-file').setInputFiles({ name: 'cp1251.csv', mimeType: 'text/csv', buffer: Buffer.from([0x45, 0xcf, 0xf0, 0xee, 0x0a]) });
+  await expect(toast(page)).toHaveText('Сохраните протокол в UTF-8');
+  await expect(page.getByLabel('CSV или JSON, до 2 МБ')).toHaveValue('email,fsp_id\nd.orlov@example.ru,');
+  // ушёл со страницы — токен забыт
+  await open(page, '/v');
+  await open(page, '/org');
+  await expect(page.getByLabel('Токен организатора')).toBeVisible();
 });
