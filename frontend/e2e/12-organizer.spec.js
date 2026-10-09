@@ -59,10 +59,7 @@ test('организатор: вход по токену, импорт прим�
 });
 
 test('организатор: подтверждение CTFtime файлом JSON, ошибки формата без XSS', async ({ page }) => {
-  await open(page, '/');
-  await page.getByRole('button', { name: 'Экраны' }).click();
-  await page.getByRole('dialog', { name: 'Карта экранов' }).getByRole('button', { name: /Импорт протоколов/ }).click();
-  await expect(page).toHaveURL(/#\/org$/);
+  await open(page, '/org');  // прямая ссылка, как у /v
   await login(page);
   await page.getByLabel('Источник').selectOption('ctftime');
   await page.getByLabel('Идентификатор события').fill('2950');

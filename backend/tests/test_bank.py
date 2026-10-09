@@ -11,7 +11,7 @@ import pytest
 
 from app import catalog
 from app.services import irt
-from app.services.items import FAMILIES, TIME_LIMIT, generate_bank
+from app.services.items import FAMILIES, STORY, TIME_LIMIT, generate_bank
 
 BANK = generate_bank()
 PANELS = {"logs", "chart", "code"}
@@ -33,6 +33,32 @@ def test_bank_size_per_competency(spec):
     per = Counter(f["competency"] for f in FAMILIES if f["spec"] == spec and not f["pilot"] and f["kind"] != "code")
     assert set(per) == set(catalog.COMPETENCIES[spec]), set(per) ^ set(catalog.COMPETENCIES[spec])
     assert min(per.values()) >= 3, per
+
+
+# story не открывается текущим днём или временем суток («Понедельник.», «Утро после…»): часы сцены позиционные,
+# задание может выпасть на любой час смены; прошлое как условие («Ночью перезагрузили…») допустимо
+NOW_MARK = re.compile(r"^(?:(?:Понедельник|Вторник|Среда|Четверг|Пятница|Суббота|Воскресенье)[.,]|Утро\b)")
+
+
+def test_story_per_spec():
+    """У каждой специализации свой сюжет: вводная, финал и часы на самый длинный тест (рабочие + пилотное)."""
+    assert set(STORY) == set(catalog.SPECS)
+    for spec, st in STORY.items():
+        assert set(st) == {"title", "head", "about", "docs", "finale", "clock"}, spec
+        assert all(isinstance(st[k], str) and st[k].strip() for k in ("title", "head", "about", "docs", "finale")), spec
+        assert len(st["clock"]) >= irt.MAX_ITEMS + 1 and len(set(st["clock"])) == len(st["clock"]), spec
+    assert len({st["title"] for st in STORY.values()}) == len(STORY)
+
+
+@pytest.mark.parametrize("spec", catalog.SPECS)
+def test_scenes_follow_story(spec):
+    """Сцены специализации различаются заголовками (кроме задач на код — у них общий заголовок) и не спорят с часами."""
+    titles = defaultdict(set)
+    for it in BANK:
+        if it["spec"] == spec and it["kind"] != "code":
+            titles[it["payload"]["scene_title"]].add(it["family"])
+            assert not NOW_MARK.match(it["payload"]["story"]), (it["family"], it["payload"]["story"])
+    assert not {t: f for t, f in titles.items() if len(f) > 1}
 
 
 def _check_panel(p: dict):

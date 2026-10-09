@@ -123,7 +123,7 @@ def _(rng):
                                "В namespace строгий mTLS сервис-меша: клиент без сайдкара не проходит, проверять из пода с сайдкаром"], v,
                          [f"Порт {port} внутри контейнера уже занят другим процессом, и запрос уходит не туда",
                           f"Процессу без root нельзя открывать порт {port}, поэтому сокет на нём не создан"])
-    return {"scene_title": "Под недоступен", "story": f"Под {svc} в статусе Running, в логе «listening on port {port}». Из соседнего пода по IP он недоступен.",
+    return {"scene_title": "Под молчит", "story": f"Под {svc} в статусе Running, в логе «listening on port {port}». Из соседнего пода по IP он недоступен.",
             "prompt": "В чём дело?", "panel": {"type": "code", "lang": "text", "lines": lines}, "options": opts, "key": key}
 
 
@@ -249,7 +249,7 @@ def _(rng):
                                "Под создан вручную, без контроллера: после drain его никто не пересоздаст — перенести в Deployment или удалить осознанно"], v,
                          ["drain нужно запускать с --disable-eviction: тогда поды удаляются без проверки бюджета и drain пройдёт",
                           f"Поды {svc} не обрабатывают SIGTERM, и выселение ждёт весь terminationGracePeriod"])
-    return {"scene_title": "Drain не идёт", "story": f"Переводите кластер на новый пул узлов, drain старого узла не проходит уже {m} мин: {story}",
+    return {"scene_title": "Drain не идёт", "story": f"Переводите кластер на новый пул узлов. Drain старого узла стоит уже {m} мин: {story}",
             "prompt": "Что мешает и как исправить?", "panel": {"type": "code", "lang": lang, "lines": lines}, "options": opts, "key": key}
 
 
@@ -267,7 +267,7 @@ def _(rng):
                  _log(f"11:{m:02d}:19", "pg-ha", "INFO", "failover complete in 19 s"),
                  _log(f"11:{m + 4:02d}:10", "kubelet", "WARN", f"{svc}: 0/{n} pods ready, Back-off restarting failed container")]
     elif v == 1:
-        story = f"После переезда новые поды {svc} не поднимаются никогда: каждый перезапускается через минуту после старта."
+        story = f"После переезда новые поды {svc} так и не поднимаются: каждый перезапускается через минуту после старта."
         lines = [_log(f"11:{m:02d}:00", svc, "INFO", "starting, warming up cache: ~90 s before ready"),
                  _log(f"11:{m:02d}:30", "kubelet", "INFO", f"{pod}: liveness initialDelaySeconds=30, periodSeconds=10, failureThreshold=3"),
                  _log(f"11:{m + 1:02d}:00", "kubelet", "WARN", f"{pod}: Liveness probe failed: connection refused"),
@@ -345,7 +345,7 @@ def _(rng):
                                "Миграции — отдельным шагом до выкладки кода, и обратно совместимые с текущей версией"], v,
                          ["Поставить imagePullPolicy: Always — тогда все поды подтянут свежий образ и откат заработает",
                           "Чистить кэш образов на узлах после каждой сборки, чтобы на них не оставалось старых образов"])
-    return {"scene_title": "Пайплайн", "story": story, "prompt": "Что исправить в пайплайне?",
+    return {"scene_title": "Пайплайн подвёл", "story": story, "prompt": "Что исправить в пайплайне?",
             "panel": {"type": "code", "lang": "yaml", "lines": lines, "caption": ".gitlab-ci.yml"}, "options": opts, "key": key}
 
 
@@ -445,10 +445,10 @@ def _(rng):
         story = f"p99 считается в каждом поде отдельно. На панели p99 {svc} — {shown} мс, а по логам балансировщика — {real} мс."
     elif v == 1:
         lines = [f"# SLO-панель: p99 {svc}", f'histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{{job="{svc}"}}[1h])))']
-        story = f"Утром {svc} пять минут отвечал по {real} мс, а на SLO-панели p99 этот сбой почти не виден."
+        story = f"Днём {svc} пять минут отвечал по {real} мс, а на SLO-панели p99 этот сбой почти не виден."
     else:
         lines = [f"# SLO-панель: доступность {svc}", f'avg_over_time(probe_success{{target="{svc}/health"}}[30d])']
-        story = f"Панель SLO показывает 100 % доступности {svc}, а пользователи всё утро получали ошибки на половине запросов: /health при этом отвечал 200."
+        story = f"Панель SLO показывает 100 % доступности {svc}, а пользователи весь день получали ошибки на половине запросов: /health при этом отвечал 200."
     opts, key = _options(rng, ["Перейти на histogram и считать histogram_quantile(0.99, sum by (le) (rate(…_bucket[5m])))",
                                "Считать по короткому окну rate (1–5 минут): в часовом окне короткий всплеск растворяется",
                                "Считать доступность по реальным запросам — доле успешных ответов, а не по пробе раз в минуту"], v,
@@ -592,7 +592,7 @@ def _(rng):
                          [f"{db} не вытягивает нагрузку: масштабировать базу вертикально и поднять пул соединений {svc}-api",
                           f"Таймауты слишком короткие: поднять их до 10 с на всех уровнях, чтобы медленные запросы к {db} успевали завершиться и не уходили в повтор",
                           f"Поставить circuit breaker на шлюзе и поднять там повторы до 5: клиенты реже увидят ошибку, пока {svc}-api восстанавливается"])
-    return {"scene_title": "Самоподдерживающийся сбой", "story": story,
+    return {"scene_title": "Сбой не уходит", "story": story,
             "prompt": "Почему сбой не проходит сам и что менять в первую очередь?", "panel": panel, "options": opts, "key": key}
 
 
@@ -604,7 +604,7 @@ def _(rng):
     ext = rng.choice(["api.partner.example", "pay.example", "maps.example"])
     v = _variant(rng, 3)
     if v == 0:
-        story = f"После переезда в облачный Kubernetes часть запросов {svc} замирает ровно на 5 секунд. Всё упирается в резолв имён, но не всегда."
+        story = f"После переезда в облачный Kubernetes часть запросов {svc} замирает ровно на 5 секунд. Задержка — в резолве имён, и не каждый раз."
         lines = [_log(t(1), svc, "WARN", f"resolve {host} took {rng.randint(5001, 5012)} ms"),
                  _log(t(3), svc, "INFO", f"resolve {host} took {rng.randint(1, 4)} ms"),
                  _log(t(9), "coredns", "INFO", f"p99 latency {rng.randint(2, 6)} ms, errors 0, cache hit {rng.randint(85, 95)} %"),

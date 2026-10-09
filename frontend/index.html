@@ -61,7 +61,6 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-bg: #1B1C21;
   --toast-fg: #FFFFFF;
   --shadow: rgba(27,28,33,.12);
-  --scrim: rgba(27,28,33,.45);
   --logo-filter: none;
   color-scheme: light;
 
@@ -102,7 +101,6 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-bg: #EDEDF0;
   --toast-fg: #1B1C21;
   --shadow: rgba(0,0,0,.5);
-  --scrim: rgba(0,0,0,.65);
   --logo-filter: invert(1) hue-rotate(180deg);  /* логотип с тёмными буквами */
   color-scheme: dark;
 } }
@@ -136,7 +134,6 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-bg: #EDEDF0;
   --toast-fg: #1B1C21;
   --shadow: rgba(0,0,0,.5);
-  --scrim: rgba(0,0,0,.65);
   --logo-filter: invert(1) hue-rotate(180deg);  /* логотип с тёмными буквами */
   color-scheme: dark;
 }
@@ -144,7 +141,6 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
-html.lock { overflow: hidden; }  /* открыто меню: страница под ним не прокручивается */
 body {
   background: var(--ground);
   color: var(--ink);
@@ -182,23 +178,20 @@ p { margin: 0; }
 .roles { display: flex; gap: 4px; background: var(--mist); padding: 4px; border-radius: 999px; margin-left: auto; }
 .roles button { border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; color: var(--ink-2); }
 .roles button[aria-current="true"] { background: var(--paper); color: var(--blue-text); font-weight: 600; box-shadow: 0 1px 2px var(--shadow); }
-.mapbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
-@media (hover: hover) { .mapbtn:hover { border-color: var(--blue); color: var(--blue-text); } }
-.on-narrow, .m-only { display: none; }
-/* телефон и планшет: шапка в одну строку — логотип, значок темы и «Меню»; роли и выход — в меню */
+.topbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
+@media (hover: hover) { .topbtn:hover { border-color: var(--blue); color: var(--blue-text); } }
+/* телефон и планшет: шапка в одну строку — логотип, значок темы и «Выйти»; роль меняется с главной (логотип → «Я разработчик» / «Я нанимаю») */
 @media (max-width: 900px) {
   .top-in { flex-wrap: nowrap; height: 56px; padding-top: 0; padding-bottom: 0; gap: 12px; }
   .brand { min-width: 0; gap: 10px; }
   .brand img { height: 26px; }
   .brand .prod { padding-left: 10px; white-space: nowrap; }
-  .top .roles, .top #logout { display: none; }
-  .mapbtn { min-height: 40px; padding: 8px 14px; }
+  .top .roles { display: none; }
+  .topbtn { min-height: 40px; padding: 8px 14px; }
   .top #theme { margin-left: auto; padding: 6px 12px; font-size: 17px; line-height: 1; }  /* только значок ☾ / ☀, подпись — в aria-label */
   .on-wide { display: none; }
-  .on-narrow { display: inline; }
-  .m-only { display: block; }
 }
-@media (max-width: 430px) { .brand .prod span { display: none; } }  /* подпись под названием не помещается рядом с темой и «Меню» */
+@media (max-width: 430px) { .brand .prod span { display: none; } }  /* подпись под названием не помещается рядом с темой и «Выйти» */
 @media (max-width: 360px) { .brand .prod { display: none; } }  /* самый узкий телефон: только логотип ФСП */
 @media (max-height: 480px) and (orientation: landscape) { .top { position: static; } }  /* телефон боком: шапка не съедает и без того низкий экран */
 
@@ -561,18 +554,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 .demo-tag { display: inline-flex; gap: 6px; align-items: center; font-size: 11px; color: var(--warn); background: var(--warn-soft); padding: 3px 8px; border-radius: 6px; }
 
-/* ---------- карта экранов, тост ---------- */
-.overlay { position: fixed; inset: 0; background: var(--scrim); z-index: 50; display: flex; justify-content: flex-end; }
-.drawer { background: var(--paper); width: min(440px, 100%); height: 100%; overflow-y: auto; overscroll-behavior: contain; padding: calc(22px + env(safe-area-inset-top, 0px)) calc(22px + env(safe-area-inset-right, 0px)) calc(22px + env(safe-area-inset-bottom, 0px)) 22px; display: flex; flex-direction: column; gap: 18px; animation: slide .2s ease-out; }
-@keyframes slide { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
-.drawer .m-roles { display: flex; }
-@media (max-width: 560px) { .drawer { padding-left: 16px; padding-right: calc(16px + env(safe-area-inset-right, 0px)); } }
-.drawer .grp { display: flex; flex-direction: column; gap: 2px; }
-.drawer .grp button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; display: grid; grid-template-columns: 34px 1fr; font-size: 13px; }
-@media (hover: hover) { .drawer .grp button:hover { background: var(--blue-soft); } }
-.drawer .grp button[aria-current="true"] { background: var(--blue); color: var(--on-accent); }
-.drawer .grp button span:first-child { color: var(--ink-3); }
-.drawer .grp button[aria-current="true"] span:first-child { color: var(--on-blue-2); }
+/* ---------- тост ---------- */
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--toast-bg); color: var(--toast-fg); padding: 12px 18px; border-radius: 10px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
 @media (max-width: 640px) { body:has(.quest-foot:not(.qf-code)) .toast { bottom: calc(88px + env(safe-area-inset-bottom, 0px)); } }  /* над прилипшей «Дальше» */
 
@@ -646,19 +628,13 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
     <nav class="roles" aria-label="Роль">
       <button data-go="/c/home" data-role="c">Кандидат</button>
       <button data-go="/e/picks" data-role="e">Работодатель</button>
-      <button data-go="/v" data-role="v">Валидация</button>
     </nav>
-    <button class="mapbtn" id="theme" data-act="theme"></button>
-    <button class="mapbtn" data-act="map" aria-haspopup="dialog" aria-expanded="false">
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3h12M1 7h12M1 11h12" stroke="currentColor" stroke-width="1.5"/></svg>
-      <span class="on-wide">Экраны</span><span class="on-narrow">Меню</span>
-    </button>
-    <button class="mapbtn" id="logout" data-act="logout" hidden>Выйти</button>
+    <button class="topbtn" id="theme" data-act="theme"></button>
+    <button class="topbtn" id="logout" data-act="logout" hidden>Выйти</button>
   </div>
 </header>
 
 <main id="app"></main>
-<div id="overlay"></div>
 <div id="toast" class="toast" hidden></div>
 
 <script>
@@ -740,20 +716,6 @@ function clearSide(role) {
   setTok(role, null);
   if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
   else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
-}
-// демо-персонажи (только при DEMO=1 на сервере): c — Орлов, e — «Ладога Пэй», newco — неподтверждённый «Новый Стартап»
-async function demoLogin(who) {
-  const role = who === 'c' ? 'c' : 'e';
-  clearSide(role);
-  if (who === 'newco') return emailLogin('e', 'newco.hr@gmail.com');
-  const d = await api('POST', '/api/auth/demo/' + (role === 'e' ? 'employer' : 'candidate'), undefined, role);
-  setTok(role, d.token);
-}
-// вход по коду: в демо сервер возвращает код в ответе — подставляем его сами
-async function emailLogin(role, email) {
-  const r = await api('POST', '/api/auth/email', { email, role: role === 'e' ? 'employer' : 'candidate' }, role);
-  if (!r.otp) throw new Error('Код отправлен на почту: введите его в форме входа');
-  await verifyLogin(role, email, r.otp);
 }
 async function verifyLogin(role, email, otp) {
   const r = await api('POST', '/api/auth/verify', { email, otp }, role);
@@ -1008,8 +970,8 @@ V['/'] = () => `
       <h1>Один тест — и&nbsp;работодатели <em>сами приходят</em> с&nbsp;вилкой</h1>
       <p class="lead">Пройдите тест-квест один раз и получите категорию: специализация, стек и грейд. Компании ищут в базе и присылают приглашения с зарплатой «от — до». Контакты открываются, только когда вы согласились.</p>
       <div class="row">
-        <button class="btn primary" data-go="/c/signup">Я разработчик</button>
-        <button class="btn dark" data-go="/e/signup">Я нанимаю</button>
+        <button class="btn primary" data-go="${TOK.c ? '/c/home' : '/c/signup'}">Я разработчик</button>
+        <button class="btn dark" data-go="${TOK.e ? '/e/picks' : '/e/signup'}">Я нанимаю</button>
       </div>
     </div>
     <div class="hero-img"><img src="assets/face.png" alt=""></div>
@@ -1027,10 +989,7 @@ V['/'] = () => `
     <div class="panel"><span class="label">Защита от завала</span><p class="prose small" style="margin-top:8px">У кандидата не больше ${CAP} открытых приглашений. У работодателя — недельная квота, которая растёт с долей принятых.</p></div>
   </div>
 
-  <div class="row" style="margin-top:24px">
-    <button class="btn ghost small" data-go="/v">Для жюри: дашборд валидации →</button>
-    <span class="muted small">Демо-стенд. Все компании и люди — синтетические.</span>
-  </div>`;
+  <p class="muted small" style="margin-top:24px">Демо-стенд. Все компании и люди — синтетические.</p>`;
 
 /* ===================== кандидат ===================== */
 V['/c/signup'] = () => `
@@ -1052,9 +1011,6 @@ V['/c/signup'] = () => `
       ${S.signup.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
       <div class="row"><button class="btn primary" data-act="otp-verify">Войти</button><button class="btn ghost" data-act="otp-send">Отправить код ещё раз</button></div>`
       : '<button class="btn primary" data-act="otp-send">Получить код на почту</button>'}
-      <div class="divider"></div>
-      <button class="btn dark" data-act="demo" data-who="c">Демо: войти как Дмитрий Орлов (A-1042)</button>
-      <span class="hint">Демо-вход работает только на стенде жюри (DEMO=1)</span>
     </div>
     <div class="stack">
       <div class="panel tight stack-s">
@@ -1221,35 +1177,22 @@ V['/c/profile'] = () => {
   </div>`;
 };
 
-// вводная теста по специализации: сюжет (как items.STORY), заголовок, суть; документация — по стеку
-const QUEST_INTRO = {
-  'Backend': ['Смена дежурного', 'Ночь, пейджер, падает приём платежей', 'Вы дежурный инженер в финтех-компании. За смену разберёте инцидент, решите, что делать первым, и проверите фикс от ИИ-ассистента.', 'Python и PostgreSQL'],
-  'Frontend': ['Неделя до релиза', 'Пять дней до релиза, а интерфейс сыпется', 'Вы фронтенд-разработчик продуктовой команды. За неделю разберёте баги вёрстки и состояния, медленные экраны, доступность и чужие PR.', 'MDN и вашего фреймворка'],
-  'Mobile': ['Релиз в сторах', 'Сборка ушла на ревью, а краши растут', 'Вы мобильный разработчик. За день релиза разберёте краши, жизненный цикл, офлайн-режим, производительность и чужие PR.', 'платформы и вашего фреймворка'],
-  'ML / DS': ['Модель деградирует', 'Метрика модели падает третью неделю', 'Вы ML-инженер. Разберёте постановку, валидацию, дрейф, признаки и выкатку модели — по графикам, логам и коду.', 'библиотек ML'],
-  'Data Eng / Analytics': ['Квартальный отчёт', 'Завтра квартальный отчёт, а цифры не сходятся', 'Вы инженер данных или аналитик. Разберёте запросы, модели данных, пайплайны, качество данных и графики для отчёта.', 'SQL и вашего стека данных'],
-  'DevOps / SRE': ['Миграция в облако', 'Ночь переезда в облако', 'Вы SRE. За ночь миграции разберёте инциденты, сети, Kubernetes, CI/CD, мониторинг и план отката.', 'Kubernetes и облака'],
-  'QA': ['Приёмка релиза', 'День приёмки релиза', 'Вы инженер по тестированию. Разберёте тест-дизайн, приёмку, автотесты, API, баг-репорты и регресс.', 'инструментов тестирования'],
-  'Security': ['Ночной инцидент', 'Ночью сработал алерт безопасности', 'Вы инженер по безопасности. Разберёте уязвимости, ревью кода, сетевые атаки, криптографию, реагирование и реверс.', 'по безопасности (OWASP и др.)'],
-  'Analysis': ['Новая интеграция', 'Партнёр подключается через неделю, а требования расходятся', 'Вы системный или бизнес-аналитик. Разберёте требования, процессы, интеграцию и API, данные, спецификации и влияние изменений.', 'по нотациям (BPMN, UML) и API партнёра'],
-  'Management': ['Квартальное планирование', 'План квартала, а ресурсов на всё не хватает', 'Вы проджект- или продакт-менеджер. Разберёте сроки, риски, метрики продукта, приоритеты, стейкхолдеров и процессы команды.', 'по методологиям и вашему трекеру'],
-  'Design': ['Редизайн оформления заказа', 'Конверсия чекаута падает, редизайн — на этой неделе', 'Вы UX/UI- или продуктовый дизайнер. Разберёте исследования, юзабилити, доступность, дизайн-систему, прототипы и эксперименты.', 'по WCAG и вашей дизайн-системе'],
-  'SysAdmin / Support': ['Понедельник в офисе', 'Понедельник, 8 утра, очередь обращений растёт', 'Вы системный администратор или инженер поддержки. Разберёте инциденты, сеть, учётки и доступы, бэкапы, серверы и обращения пользователей.', 'по ОС и вашему оборудованию'],
-};
+// сюжет теста по специализации — из /api/meta (items.STORY): вводная, финал, документация; часы сцен приходят с заданием
+const questStory = () => META.stories[ME && ME.spec] || META.stories.Backend;
 
 V['/c/quest'] = () => {
-  const [plot, head, about, docs] = QUEST_INTRO[ME && ME.spec] || QUEST_INTRO.Backend;
+  const { title: plot, head, about, docs } = questStory();
   return `
   ${crumbs([['Профиль', '/c/profile'], ['Тест-квест']])}
   <div class="quest fade" style="position:relative">
     ${trace('', 300, 180, 'M10 170 V60 a40 40 0 0 1 40 -40 H290', [[10, 170], [290, 20]]).replace('class="trace "', 'class="trace" style="right:24px;bottom:24px;opacity:.6;color:#6A5CFF"')}
     <div style="padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;gap:20px;max-width:760px;position:relative">
-      <span class="label" style="color:var(--on-dark-2)">${esc([ME && ME.spec, ME && ME.track].filter(Boolean).join(' · '))} · сюжет «${plot}»</span>
-      <h1 style="color:#fff">${head}</h1>
-      <p class="prose" style="color:var(--on-dark-2)">${about} Каждая сцена — отдельное задание, сложность подстраивается под ваши ответы.</p>
+      <span class="label" style="color:var(--on-dark-2)">${esc([ME && ME.spec, ME && ME.track].filter(Boolean).join(' · '))} · сюжет «${esc(plot)}»</span>
+      <h1 style="color:#fff">${esc(head)}</h1>
+      <p class="prose" style="color:var(--on-dark-2)">${esc(about)} Каждая сцена — отдельное задание, сложность подстраивается под ваши ответы.</p>
       <dl class="kv" style="color:var(--on-dark)">
         <dt style="color:var(--on-dark-2)">Длительность</dt><dd>40–60 минут, около 12 сцен, таймер на каждой</dd>
-        <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация ${docs}. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
+        <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация ${esc(docs)}. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
         ${META && META.code_tasks ? '<dt style="color:var(--on-dark-2)">Задача на код</dt><dd>Одна за полный тест (в экспресс-тесте её нет), на Python или TypeScript: функция проверяется на скрытых тестах в изолированной песочнице, до отправки можно запустить её на примерах.</dd>' : ''}
         <dt style="color:var(--on-dark-2)">Без игровых очков</dt><dd>Нет жизней и рейтингов. Финал — экран категории.</dd>
         <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Повышение грейда — не чаще раза в 90 дней${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Повышение возможно с ${DATE(ME.next_upgrade_at)}: сейчас пересдача может только понизить результат` : ''}</dd>
@@ -1304,7 +1247,7 @@ function sceneView() {
   if (q.done || !q.item) return `
   <div class="quest fade" style="padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;gap:18px;align-items:flex-start">
     <span class="label" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'Экспресс-тест · ' : ''}Все задания пройдены · ${q.progress.n} из ${q.progress.total}</span>
-    <h2 style="color:#fff">${S.story ? '18:00. Смена закончена' : 'Тест закончен'}</h2>
+    <h2 style="color:#fff">${S.story ? esc(questStory().finale) : 'Тест закончен'}</h2>
     <p class="prose" style="color:var(--on-dark-2)">Траектория была адаптивной: после каждого ответа пересчитывали θ и SE и подбирали следующее задание. Тест останавливается, когда погрешность достаточно мала.</p>
     <button class="btn primary" data-act="finish">Посмотреть категорию</button>
   </div>`;
@@ -1333,7 +1276,7 @@ function sceneView() {
     </div>
     <div class="quest-body">
       <div class="stack">
-        ${S.story && it.story ? `<p class="story">${it.time ? `<span class="t">${esc(it.time)}</span>` : ''}${esc(it.story)}</p>` : ''}
+        ${it.story ? `<p class="story">${S.story && it.time ? `<span class="t">${esc(it.time)}</span>` : ''}${esc(it.story)}</p>` : ''}
         ${left}
       </div>
       <div>${right}</div>
@@ -1899,12 +1842,6 @@ V['/e/signup'] = () => {
       ${f.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
       <div class="row"><button class="btn primary" data-act="eotp-verify">Войти</button><button class="btn ghost" data-act="eotp-send">Отправить код ещё раз</button></div>`
       : '<button class="btn primary" data-act="eotp-send">Получить код на почту</button>'}
-      <div class="divider"></div>
-      <div class="stack-s">
-        <button class="btn dark" data-act="demo" data-who="e">Демо: войти как «Ладога Пэй» (компания подтверждена)</button>
-        <button class="btn ghost" data-act="demo" data-who="newco">Демо: войти как «Новый Стартап» (не прошла проверку, квота 3)</button>
-        <span class="hint">Демо-вход работает только на стенде жюри (DEMO=1)</span>
-      </div>
     </div>
     <aside class="panel tight stack-s">
       <span class="label">Проверка компании</span>
@@ -2900,49 +2837,6 @@ V['/org'] = () => {
   ${o.res ? orgResult(o.res) : ''}`;
 };
 
-/* ===================== карта экранов ===================== */
-const MAP = [
-  ['Общее', [['/', 'Главная']]],
-  ['Кандидат', [['/c/signup', 'Вход и регистрация'], ['/c/profile', 'Профиль, резюме и достижения'], ['/c/quest', 'Тест-квест: грейд и история'], ['/c/quest/go', 'Тест-квест: задания'], ['/c/result', 'Категория и вердикт'], ['/c/home', 'Кабинет и приглашения'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Витрина задач'], ['/c/settings', 'Согласия и мои данные']]],
-  ['Работодатель', [['/e/signup', 'Вход и компания'], ['/e/need', 'Потребность и план теста'], ['/e/picks', 'Подборка и лотерея'], ['/e/search', 'Поиск по банку'], ['/e/cand/A-1042', 'Карточка кандидата'], ['/e/invite/C-0775', 'Форма приглашения'], ['/e/pipeline', 'Статусы и обратная связь'], ['/e/vacancies', 'Вакансии и отклики'], ['/e/tasks', 'Задания и решения']]],
-  ['Жюри', [['/v', 'Дашборд валидации']]],
-  ['Организатор', [['/org', 'Импорт протоколов']]],
-];
-function openMap() {
-  const r = route(), role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
-  let n = 0;
-  const sbw = innerWidth - document.documentElement.clientWidth;  // полоса прокрутки исчезнет — страница не должна сдвинуться
-  document.documentElement.style.paddingRight = sbw ? sbw + 'px' : '';
-  document.documentElement.classList.add('lock');
-  document.querySelector('[data-act="map"]').setAttribute('aria-expanded', 'true');
-  document.querySelector('header.top').inert = $app.inert = true;  // фон под меню недоступен ни мыши, ни клавиатуре
-  // на телефоне шапка без ролей и «Выйти»: они здесь, над картой экранов
-  const roles = `<div class="m-only"><div class="stack-s"><span class="label">Роль</span><nav class="seg m-roles" aria-label="Роль">${[['/c/home', 'c', 'Кандидат'], ['/e/picks', 'e', 'Работодатель'], ['/v', 'v', 'Валидация']].map(([p, k, t]) => `<button data-go="${p}" aria-current="${role === k}">${t}</button>`).join('')}</nav>
-    <button class="btn ghost block" id="theme-m" data-act="theme"></button>
-    ${(role === 'c' || role === 'e') && TOK[role] ? `<button class="btn ghost block" data-act="logout">Выйти из кабинета ${role === 'c' ? 'кандидата' : 'работодателя'}</button>` : ''}</div></div>`;
-  document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-modal="true" aria-labelledby="map-title">
-    <div class="row sb"><h3 id="map-title"><span class="on-wide">Карта экранов</span><span class="on-narrow">Меню</span></h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
-    ${roles}
-    ${MAP.map(([g, items]) => [g, g === 'Кандидат' ? [...items, ...((D.invites && D.invites.items) || []).slice(0, 2).map(i => ['/c/invite/' + i.id, 'Приглашение: ' + esc(i.company)])] : items]).map(([g, items]) => `<div class="grp"><span class="label" style="margin:0 10px 4px">${g}</span>${items.map(([p, t]) => `<button data-go="${p}" aria-current="${r === p}"><span class="num">${String(++n).padStart(2, '0')}</span><span>${t}</span></button>`).join('')}</div>`).join('')}
-    <p class="small muted">Демо-сценарий: регистрация → профиль и PDF → тест → категория → работодатель пишет потребность → подборка → приглашение → кандидат принимает → контакты. Вход за демо-персонажей — кнопками «Демо: войти как …» на экранах входа.</p>
-  </div></div>`;
-  paintTheme();  // подпись переключателя темы в меню
-  document.querySelector('#overlay [data-act="close-map"].btn').focus();
-}
-function closeMap() {
-  const ov = document.getElementById('overlay');
-  if (!ov.innerHTML) return;
-  const back = ov.contains(document.activeElement);  // фокус был в меню — возвращаем на кнопку меню
-  ov.innerHTML = '';
-  document.documentElement.classList.remove('lock');
-  document.documentElement.style.paddingRight = '';
-  document.querySelector('header.top').inert = false;
-  $app.inert = $app.hasAttribute('aria-busy');  // экран мог ещё грузиться (busy)
-  const btn = document.querySelector('[data-act="map"]');
-  btn.setAttribute('aria-expanded', 'false');
-  if (back) btn.focus();
-}
-
 /* ===================== загрузка данных экрана ===================== */
 const or404 = p => p.catch(e => { if (e.status === 404) return null; throw e; });
 
@@ -3054,7 +2948,7 @@ function render() {
   centerNav();
   const cm = document.getElementById('chat-messages');
   if (cm) cm.scrollTop = cm.scrollHeight;
-  const role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
+  const role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : '';
   document.querySelectorAll('.roles button').forEach(b => b.setAttribute('aria-current', b.dataset.role === role));
   document.getElementById('logout').hidden = !(role === 'c' || role === 'e') || !TOK[role];
   if ((role === 'c' || role === 'e') && TOK[role]) { if (chatStreamSide !== role) chatStream(role); } else chatStop();
@@ -3080,7 +2974,7 @@ function rerender() {
 
 // смена экрана: без входа — на экран входа своей роли; загрузка данных, рендер
 // пока грузится следующий экран, прежний неактивен (inert): клик по устаревшей кнопке не уйдёт с параметрами старого экрана
-function busy(on) { $app.inert = on || !!document.querySelector('#overlay .overlay'); on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
+function busy(on) { $app.inert = on; on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
 async function show(keep) {
   const r = route(), my = ++seq, y = scrollY;
   const side = r.split('/')[1];
@@ -3173,17 +3067,15 @@ const darkMq = matchMedia('(prefers-color-scheme: dark)');
 const isDark = () => (document.documentElement.dataset.theme || (darkMq.matches ? 'dark' : 'light')) === 'dark';
 // на телефоне и планшете в шапке — только значок (подпись .on-wide скрыта), имя кнопки — из aria-label
 const paintTheme = () => {
-  const el = document.getElementById('theme'), m = document.getElementById('theme-m'), t = isDark() ? 'Светлая тема' : 'Тёмная тема', ic = `<span aria-hidden="true">${isDark() ? '☀' : '☾'}</span>`;
+  const el = document.getElementById('theme'), t = isDark() ? 'Светлая тема' : 'Тёмная тема', ic = `<span aria-hidden="true">${isDark() ? '☀' : '☾'}</span>`;
   el.innerHTML = `${ic}<span class="on-wide"> ${t}</span>`;
   el.setAttribute('aria-label', t);
-  if (m) m.innerHTML = `${ic} ${t}`;  // то же в меню телефона — с подписью
   document.querySelector('meta[name="theme-color"]').content = isDark() ? '#17181D' : '#FFFFFF';  // строка состояния и адресная строка телефона — под фон шапки
 };
 darkMq.addEventListener('change', paintTheme);
 
 const ACT = {
   theme: () => { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; LS.set('fsp.theme', t); paintTheme(); },
-  map: () => openMap(),
   fold: (a, d) => {
     S.fold[d.k] = !S.fold[d.k];
     a.closest('.fold').classList.toggle('open', S.fold[d.k]);
@@ -3197,7 +3089,7 @@ const ACT = {
   async logout() {
     const role = roleOf(route());
     await api('POST', '/api/auth/logout', undefined, role).catch(() => null);  // токен мог уже истечь — всё равно чистим
-    clearSide(role); toast('Вы вышли'); closeMap();
+    clearSide(role); toast('Вы вышли');
     const to = role === 'e' ? '/e/signup' : '/c/signup';
     if (route() === to) show(); else go(to);
   },
@@ -3230,11 +3122,6 @@ const ACT = {
   },
 
   // вход
-  async demo(a, d) {
-    await demoLogin(d.who);
-    toast(d.who === 'newco' ? 'Вход: «Новый Стартап» (компания не прошла проверку)' : 'Демо-вход выполнен');
-    go(d.who === 'c' ? '/c/home' : '/e/picks');
-  },
   'fsp-login': (a, d) => fspStart('login', d.side, d.idp),
   'fsp-link': () => fspStart('link'),
   async 'otp-send'() {
@@ -3566,13 +3453,12 @@ document.addEventListener('keydown', e => {
 // вставка в редактор кода: сколько символов пришло из буфера (сигнал для флага code_pasted, на оценку не влияет)
 document.addEventListener('paste', e => { if (e.target.id === 'code-ed') S.qPasted += ((e.clipboardData && e.clipboardData.getData('text')) || '').length; });
 
-addEventListener('hashchange', () => { closeMap(); if (route() !== '/org') TOK.org = null; show(); });  // токен организатора — только пока открыта его страница
+addEventListener('hashchange', () => { if (route() !== '/org') TOK.org = null; show(); });  // токен организатора — только пока открыта его страница
 
 document.addEventListener('click', e => {
   const g = e.target.closest('[data-go]');
   const a = e.target.closest('[data-act]');
-  if (a && a.dataset.act === 'close-map' && (e.target === a || a.tagName === 'BUTTON')) { closeMap(); return; }
-  if (g && !g.disabled) { e.preventDefault(); if (route() === g.dataset.go) { closeMap(); } else go(g.dataset.go); return; }
+  if (g && !g.disabled) { e.preventDefault(); if (route() !== g.dataset.go) go(g.dataset.go); return; }
   if (!a || a.disabled || a.matches(':disabled') || !ACT[a.dataset.act]) return;
   e.preventDefault();
   capture();
@@ -3664,7 +3550,6 @@ document.addEventListener('submit', async e => {
   }
 });
 
-addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
 matchMedia('(max-width: 640px)').addEventListener('change', () => { if (document.querySelector('.quest .chart')) { capture(); rerender(); } });  // график теста — узкий или широкий холст после поворота
 document.addEventListener('touchstart', () => {}, { passive: true });  // без него iOS Safari не показывает :active при касании
 for (const ev of ['pointerdown', 'mousedown']) document.addEventListener(ev, e => { if (e.target.closest('[data-keepfocus]')) e.preventDefault(); });

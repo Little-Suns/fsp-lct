@@ -42,7 +42,7 @@ def _(rng):
                                "У сборки из TestFlight нет entitlement на группу Keychain (-34018): поправить capabilities и профиль подписи"], v,
                          ["Экран создаётся не на главном потоке, и UIKit падает на первом обращении к view",
                           f"Системе не хватило памяти: в сборке {ver} экран тяжелее, и его view выгружается ещё до вызова viewDidLoad"])
-    return {"scene_title": "Краш на экране", "story": f"Сборка {ver} для TestFlight. {story}", "prompt": "В чём причина?",
+    return {"scene_title": "Краш в TestFlight", "story": f"Сборка {ver} для TestFlight. {story}", "prompt": "В чём причина?",
             "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -104,7 +104,7 @@ def _(rng):
                                "Курсоры не закрываются и исчерпывают окна: закрывать их (use { }) сразу после чтения"], v,
                          [f"Утечка памяти в {screen}: в onStop очищать адаптер и вызывать System.gc(), чтобы освободить место",
                           "Процесс убивает система из-за нехватки памяти, это поведение ОС, и в коде его не исправить"])
-    return {"scene_title": "Краш на Android", "story": story, "prompt": "В чём причина и как исправить?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
+    return {"scene_title": "Отчёты о крашах", "story": story, "prompt": "В чём причина и как исправить?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
 # --- Жизненный цикл приложения ---
@@ -168,7 +168,7 @@ def _(rng):
                                "Нужен фоновый режим location и allowsBackgroundLocationUpdates = true: иначе обновления в фоне останавливаются"], v,
                          ["Вызывать beginBackgroundTask заново каждые 25 секунд: система каждый раз продлит время работы в фоне",
                           "Включить фоновый режим аудио и проигрывать тишину, чтобы приложение не засыпало"])
-    return {"scene_title": "Работа в фоне", "story": f"{story} В логах устройства — вот что.", "prompt": "Как сделать правильно?",
+    return {"scene_title": "Работа в фоне", "story": f"{story} Ниже — логи устройства.", "prompt": "Как сделать правильно?",
             "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -308,7 +308,7 @@ def _(rng):
             lines += ["  }", "}"]
             story = "Иногда после сохранения закрывается не тот экран, а в отчётах — «Looking up a deactivated widget's ancestor is unsafe»."
         prompt = "Нажмите на строку, которую нужно исправить."
-    return {"scene_title": "Flutter-экран", "story": story, "prompt": prompt, "panel": {"type": "code", "lang": "dart", "lines": lines}, "key": key}
+    return {"scene_title": "Ревью Flutter-экрана", "story": story, "prompt": prompt, "panel": {"type": "code", "lang": "dart", "lines": lines}, "key": key}
 
 
 @family("mob_rv_collect_lifecycle", "Mobile", "Ревью кода", "mark", 2.3, 2.2)
@@ -335,7 +335,7 @@ def _(rng):
         key = len(lines)
         lines += ["        repo.saveSettings(viewModel.settings)", "    }", "    showToast(result.message)", "}"]
         story = "При нажатии «Сохранить» интерфейс замирает на несколько секунд, на слабых телефонах — до ANR."
-    return {"scene_title": "Корутины", "story": story, "prompt": "Нажмите на строку с причиной.",
+    return {"scene_title": "Ревью корутин", "story": story, "prompt": "Нажмите на строку с причиной.",
             "panel": {"type": "code", "lang": "kotlin", "lines": lines, "caption": f"PR #{rng.randint(300, 999)}"}, "key": key}
 
 
@@ -370,7 +370,7 @@ def _(rng):
         lines += ["            }", "    }", "}"]
         story = f"При каждом возврате на экран уходит новый запрос {ep}, старые не отменяются, и иногда устаревший ответ приходит последним и перетирает свежий."
         prompt = "Нажмите на строку, из-за которой загрузки не отменяются."
-    return {"scene_title": "Swift concurrency", "story": story, "prompt": prompt,
+    return {"scene_title": "Ревью async-кода", "story": story, "prompt": prompt,
             "panel": {"type": "code", "lang": "swift", "lines": lines, "caption": f"PR #{rng.randint(300, 999)} · «{actor}»"}, "key": key}
 
 
@@ -408,7 +408,7 @@ def _(rng):
         lines = [_log(t(0, 1), "ops", "INFO", f"{host}: сертификат перевыпущен вчера, новый ключ"),
                  _log(t(2, 14), "app", "INFO", "feed: GET /items"),
                  _log(t(2, 15), "OkHttp", "ERROR", f"javax.net.ssl.SSLPeerUnverifiedException: Certificate pinning failure!\n  Pinned certificates for {host}: sha256/AAAA…= (один пин)")]
-        story = f"С сегодняшнего утра все версии приложения не загружают ни одного экрана; в браузере {host} открывается нормально."
+        story = f"С утра все версии приложения не загружают ни одного экрана; в браузере {host} открывается нормально."
     else:
         lines = [_log(t(0, 1), "ops", "INFO", f"{host}: на балансировщике оставлен только TLS 1.3"),
                  _log(t(2, 15), "OkHttp", "ERROR", "javax.net.ssl.SSLHandshakeException: SSL handshake aborted: Failure in SSL library, usually a protocol error"),
@@ -433,7 +433,7 @@ def _(rng):
                  _log(t(0, 3), "auth", "INFO", f"POST /auth/refresh (refresh=…{r1}) → 200, new pair issued"),
                  _log(t(0, 3), "auth", "WARN", f"POST /auth/refresh (refresh=…{r1}) → 401 refresh_token_reused, token family revoked"),
                  _log(t(0, 4), "app", "ERROR", "session revoked → logout, open LoginScreen")]
-        story = "Утром после релиза часть пользователей внезапно оказывается на экране входа. Сервер выдаёт одноразовые refresh-токены (ротация)."
+        story = "После релиза часть пользователей внезапно оказывается на экране входа. Сервер выдаёт одноразовые refresh-токены (ротация)."
     elif v == 1:
         lines = [_log(t(0, 1), "app", "INFO", f"main app: refresh → saved refresh=…{r1 + 1}"),
                  _log(t(0, 2), "notification-ext", "INFO", f"push extension: refresh with …{r1} (прочитан при старте) → 200, saved refresh=…{r1 + 7}"),
@@ -536,8 +536,8 @@ def _(rng):
                                "Миграция базы выполняется синхронно при старте: делать её в фоне с прогрессом или разбить на шаги"], v,
                          ["Векторные иконки: их растеризация занимает секунды при каждом холодном старте",
                           "Новый онбординг: его экраны и анимации создаются при каждом холодном старте"])
-    return {"scene_title": "Медленный старт", "story": f"В {x[rel]}: новый онбординг (только при первом запуске), векторные иконки, ещё {k} SDK, "
-                                                     "загрузка удалённого конфига с A/B-флагами и новая схема локальной базы.",
+    return {"scene_title": "Медленный старт", "story": f"Холодный старт подскочил в {x[rel]}. В этом релизе — новый онбординг (только при первом запуске), "
+                                                     f"векторные иконки, ещё {k} SDK, загрузка удалённого конфига с A/B-флагами и новая схема локальной базы.",
             "prompt": "Что вероятнее всего замедлило холодный старт?", "panel": panel, "options": opts, "key": key}
 
 
@@ -549,11 +549,11 @@ def _(rng):
     v = _variant(rng, 3)
     if v == 0:
         series = [{"name": "рекомпозиций строк в секунду", "axis": "left", "max": 2500, "data": [rng.randint(30, 60) if i < m else rng.randint(1800, 2400) for i in range(8)]}]
-        story = (f"После переноса моделей в модуль domain лента «{screen}» дёргается, пока в шапке идёт таймер акции. Layout Inspector: экран перекомпонуется "
-                 f"на каждый тик, как и до переноса, но теперь вместе с ним перерисовываются все строки, хотя их данные не менялись. Строки получают List<{typ}> из модуля domain.")
+        story = (f"После переноса моделей в модуль domain лента «{screen}» дёргается, пока в шапке тикает таймер акции. Layout Inspector: экран, как и раньше, "
+                 f"перекомпонуется на каждый тик, но теперь вместе с ним — все строки, хотя их данные не менялись. Строки получают List<{typ}> из модуля domain.")
     elif v == 1:
         series = [{"name": "рекомпозиций экрана целиком в секунду", "axis": "left", "max": 100, "data": [rng.randint(0, 2) if i < m else rng.randint(55, 65) for i in range(8)]}]
-        story = (f"После таймера акции лента «{screen}» дёргается. Layout Inspector: на каждый тик перекомпонуется весь экран — "
+        story = (f"С тех пор как в шапке появился таймер акции, лента «{screen}» дёргается. Layout Inspector: на каждый тик перекомпонуется весь экран — "
                  "значение таймера читается в корневой функции экрана и передаётся вниз параметром.")
     else:
         series = [{"name": "средняя перерисовка пикселя, раз", "axis": "left", "max": 6, "data": [rng.randint(1, 2) if i < m else rng.randint(4, 5) for i in range(8)]}]

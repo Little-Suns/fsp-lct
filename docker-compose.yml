@@ -53,6 +53,11 @@ services:
       GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY:-}
       GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-}
       LLM_CA_BUNDLE: ${LLM_CA_BUNDLE:-}
+      # OCR сканов резюме — vision-модель на своём vLLM (только self-hosted: скан уходит с ПДн); пусто — выключен, см. README
+      OCR_URL: ${OCR_URL:-}
+      OCR_MODEL: ${OCR_MODEL:-}
+      OCR_API_KEY: ${OCR_API_KEY:-}
+      OCR_TIMEOUT: ${OCR_TIMEOUT:-}
       # песочница задач на код; без SANDBOX_TOKEN задачи на код не выдаются (тест — без них)
       SANDBOX_URL: http://sandbox:8080
       SANDBOX_TOKEN: ${SANDBOX_TOKEN:-}
