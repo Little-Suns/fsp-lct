@@ -75,6 +75,8 @@ def meta():
         "fsp_id": fsp_id_client.enabled(),  # кнопка «Войти через ФСП ID»
         "fsp_idps": [{"alias": a, "label": l} for a, l in config.FSP_ID_IDPS.items()] if fsp_id_client.enabled() else [],  # брокер Keycloak
         "demo": config.DEMO,  # кнопка «Запустить прогон» на /v
+        # сюжет теста по специализации — вводная и финал на фронте; часы сцен подставляет /api/quest
+        "stories": {spec: {k: v for k, v in st.items() if k != "clock"} for spec, st in items.STORY.items()},
     }
 
 

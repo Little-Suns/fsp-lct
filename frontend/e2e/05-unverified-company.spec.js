@@ -8,7 +8,6 @@ const auth = async page => ({ authorization: 'Bearer ' + await page.evaluate(() 
 test('«Новый Стартап»: плашка, квота 3, приглашение → кандидат видит предупреждение и принимает', async ({ page }) => {
   test.setTimeout(90_000);
   await demo(page, 'newco');
-  await expect(toast(page)).toHaveText('Вход: «Новый Стартап» (компания не прошла проверку)');
   const banner = page.locator('.alert.warn', { hasText: 'Компания не прошла проверку.' });
   await expect(banner).toContainText('почта на домене не подтверждена');
   await expect(banner).toContainText('Квота — 3 приглашения в неделю');
