@@ -60,12 +60,20 @@ class Fail(Exception):
         self.code = code
 
 
-def _back(**params) -> RedirectResponse:
-    """Назад во фронт: только фиксированный путь «/», параметры — во фрагменте (не уходят на сервер и в Referer)."""
-    r = RedirectResponse("/#" + urlencode(params), status_code=303)
+def _back(path: str = "/", **params) -> RedirectResponse:
+    """Назад во фронт: путь — один из фиксированных (_return_path), параметры — во фрагменте (не уходят на сервер и в Referer)."""
+    r = RedirectResponse(path + "#" + urlencode(params), status_code=303)
     r.headers["Cache-Control"] = "no-store"
     r.headers["Referrer-Policy"] = "no-referrer"
     return r
+
+
+def _return_path(mode: str, role: str) -> str:
+    """Куда вернуть браузер: привязка — в настройки кандидата, вход — на экран входа своей роли (дальше фронт ведёт сам
+    по has_profile). Поток не найден (state) — на главную: роль неизвестна. redirect_uri провайдера от этого не меняется."""
+    if mode == "link":
+        return "/candidate/settings"
+    return "/employer/login" if role == "employer" else "/candidate/login"
 
 
 @router.post("/start")
@@ -169,14 +177,14 @@ def callback(state: str = Query(""), code: str = Query(""), error: str = Query("
         db.commit()  # связь с ФСП ID — до импорта: import_protocol ищет кандидата по User.fsp_id и коммитит сам
     except IntegrityError:  # параллельный вход занял тот же ФСП ID или почту
         db.rollback()
-        return _abort(db, flow.id, "taken")
+        return _abort(db, flow, "taken")
     except Fail as e:
         db.rollback()
-        return _abort(db, flow.id, e.code)
+        return _abort(db, flow, e.code)
     except FspIdError as e:
         db.rollback()
         log.warning("ФСП ID: %s", e)  # причина без ПДн: тип ошибки и поле протокола
-        return _abort(db, flow.id, e.code)
+        return _abort(db, flow, e.code)
     if user.role == "candidate":  # достижения — только кандидату
         cand = db.scalar(select(Candidate).where(Candidate.user_id == user.id))
         ach = fsp_id.import_achievements(db, cand, ident["sub"], info)
@@ -186,18 +194,18 @@ def callback(state: str = Query(""), code: str = Query(""), error: str = Query("
     if flow.mode == "link":
         db.execute(delete(FspLogin).where(FspLogin.id == flow.id))
         db.commit()
-        return _back(fsp="linked", ach=ach)
+        return _back(_return_path(flow.mode, flow.role), fsp="linked", ach=ach)
     ticket = secrets.token_urlsafe(32)
     db.execute(update(FspLogin).where(FspLogin.id == flow.id)
                .values(ticket_hash=hash_secret(ticket), user_id=user.id, expires_at=datetime.now(UTC) + TICKET_TTL))
     db.commit()
-    return _back(fsp="login", t=ticket, ach=ach)
+    return _back(_return_path(flow.mode, flow.role), fsp="login", t=ticket, ach=ach)
 
 
-def _abort(db: Session, flow_id: int, code: str) -> RedirectResponse:
-    db.execute(delete(FspLogin).where(FspLogin.id == flow_id))
+def _abort(db: Session, flow, code: str) -> RedirectResponse:
+    db.execute(delete(FspLogin).where(FspLogin.id == flow.id))
     db.commit()
-    return _back(fsp="error", e=code)
+    return _back(_return_path(flow.mode, flow.role), fsp="error", e=code)
 
 
 @router.post("/exchange")

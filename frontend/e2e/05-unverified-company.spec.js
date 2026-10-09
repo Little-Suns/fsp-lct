@@ -13,7 +13,7 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
   await expect(banner).toContainText('Квота — 3 приглашения в неделю');
   await expect(page.locator('aside b.num').first()).toHaveText('0 / 3');
   await expect(page.getByRole('heading', { name: 'Backend-разработчик (Python)' })).toBeVisible();
-  for (const r of ['/e/search', '/e/vacancies', '/e/need']) {
+  for (const r of ['/employer/search', '/employer/vacancies', '/employer/needs/new']) {
     await open(page, r);
     await expect(banner).toBeVisible();
   }
@@ -22,13 +22,13 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
   await banner.getByRole('button', { name: 'Данные компании' }).click();
   await expect(page.locator('.alert.bad', { hasText: 'ИНН' }).or(page.locator('.alert.bad', { hasText: 'почт' })).first()).toBeVisible();
   await page.getByLabel('О компании, 1–2 предложения').fill(`Edtech, MVP ${XSS}`);
-  await page.getByRole('button', { name: 'Сохранить и перейти к поиску' }).click();
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(toast(page)).toHaveText('Компания сохранена без подтверждения: квота 3 приглашения в неделю');
   await expect(page.getByLabel('О компании, 1–2 предложения')).toHaveValue(`Edtech, MVP ${XSS}`);
   expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 
   // приглашение A-1042: вилка от 25-го перцентиля рынка его грейда
-  await open(page, '/e/invite/A-1042');
+  await open(page, '/employer/candidates/A-1042/invite');
   await expect(page.getByRole('heading', { name: 'Приглашение для A-1042' })).toBeVisible();
   await expect(banner).toBeVisible();
   await expect(page.locator('#f-msgs .alert.bad')).toContainText('ниже 25-го перцентиля');  // вилка потребности джуна
@@ -52,19 +52,19 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
     await page.getByLabel('от', { exact: true }).fill(String(from));
     await page.getByLabel('до', { exact: true }).fill(String(Math.round(from * 1.3)));
   };
-  await open(page, '/e/picks');
+  await open(page, '/employer');
   const picks = (await (await page.request.get('/api/employer/needs', { headers: await auth(page) })).json())[0];
   const list = (await (await page.request.get(`/api/employer/needs/${picks.id}/picks?limit=20`, { headers: await auth(page) })).json()).items
     .filter(c => !c.invited && !c.busy && c.id !== 'A-1042');
   for (const c of list.slice(0, 2)) {
-    await open(page, '/e/invite/' + c.id);
+    await open(page, '/employer/candidates/' + c.id + '/invite');
     await expect(page.getByRole('heading', { name: 'Приглашение для ' + c.id })).toBeVisible();
     await fork();
     await page.getByRole('button', { name: 'Отправить приглашение' }).click();
     await expect(page.getByRole('row', { name: new RegExp(c.id) })).toBeVisible();
   }
   await expect(page.getByText(/квота 3 \/ 3/)).toBeVisible();
-  await open(page, '/e/invite/' + list[2].id);
+  await open(page, '/employer/candidates/' + list[2].id + '/invite');
   await expect(page.getByText('Квота на неделю исчерпана. Обновится в понедельник.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Отправить приглашение' })).toBeDisabled();
 
@@ -83,7 +83,7 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
 
   // компания видит контакты после принятия
   await demo(page, 'newco');
-  await open(page, '/e/pipeline');
+  await open(page, '/employer/invites');
   await expect(page.getByRole('row', { name: /A-1042/ })).toContainText('Дмитрий Орлов');
 });
 
@@ -96,7 +96,7 @@ test('«Новый Стартап»: лимит 2 открытых ваканс�
   expect(over.status()).toBe(409);
   expect((await over.json()).detail).toContain('Подтвердите компанию');
 
-  await open(page, '/e/vacancies');
+  await open(page, '/employer/vacancies');
   const limit = page.locator('.panel', { hasText: 'Открытые вакансии' });
   await expect(limit).toContainText('2 / 2');
   await expect(limit).toContainText('Сейчас лимит исчерпан');

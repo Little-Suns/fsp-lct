@@ -8,12 +8,12 @@ const fspButton = page => page.getByRole('button', { name: /Войти чере�
 const provider = page => expect(page.getByRole('heading', { name: 'ФСП ID (демо)' })).toBeVisible();
 
 test('ФСП ID: отмена, вход Орловым, отвязка и привязка в настройках', async ({ page }) => {
-  await open(page, '/c/signup');
+  await open(page, '/candidate/login');
   await fspButton(page).click();
   await provider(page);
   await page.getByRole('button', { name: 'Отмена' }).click();
   await expect(toast(page)).toHaveText('Вход через ФСП ID отменён');
-  await expect(page).toHaveURL(/#\/c\/signup$/);
+  await expect(page).toHaveURL(/\/candidate\/login$/);
 
   // Орлов: ФСП ID уже связан с аккаунтом из сида; билет обменивается на токен, из адреса он стёрт
   await fspButton(page).click();
@@ -28,7 +28,7 @@ test('ФСП ID: отмена, вход Орловым, отвязка и при
   expect(page.url()).not.toContain('fsp=');
 
   // настройки: отвязать → связать снова; подтягивается новое достижение из реестра
-  await open(page, '/c/settings');
+  await open(page, '/candidate/settings');
   const aside = page.locator('aside');
   await expect(aside).toContainText('Привязан FSP-1042');
   await aside.getByRole('button', { name: 'Отвязать', exact: true }).click();
@@ -41,12 +41,12 @@ test('ФСП ID: отмена, вход Орловым, отвязка и при
   await expect(toast(page)).toHaveText('ФСП ID привязан. Подтверждено достижений ФСП: 2');
   await expect(page.locator('#app .crumbs b')).toHaveText('Настройки и приватность');
   await expect(aside).toContainText('Привязан FSP-1042');
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   await expect(page.getByText('Региональный этап ФСП 2024, Москва')).toBeVisible();
 });
 
 test('ФСП ID: новый человек → профиль → согласие на внешние данные → достижения', async ({ page }) => {
-  await open(page, '/c/signup');
+  await open(page, '/candidate/signup');
   // согласия с экрана регистрации переживают уход к провайдеру
   await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
   await fspButton(page).click();
@@ -62,7 +62,7 @@ test('ФСП ID: новый человек → профиль → согласи
   expect(await (await saved).json()).toMatchObject({ email: 'a.sokolova@example.ru', consent_152: true });
   await expect(toast(page)).toHaveText('Профиль сохранён');
 
-  await open(page, '/c/settings');
+  await open(page, '/candidate/settings');
   await expect(page.locator('aside')).toContainText('Привязан FSP-2077');
   await page.getByRole('switch', { name: /Данные внешних профилей/ }).click();
   await expect(page.getByRole('switch', { name: /Данные внешних профилей/ })).toHaveAttribute('aria-checked', 'true');
@@ -70,14 +70,14 @@ test('ФСП ID: новый человек → профиль → согласи
   await provider(page);
   await page.getByRole('button', { name: /Анна Соколова/ }).click();
   await expect(toast(page)).toHaveText('ФСП ID привязан. Подтверждено достижений ФСП: 1');
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   await expect(page.getByText('Чемпионат России ФСП 2025, информационная безопасность')).toBeVisible();
 });
 
 test('ФСП ID: устаревший билет и ошибки возврата', async ({ page }) => {
   await page.goto('/?n=1#fsp=login&t=' + uniq() + '&ach=0');
   await expect(toast(page)).toHaveText('Вход через ФСП ID устарел — начните заново');
-  await expect(page).toHaveURL(/#\/c\/signup$/);
+  await expect(page).toHaveURL(/\/candidate\/login$/);
   await page.goto('/?n=2#fsp=error&e=taken');
   await expect(toast(page)).toHaveText('Этот ФСП ID уже привязан к другому аккаунту');
   await page.goto('/?n=3#fsp=error&e=constructor');
@@ -85,7 +85,7 @@ test('ФСП ID: устаревший билет и ошибки возврат�
 });
 
 test('SSO компании: Белов входит через мок Keycloak и попадает к данным компании', async ({ page }) => {
-  await open(page, '/e/signup');
+  await open(page, '/employer/login');
   await page.getByRole('button', { name: 'Войти через SSO (Keycloak)' }).click();
   await provider(page);
   // аккаунты на странице провайдера разделены на кандидатов и компании
@@ -107,12 +107,12 @@ test('SSO компании: Белов входит через мок Keycloak �
   await provider(page);
   await page.getByRole('button', { name: /Мария Ковалёва/ }).click();
   await expect(toast(page)).toHaveText('Вход через SSO');
-  await expect(page).toHaveURL(/#\/e\/picks$/);
+  await expect(page).toHaveURL(/\/employer$/);
   await expect(page.locator('#app .crumbs')).toContainText('Ладога Пэй');  // кабинет компании из сида
 });
 
 test('SSO компании: вход через провайдера брокера — kc_idp_hint виден на странице мока', async ({ page }) => {
-  await open(page, '/e/signup');
+  await open(page, '/employer/login');
   const start = api(page, 'POST', '/api/auth/fsp/start');
   await page.getByRole('button', { name: 'Войти через Яндекс ID' }).click();
   expect((await start).request().postDataJSON()).toMatchObject({ role: 'employer', idp: 'yandex' });
@@ -121,19 +121,35 @@ test('SSO компании: вход через провайдера броке�
   expect(page.url()).toContain('kc_idp_hint=yandex');
   await page.getByRole('button', { name: 'Отмена' }).click();
   await expect(toast(page)).toHaveText('Вход через SSO отменён');  // у компании текст без «ФСП ID»
-  await expect(page).toHaveURL(/#\/e\/signup$/);  // возврат — на сторону компании
+  await expect(page).toHaveURL(/\/employer\/login$/);  // возврат — на сторону компании
 
   // у кандидата те же провайдеры рядом с «Войти через ФСП ID»
-  await open(page, '/c/signup');
+  await open(page, '/candidate/login');
   await page.getByRole('button', { name: 'Войти через Корпоративный SSO' }).click();
   await expect(page.getByText('Вход через corp (демо, брокер Keycloak)')).toBeVisible();
 });
 
 test('SSO компании: кандидат не входит через компанию, ошибка роли понятна', async ({ page }) => {
-  await open(page, '/e/signup');
+  await open(page, '/employer/login');
   await page.getByRole('button', { name: 'Войти через SSO (Keycloak)' }).click();
   await provider(page);
   await page.getByRole('button', { name: /Дмитрий Орлов/ }).click();  // Орлов — кандидат с профилем
   await expect(toast(page)).toHaveText('Этот аккаунт уже зарегистрирован с другой ролью (кандидат или работодатель) — войдите по коду');
-  await expect(page).toHaveURL(/#\/e\/signup$/);
+  await expect(page).toHaveURL(/\/employer\/login$/);
+  // на экране входа компании — отказ и ссылка на вход кандидата
+  const refuse = page.getByRole('alert');
+  await expect(refuse).toContainText('Эта учётная запись зарегистрирована как кандидат.');
+  await refuse.getByRole('link', { name: 'Войти как кандидат' }).click();
+  await expect(page.getByRole('heading', { name: 'Вход для кандидатов' })).toBeVisible();
+});
+
+test('ФСП ID: вход с ?next= — после провайдера на исходный экран кабинета', async ({ page }) => {
+  await open(page, '/candidate/applications');
+  await expect(page).toHaveURL(/\/candidate\/login\?next=%2Fcandidate%2Fapplications$/);
+  await fspButton(page).click();
+  await provider(page);
+  await page.getByRole('button', { name: /Дмитрий Орлов/ }).click();
+  await expect(toast(page)).toHaveText(/^Вход через ФСП ID\./);
+  await expect(page).toHaveURL(/\/candidate\/applications$/);
+  await expect(page.locator('#app .crumbs b')).toHaveText('Мои отклики');
 });
