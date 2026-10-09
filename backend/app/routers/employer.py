@@ -12,6 +12,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, defer, selectinload
 
 from app import catalog
+from app.api_schemas import CandidateCard, InviteResult, NeedView, PicksResult, SearchResult
 from app.db import get_db
 from app.deps import active_company, current_company, current_user
 from app.models import Candidate, Company, Invitation, Lottery, Need, Task, User, Vacancy
@@ -263,7 +264,7 @@ def _need_out(n: Need) -> dict:
 
 
 def _category_count(db: Session, spec: str, track: str | None, grade: str) -> int:
-    # вместе с не подтверждёнными тестом: они в выдаче, с пометкой и ниже прошедших
+    # Категория существует только после теста.
     q = select(func.count()).select_from(Candidate).where(Candidate.spec == spec, matching.category_grade_sql() == grade, Candidate.status == "open", matching.published())
     if track:
         q = q.where(Candidate.track == track)
@@ -320,7 +321,7 @@ def need_category(body: CategoryIn, co: Company = Depends(current_company), db: 
     return _category_info(db, body.spec, body.track, body.grade, body.city, body.salary_to)
 
 
-@router.post("/needs")
+@router.post("/needs", response_model=NeedView)
 def create_need(body: NeedIn, co: Company = Depends(current_company), db: Session = Depends(get_db)):
     check_category(body.spec, body.track, body.grade)
     if body.format and body.format not in catalog.FORMATS:
@@ -348,7 +349,7 @@ def create_need(body: NeedIn, co: Company = Depends(current_company), db: Sessio
     return _need_out(n)
 
 
-@router.get("/needs")
+@router.get("/needs", response_model=list[NeedView])
 def list_needs(co: Company = Depends(current_company), db: Session = Depends(get_db)):
     return [_need_out(n) for n in db.scalars(select(Need).where(Need.company_id == co.id).order_by(Need.created_at.desc(), Need.id.desc()))]
 
@@ -409,7 +410,7 @@ def _invited(db: Session, co: Company, candidate_ids: list[int]) -> dict[int, st
     return {cid: PIPE_STATUS[st] for cid, st in rows}  # последнее приглашение побеждает
 
 
-@router.get("/needs/{need_id}/picks")
+@router.get("/needs/{need_id}/picks", response_model=PicksResult)
 def picks(
     need_id: int,
     filters: str = "",
@@ -456,7 +457,7 @@ def _visible(db: Session, co: Company, public_id: str) -> Candidate:
     return c
 
 
-@router.get("/candidates/{public_id}")
+@router.get("/candidates/{public_id}", response_model=CandidateCard)
 def candidate_card(public_id: str, need_id: int | None = None, co: Company = Depends(current_company), db: Session = Depends(get_db)):
     c = _visible(db, co, public_id)
     n = _own_need(db, co, need_id) if need_id else None
@@ -495,7 +496,7 @@ SEARCH_SKIP = [
 ]
 
 
-@router.get("/search")
+@router.get("/search", response_model=SearchResult)
 def search(
     spec: str | None = None,
     track: str | None = None,
@@ -603,7 +604,7 @@ def _locked(db: Session, model, pk: int):
     return db.scalars(select(model).where(model.id == pk).with_for_update().execution_options(populate_existing=True)).one()
 
 
-@router.post("/invites")
+@router.post("/invites", response_model=InviteResult)
 def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     cid = db.scalar(select(Candidate.id).where(Candidate.public_id == body.candidate_id))
     if not cid:

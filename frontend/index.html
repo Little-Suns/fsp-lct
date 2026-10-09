@@ -1300,7 +1300,7 @@ V['/c/quest'] = () => {
         <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация ${esc(docs)}. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
         ${META && META.code_tasks ? '<dt style="color:var(--on-dark-2)">Задача на код</dt><dd>Одна за полный тест (в экспресс-тесте её нет), на Python или TypeScript: функция проверяется на скрытых тестах в изолированной песочнице, до отправки можно запустить её на примерах.</dd>' : ''}
         <dt style="color:var(--on-dark-2)">Без игровых очков</dt><dd>Нет жизней и рейтингов. Финал — экран категории.</dd>
-        <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Повышение грейда — не чаще раза в 90 дней${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Повышение возможно с ${DATE(ME.next_upgrade_at)}: сейчас пересдача может только понизить результат` : ''}</dd>
+        <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Смена грейда — не чаще раза в 90 дней. Неудачная попытка не понижает грейд${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Смена возможна с ${DATE(ME.next_upgrade_at)}` : ''}</dd>
       </dl>
       <div class="field"><span style="color:var(--on-dark-2)">На какой грейд проходите тест</span>
         <div class="seg" role="group" aria-label="Грейд теста">${((META && META.grades) || []).map(g => `<button data-act="target" data-v="${g}" aria-pressed="${g === (S.target || (ME && ME.grade_claimed))}">${g}</button>`).join('')}</div>
@@ -1463,7 +1463,7 @@ V['/c/result'] = () => {
     <div class="stack">
       <div class="panel frame stack" style="padding:clamp(22px,4vw,36px);overflow:hidden">
         ${trace('', 240, 140, 'M230 10 V60 a30 30 0 0 1 -30 30 H10', [[230, 10], [10, 90]]).replace('class="trace "', 'class="trace" style="right:16px;top:16px;opacity:.5"')}
-        <span class="label">Ваша категория</span>
+        <span class="label">${R.assigned === false ? 'Категория ещё не присвоена' : 'Ваша категория'}</span>
         <div style="font-size:clamp(22px,3.4vw,34px)">${catTag(c.spec, c.track, c.grade)}</div>
         <div class="row" style="gap:32px">
           <div class="stat"><span class="label">Перцентиль ${R.percentile_scope === 'spec' ? 'в специализации' : 'в категории'}</span><b>${R.percentile ?? '—'}</b></div>
@@ -1485,7 +1485,7 @@ V['/c/result'] = () => {
       <div class="panel tight stack-s">
         <span class="label">Уровни доверия</span>
         <div class="trust">
-          <div><span class="dot on"></span><div><b>${R.express ? 'Экспресс-оценка' : 'Тест пройден'}</b><br><span class="muted small">${DATE(R.tested_at)}</span></div></div>
+          <div><span class="dot ${R.assigned === false ? '' : 'on'}"></span><div><b>${R.assigned === false ? 'Уровень не подтверждён' : R.express ? 'Экспресс-оценка' : 'Тест пройден'}</b><br><span class="muted small">${DATE(R.tested_at)}</span></div></div>
           <div><span class="dot ${R.review_passed ? 'on' : ''}"></span><div><b>Разбор решения</b><br><span class="muted small">${R.review_passed ? 'пройден' : 'нужен для Senior и выше'}</span></div></div>
           <div><span class="dot ${ME && ME.employer_confirmed ? 'on' : ''}"></span><div><b>Подтверждён работодателем</b><br><span class="muted small">${ME && ME.employer_confirmed ? ME.employer_confirmed + ' раз' : 'после первого собеседования'}</span></div></div>
           ${fsp ? `<div><span class="dot on"></span><div><b>ФСП</b> · ${esc(fsp.title)}</div></div>` : ''}
@@ -1493,7 +1493,7 @@ V['/c/result'] = () => {
           ${cf ? `<div><span class="dot on"></span><div><b>Codeforces</b> · <span class="num">${Math.round(cf.rating)}</span></div></div>` : ''}
         </div>
       </div>
-      <button class="btn primary block" data-go="/c/home">Готово, жду приглашений</button>
+      <button class="btn primary block" data-go="${R.assigned === false ? '/c/quest' : '/c/home'}">${R.assigned === false ? 'Выбрать уровень и пройти тест' : 'Готово, жду приглашений'}</button>
       <button class="btn ghost block" data-go="/c/quest">Пройти тест ещё раз</button>
       <button class="btn ghost block" data-act="pdf">PDF-профиль</button>
     </aside>
@@ -1527,7 +1527,7 @@ V['/c/home'] = () => {
             <button data-act="status" data-v="off" aria-pressed="${ME.status === 'off'}">Не ищу</button>
           </div>
         </div>
-        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: ${ME.visible ? 'пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля.' : 'без него грейд — только с ваших слов.'} <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
+        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: до подтверждения уровня профиль не показывается работодателям. <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
         ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
           ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`
@@ -2175,7 +2175,7 @@ V['/e/picks'] = () => {
             <div><span class="muted">Нагрузка</span><b class="num" style="color:${c.busy ? 'var(--red)' : 'inherit'}">${c.load} / ${CAP}</b>${c.busy ? '<span style="color:var(--red)">много предложений</span>' : ''}</div>
           </div>
         </button>`).join('') || '<div class="panel">Под фильтры никто не подходит. Снимите один из фильтров.</div>'}
-      <p class="small muted">Итог = соответствие × (0,5 + 0,5 · вероятность принятия) × поправка на нагрузку. Кандидаты без пройденного теста — в категории по заявленному грейду, с пометкой «грейд не подтверждён тестом» и всегда после прошедших тест. Подробности — в карточке.</p>
+      <p class="small muted">Итог = соответствие × (0,5 + 0,5 · вероятность принятия) × поправка на нагрузку. В подборку входят только кандидаты с категорией, присвоенной по тесту. Подробности — в карточке.</p>
     </div>
   </div>`;
 };

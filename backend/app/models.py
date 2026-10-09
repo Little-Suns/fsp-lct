@@ -279,6 +279,8 @@ class QuestSession(Base):
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"))
+    spec: Mapped[str | None] = mapped_column(String(64))  # категория на момент начала попытки
+    track: Mapped[str | None] = mapped_column(String(64))
     story: Mapped[bool] = mapped_column(Boolean, default=True)
     answers: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{"item_id", "response", "correct", "ms"}]
     theta: Mapped[float] = mapped_column(Float, default=0.0)
@@ -288,7 +290,7 @@ class QuestSession(Base):
     focus: Mapped[dict | None] = mapped_column(JSON)  # веса компетенций из описания вакансии {competency: weight}
     mode: Mapped[str] = mapped_column(String(8), default="full", server_default="full")  # full | express
     grade: Mapped[str | None] = mapped_column(String(16))  # грейд, измеренный этой попыткой
-    applied: Mapped[bool | None] = mapped_column(Boolean)  # попал ли результат в профиль (во время кулдауна — только понижение)
+    applied: Mapped[bool | None] = mapped_column(Boolean)  # попал ли результат в профиль
     flags: Mapped[list[str]] = mapped_column(JSON, default=list)  # подозрения: inconsistent, too_fast…
     started_at: Mapped[datetime] = _now()
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

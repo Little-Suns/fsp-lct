@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import secrets
 from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_flows")
@@ -19,12 +20,13 @@ from pypdf import PdfReader
 from fastapi.testclient import TestClient
 from fpdf import FPDF
 from PIL import Image, ImageDraw
+from sqlalchemy import delete
 
 from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
-from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, RetiredPublicId, User, Vacancy
-from app.routers import candidate, employer, lottery
+from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, QuestSession, RetiredPublicId, User, Vacancy
+from app.routers import candidate, employer, lottery, quest
 from app.services import llm, matching, ocr, profile_pdf
 
 config.LLM_BASE_URL = ""
@@ -113,7 +115,7 @@ def test_demo_flow(client):
     p = client.post("/api/employer/needs/parse", json={"text": NEED_TEXT}, headers=E).json()
     assert (p["spec"], p["track"], p["grade"], p["must"], p["nice"]) == ("Backend", "Python", "Middle", ["Python", "PostgreSQL", "Kafka"], ["Kubernetes"])
     assert (p["from"], p["to"], p["format"], p["city"]) == (240000, 300000, "Гибрид", "Москва")
-    assert p["category"]["count"] == 4 and p["market"]["p25"] == 210000  # A, B, H, U (без теста): счётчик категории не учитывает скрытие
+    assert p["category"]["count"] == 3 and p["market"]["p25"] == 210000  # A, B, H: без теста категории нет
     # категория поправлена вручную: рынок и счётчик — под новую категорию, без повторного разбора
     c = client.post("/api/employer/needs/category", json={"spec": "Backend", "track": "Go", "grade": "Senior", "city": "Москва", "salary_to": 300000}, headers=E).json()
     assert c["category"] == {**c["category"], "spec": "Backend", "track": "Go", "grade": "Senior"} and c["market"]["p50"] > p["market"]["p50"]
@@ -129,8 +131,8 @@ def test_demo_flow(client):
     assert "Дмитрий" not in r.text and "d.orlov" not in r.text and "dorlov_dev" not in r.text
     picks = r.json()
     ids = [c["id"] for c in picks["items"]]
-    assert ids[0] == "A-1042" and set(ids) == {"A-1042", "B-2318", "J-0003", "G-0005", "S-0006", "U-0004"}, ids
-    assert ids[-1] == "U-0004"  # без теста — строго после прошедших, хотя заявленный стек покрывает потребность
+    assert ids[0] == "A-1042" and set(ids) == {"A-1042", "B-2318", "J-0003", "G-0005", "S-0006"}, ids
+    assert "U-0004" not in ids  # обязательный тест нельзя заменить самоописанием
     a = picks["items"][0]
     assert a["sport_rank"] == "КМС" and a["badges"] == [{"source": "fsp", "title": "Финал Кубка России ФСП 2025", "place": None,
                                                           "result": "winner", "discipline": "продуктовое программирование", "rank": "КМС"}]
@@ -265,28 +267,19 @@ def test_search(client):
     s = client.get("/api/employer/search?grade=Middle&q=нужна кафка&limit=2", headers=E).json()
     ids = [c["id"] for c in s["items"]]
     # + G-0005 и U-0004 (без теста, заявлен Middle); J — Junior, H скрыт, P без согласия
-    assert s["skills"] == ["Kafka"] and s["total"] == 4 and ids == ["A-1042", "B-2318"], s
+    assert s["skills"] == ["Kafka"] and s["total"] == 3 and ids == ["A-1042", "B-2318"], s
     assert {"H-0002", "P-0008", "Z-0001"}.isdisjoint(ids)
-    assert s["facets"]["grade"]["Senior"] == 2 and s["facets"]["spec"] == {"Backend": 4}  # фасет грейда — без своего фильтра
-    assert s["facets"]["grade"]["Middle"] == 4 and s["facets"]["grade"]["Junior"] == 1  # U-0004 — по заявленному, J-0003 — по тесту
+    assert s["facets"]["grade"]["Senior"] == 2 and s["facets"]["spec"] == {"Backend": 3}
+    assert s["facets"]["grade"]["Middle"] == 3 and s["facets"]["grade"]["Junior"] == 1
     page2 = client.get("/api/employer/search?grade=Middle&q=кафка&limit=2&page=2", headers=E).json()
-    assert [(c["id"], c["rank"]) for c in page2["items"]] == [("G-0005", 3), ("U-0004", 4)]  # без теста — в конце
-    u = page2["items"][1]
-    assert (u["grade"], u["grade_tested"], u["pct"], u["theta"], u["skills"]) == ("Middle", False, None, None, [])
+    assert [(c["id"], c["rank"]) for c in page2["items"]] == [("G-0005", 3)]
 
 
 def test_unconfirmed_grade(client):
     need_id = client.get("/api/employer/needs", headers=E).json()[-1]["id"]  # первая потребность: Backend · Python · Middle
-    u = client.get(f"/api/employer/candidates/U-0004?need_id={need_id}", headers=E).json()
-    assert (u["grade"], u["grade_tested"], u["grade_claimed"], u["trust"]["test"], u["confirmed"]) == ("Middle", False, "Middle", False, None)
-    # ни перцентиля, ни θ, ни компетенций — даже если в строке остались старые значения
-    assert u["pct"] is None and u["theta"] is None and u["competencies"] == [] and u["explanation"]["pct"] is None
-    assert u["explanation"]["why"].startswith("Грейд Middle заявлен кандидатом, тестом не подтверждён")
-    assert u["explanation"]["parts"]["theta"] == 0.0 and u["claimed"] == ["Python", "PostgreSQL", "Kafka", "Kubernetes"]
-    assert u["market"]["p25"] == 210000  # рынок — по заявленному грейду
-    # вилка приглашения проверяется по рынку заявленного грейда (ошибка вилки — раньше квоты)
+    assert client.get(f"/api/employer/candidates/U-0004?need_id={need_id}", headers=E).status_code == 404
     r = client.post("/api/employer/invites", json={"candidate_id": "U-0004", "role": "Backend", "salary_from": 150000, "salary_to": 200000, "format": "Гибрид"}, headers=E)
-    assert r.status_code == 422 and "для Middle (210 000 ₽ на руки)" in r.json()["detail"]["errors"][0]
+    assert r.status_code == 404
     # тест показал грейд ниже заявленного: категория по тесту, заявленный виден
     j = client.get("/api/employer/candidates/J-0003", headers=E).json()
     assert (j["grade"], j["grade_claimed"], j["grade_tested"], j["pct"]) == ("Junior", "Middle", True, 60) and j["competencies"]
@@ -295,7 +288,7 @@ def test_unconfirmed_grade(client):
     # ярусы во всех вариантах подбора: без теста — после прошедших
     for variant in ("embed", "rerank", "full"):
         ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks?variant={variant}", headers=E).json()["items"]]
-        assert ids[-1] == "U-0004" and len(ids) > 1, (variant, ids)
+        assert "U-0004" not in ids and len(ids) > 1, (variant, ids)
 
 
 def test_unconfirmed_grade_retrieval_cap(client, monkeypatch):
@@ -319,10 +312,57 @@ def test_unconfirmed_grade_llm(client, monkeypatch):
     monkeypatch.setattr(matching.llm, "chat_json", fake_chat)
     matching._llm_cache.clear()
     ids = [c["id"] for c in client.get(f"/api/employer/needs/{need_id}/picks", headers=E).json()["items"]]
-    assert ids[-1] == "U-0004"
-    u = next(c for c in sent[0]["candidates"] if c["id"] == "U-0004")
-    assert (u["grade"], u["grade_tested"], u["theta"]) == ("Middle", False, None)
+    assert "U-0004" not in ids
+    assert all(c["id"] != "U-0004" and c["grade_tested"] for c in sent[0]["candidates"])
     matching._llm_cache.clear()
+
+
+@pytest.mark.parametrize("spec,track", [("Backend", "Go"), ("Frontend", "React")])
+def test_category_change_invalidates_assessment(client, spec, track):
+    """Смена специализации/трека требует нового теста, не стирает историю и не обходит кулдаун."""
+    tag = secrets.token_hex(4)
+    with SessionLocal() as db:
+        user = User(email=f"category-{tag}@example.ru", role="candidate")
+        db.add(user)
+        db.flush()
+        cand = _cand(f"T-{tag}", user_id=user.id)
+        cand.next_upgrade_at = datetime.now(UTC) + timedelta(days=30)
+        cand.review_passed, cand.employer_confirmed = True, 2
+        db.add(cand)
+        db.flush()
+        sess = QuestSession(candidate_id=cand.id, spec="Backend", track="Python", target_grade="Middle", answers=[])
+        db.add(sess)
+        db.commit()
+        cid, uid, sid, until = cand.id, user.id, sess.id, cand.next_upgrade_at
+        headers = {"Authorization": "Bearer " + issue_token(db, user)}
+    try:
+        body = {"name": "Тест", "spec": spec, "track": track, "grade_claimed": "Middle", "min_salary": 230000,
+                "formats": ["Гибрид"], "city": "Москва"}
+        assert client.post("/api/candidate/profile", json=body, headers=headers).status_code == 409
+        with SessionLocal() as db:
+            db.get(QuestSession, sid).finished_at = datetime.now(UTC)
+            db.get(QuestSession, sid).grade = "Middle"
+            db.get(QuestSession, sid).applied = True
+            db.commit()
+        r = client.post("/api/candidate/profile", json=body, headers=headers)
+        assert r.status_code == 200, r.text
+        me = r.json()
+        assert (me["spec"], me["track"], me["grade"], me["theta"], me["se"], me["pct"]) == (spec, track, None, None, None, None)
+        assert not me["visible"] and not me["review_passed"] and me["employer_confirmed"] == 0
+        assert me["skills_confirmed"] == me["competencies"] == [] and me["tested_at"] is None
+        quest_app = FastAPI()
+        quest_app.include_router(quest.router)
+        quest_client = TestClient(quest_app)
+        assert quest_client.get("/api/quest/result", headers=headers).status_code == 404
+        hist = quest_client.get("/api/quest/history", headers=headers).json()
+        assert hist[0]["spec"] == "Backend" and hist[0]["track"] == "Python"
+        with SessionLocal() as db:
+            assert db.get(Candidate, cid).next_upgrade_at == until
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(Candidate).where(Candidate.id == cid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
 
 
 def test_roles_soft_and_pdf_profile(client):

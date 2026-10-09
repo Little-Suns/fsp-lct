@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import catalog, config, deps
+from app.api_schemas import ERROR_RESPONSES
 from app.db import SessionLocal, init_db
 from app.integrations import fsp_id as fsp_id_client
 from app.routers import achievements, candidate, chat, employer, fsp_id, lottery, mock_fsp_id, quest, tasks, vacancies, validation
@@ -32,7 +33,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="ФСП Карьера API", lifespan=lifespan)
+app = FastAPI(title="ФСП Карьера API", lifespan=lifespan, responses=ERROR_RESPONSES)
 MAX_BODY = 6 * 1024 * 1024  # резюме до 5 МБ + запас
 
 

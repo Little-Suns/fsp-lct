@@ -203,9 +203,9 @@ def _cf_rating(db: Session, cand: Candidate) -> float | None:
 
 def _cooldown(cand: Candidate) -> dict:
     until = _utc(cand.next_upgrade_at)
-    active = bool(cand.tested_at and until and until > _now())
+    active = bool(until and until > _now())
     return {"active": active, "until": until.isoformat() if active else None,
-            "note": f"Повышение грейда возможно с {_ru_date(until)}. Сейчас пересдача может только понизить результат." if active else None}
+            "note": f"Смена грейда возможна с {_ru_date(until)}. До этого результат сохранится в истории без смены категории." if active else None}
 
 
 def _express(sess: QuestSession) -> bool:
@@ -266,6 +266,8 @@ def _state(sess: QuestSession, bank: dict[int, Item], spec: str) -> dict:
 @router.post("/start")
 def start(body: StartIn, cand: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
     """Начать тест или вернуться к незаконченной сессии (новая сессия не выдаёт новых заданий взамен уже показанных)."""
+    # Та же блокировка, что у смены профиля: перечитываем категорию после ожидания конкурирующей записи.
+    cand = db.scalar(select(Candidate).where(Candidate.id == cand.id).with_for_update().execution_options(populate_existing=True))
     if cand.spec not in catalog.COMPETENCIES:
         raise HTTPException(422, "В профиле не указана специализация")
     bank = _bank(db, cand.spec)
@@ -288,7 +290,7 @@ def start(body: StartIn, cand: Candidate = Depends(current_candidate), db: Sessi
     if not sess:
         # старт выбора — у порога заявленного грейда (+ CF); итоговая оценка — с нейтральным априором, см. finish
         prior = irt.start_prior(target, _cf_rating(db, cand))
-        sess = QuestSession(candidate_id=cand.id, story=body.story, prior_mean=prior, theta=prior, se=1.0, answers=[], flags=[],
+        sess = QuestSession(candidate_id=cand.id, spec=cand.spec, track=cand.track, story=body.story, prior_mean=prior, theta=prior, se=1.0, answers=[], flags=[],
                             target_grade=target, focus=focus, mode=body.mode)
         db.add(sess)
         try:
@@ -472,9 +474,9 @@ def _target(sess: QuestSession | None, cand: Candidate) -> dict | None:
 
 def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
     grades = catalog.GRADES
-    gi = grades.index(cand.grade)
-    nxt = grades[gi + 1] if gi + 1 < len(grades) else None
-    pct, scope = _percentile(db, cand)
+    gi = grades.index(cand.grade) if cand.grade in grades else -1
+    nxt = grades[gi + 1] if gi >= 0 and gi + 1 < len(grades) else None
+    pct, scope = _percentile(db, cand) if cand.grade else (None, None)
     comps = cand.competencies or []
     ranked = sorted(comps, key=lambda c: -c["t"])
     cd = _cooldown(cand)
@@ -485,8 +487,8 @@ def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
         "category": {"spec": cand.spec, "track": cand.track, "grade": cand.grade},
         "percentile": pct,
         "percentile_scope": scope,  # category | spec | None
-        "theta": round(cand.theta, 2),
-        "se": round(cand.se, 2),
+        "theta": round(cand.theta if cand.theta is not None else sess.theta, 2),
+        "se": round(cand.se if cand.se is not None else sess.se, 2),
         "minutes": minutes,
         "competencies": comps,
         "strong": [c["n"] for c in ranked[:2]],
@@ -505,6 +507,7 @@ def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
         "assessment_label": EXPRESS_LABEL if cand.grade_express else None,
         "tested_at": _utc(cand.tested_at).isoformat() if cand.tested_at else None,
         "review_passed": cand.review_passed,
+        "assigned": cand.grade is not None,
     }
 
 
@@ -542,19 +545,30 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     note = None
     if express:
         # экспресс — только предварительная категория тому, у кого грейда ещё нет; существующий не меняет ни вверх, ни вниз
-        applied = not cand.tested_at
+        applied = not cand.tested_at and not cooldown
         if not applied:
-            note = ("Предварительная категория уже выставлена по экспресс-тесту, повторный экспресс её не меняет. Уточнить грейд — полным тестом."
-                    if provisional else "Экспресс-оценка не меняет категорию, подтверждённую полным тестом.")
+            if cooldown and not cand.tested_at:
+                note = f"Смена грейда возможна с {_ru_date(_utc(cand.next_upgrade_at))}. Результат сохранён в истории."
+            elif provisional:
+                note = "Предварительная категория уже выставлена по экспресс-тесту, повторный экспресс её не меняет. Уточнить грейд — полным тестом."
+            else:
+                note = "Экспресс-оценка не меняет категорию, подтверждённую полным тестом."
     else:
-        # в кулдаун пересдача может только понизить результат
-        applied = not cooldown or cand.theta is None or theta < cand.theta
-        if not applied:
-            note = f"Результат не ниже текущего, поэтому категория не изменилась. Повышение возможно с {_ru_date(_utc(cand.next_upgrade_at))}."
+        measured = catalog.grade_from_theta(theta, se)
+        target = sess.target_grade or cand.grade_claimed
+        passed = catalog.GRADES.index(measured) >= catalog.GRADES.index(target)
+        lower = prev is not None and catalog.GRADES.index(target) < catalog.GRADES.index(prev)
+        grade = irt.decide_grade(prev, theta, se, lower_allowed=lower)
+        applied = passed and (not cooldown or (prev is not None and grade == prev))
+        if not passed:
+            note = "Заявленный уровень не подтверждён. Категория не изменилась; можно выбрать нижний уровень и пройти новый тест."
+        elif not applied:
+            note = f"Смена грейда возможна с {_ru_date(_utc(cand.next_upgrade_at))}. Результат сохранён в истории."
     if applied:
-        grade = irt.decide_grade(prev, theta, se, upgrade_allowed=not cooldown)
-        # кулдаун 90 дней — только с первого присвоения грейда полным тестом или фактического повышения
-        if not express and (prev is None or catalog.GRADES.index(grade) > catalog.GRADES.index(prev)):
+        if express:
+            grade = catalog.grade_from_theta(theta, se)
+        # Любая смена грейда полным тестом запускает ограничение, включая добровольный переход вниз.
+        if not express and grade != prev:
             cand.next_upgrade_at = now + timedelta(days=catalog.UPGRADE_COOLDOWN_DAYS)
         cand.theta, cand.se, cand.grade, cand.competencies = theta, se, grade, comps
         # по одному заданию на компетенцию навыки не подтверждаются: в экспресс-оценке — только заявленные
@@ -563,7 +577,7 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
         cand.tested_at = now
         cand.percentile = _percentile(db, cand)[0]
 
-    senior_plus = catalog.GRADES.index(cand.grade) >= catalog.GRADES.index(catalog.REVIEW_REQUIRED_FROM)
+    senior_plus = cand.grade in catalog.GRADES and catalog.GRADES.index(cand.grade) >= catalog.GRADES.index(catalog.REVIEW_REQUIRED_FROM)
     if (senior_plus and not cand.review_passed) or {"inconsistent", "too_fast", "code_pasted"} & set(flags):
         flags.append("review_required")  # ponytail: только флаг; асинхронный «разбор решения» (3–4 вопроса LLM) — отдельный сервис
     # грейд попытки: присвоенный (с гистерезисом), а если не применён — измеренный самой попыткой
@@ -576,9 +590,10 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
 
 @router.get("/result")
 def result(cand: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
-    if not cand.tested_at or cand.theta is None:
+    sess = db.scalar(select(QuestSession).where(QuestSession.candidate_id == cand.id, QuestSession.finished_at.is_not(None),
+                                              QuestSession.spec == cand.spec, QuestSession.track.is_not_distinct_from(cand.track)).order_by(QuestSession.id.desc()))
+    if (not cand.tested_at or cand.theta is None) and (not sess or sess.applied):
         raise HTTPException(404, "Тест ещё не пройден")
-    sess = db.scalar(select(QuestSession).where(QuestSession.candidate_id == cand.id, QuestSession.finished_at.is_not(None)).order_by(QuestSession.id.desc()))
     return _result(cand, sess, db)
 
 
@@ -593,6 +608,8 @@ def history(cand: Candidate = Depends(current_candidate), db: Session = Depends(
             "started_at": _utc(s.started_at).isoformat() if s.started_at else None,
             "finished_at": _utc(s.finished_at).isoformat() if done else None,
             "target_grade": s.target_grade,
+            "spec": s.spec,
+            "track": s.track,
             "mode": s.mode,
             "story": s.story,
             "focus": bool(s.focus),

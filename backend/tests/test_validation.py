@@ -116,7 +116,7 @@ def test_run_shape(db, tmp_path, monkeypatch):
     assert set(res["quality"]["by_kind"]) == {"normal", "adjacent", "fork_low"}
     # не подтверждённые тестом: доли в пуле, среди годных по эталону и в топ-k (там их нет — идут после прошедших)
     u = res["quality"]["unconfirmed"]
-    assert set(u) == {"pool", "rel", "top"} and 0 < u["pool"] < 1 and 0 < res["dataset"]["untested"] < 1
+    assert set(u) == {"pool", "rel", "top"} and u["pool"] == u["top"] == 0 and 0 < res["dataset"]["untested"] < 1
     assert [r["key"] for r in res["market"]["rows"]] == ["accepted_share", "coverage", "gini", "closed_needs"]
     assert all({"no_limits", "with_limits"} <= r.keys() for r in res["market"]["rows"])
     assert {"no_limits", "with_limits"} <= res["market"]["top5_share"].keys()

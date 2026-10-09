@@ -184,6 +184,16 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
             raise HTTPException(422, "Нужно согласие на обработку персональных данных (152-ФЗ)")
         c = Candidate(user_id=user.id, public_id=_new_public_id(db), consent_152=False, consent_publish=False, consent_external=False)
         db.add(c)
+    category_changed = c.id is not None and (c.spec, c.track) != (body.spec, body.track)
+    if category_changed:
+        active = db.scalar(select(QuestSession.id).where(QuestSession.candidate_id == c.id, QuestSession.finished_at.is_(None)))
+        if active:
+            raise HTTPException(409, "Сначала завершите текущий тест, затем меняйте специализацию или трек")
+        # Подтверждение относится к прежней категории. История и срок смены грейда сохраняются.
+        c.grade = c.theta = c.se = c.percentile = c.tested_at = None
+        c.competencies, c.skills_confirmed = [], []
+        c.grade_express, c.review_passed, c.employer_confirmed = False, False, 0
+        vec = None  # вектор выше содержал результаты теста прежней специализации
     new = c.id is None
     c.name, c.email, c.tg = body.name, body.email or user.email, body.tg
     c.spec, c.track, c.grade_claimed = body.spec, body.track, body.grade_claimed
@@ -239,7 +249,7 @@ def me(c: Candidate = Depends(current_candidate), db: Session = Depends(get_db))
         "format": matching.format_text(c.formats, c.city),
         "city": c.city,
         "status": c.status,
-        "visible": matching.visible(c),  # карточку видят работодатели (статус, действующие согласия); без теста — с пометкой
+        "visible": matching.visible(c),  # карточку видят после теста и при действующих согласиях
         "notif": c.notif,
         "hidden_from": c.hidden_from or [],
         "years_exp": c.years_exp,

@@ -369,30 +369,21 @@ test('Ладога: поиск по банку — фасеты, флаги, т�
   await expect(page.getByRole('heading', { name: /^Кандидат [A-Z]-\d+$/ })).toBeVisible();
 });
 
-test('Ладога: без теста — в выдаче с пометкой и после прошедших; тест ниже заявленного — оба грейда видны', async ({ page }) => {
+test('Ладога: без теста нет выдачи и доступа к карточке; заявленный и подтверждённый грейды различаются', async ({ page }) => {
   await demo(page, 'e');
   await page.locator('.brand').click();
-  await expect(page.getByText('Кандидаты без пройденного теста — в категории по заявленному грейду')).toBeVisible();
+  await expect(page.getByText('В подборку входят только кандидаты с категорией, присвоенной по тесту.')).toBeVisible();
   // подборка и поиск: не подтверждённые тестом — строго после прошедших, без перцентиля и θ
   const tail = items => { const t = items.map(c => c.grade_tested), i = t.indexOf(false); return [i, t.slice(i).every(x => x === false)]; };
   const P = await page.evaluate(() => api('GET', `/api/employer/needs/${S.needId}/picks?limit=500`));
-  const [pi, pOk] = tail(P.items);
-  expect(pi).toBeGreaterThan(0);
-  expect(pOk).toBe(true);
-  expect(P.items.find(c => c.id === 'K-2077')).toMatchObject({ grade: 'Middle', grade_tested: false, pct: null, theta: null });
+  expect(P.items.every(c => c.grade_tested)).toBe(true);
+  expect(P.items.find(c => c.id === 'K-2077')).toBeUndefined();
   const R = await page.evaluate(() => api('GET', '/api/employer/search?spec=Backend&track=Python&grade=Middle&limit=100'));
-  const [si, sOk] = tail(R.items);
-  expect(si).toBeGreaterThan(0);
-  expect(sOk).toBe(true);
+  expect(R.items.every(c => c.grade_tested)).toBe(true);
 
   // карточка без теста: пометка, заявленные навыки, без компетенций; ожидания «на руки»
   await open(page, '/employer/candidates/K-2077');
-  await expect(page.getByRole('heading', { name: 'Кандидат K-2077' })).toBeVisible();
-  await expect(page.locator('.chip', { hasText: 'грейд не подтверждён тестом' })).toBeVisible();
-  await expect(page.getByText('Тест не пройден: грейд Middle заявлен кандидатом')).toBeVisible();
-  await expect(page.getByText(/Навыки — со слов кандидата: Python, PostgreSQL, Kafka, Docker/)).toBeVisible();
-  await expect(page.getByText(/Грейд Middle заявлен кандидатом, тестом не подтверждён/)).toBeVisible();
-  await expect(page.getByText(/Ожидания от .+ на руки/)).toBeVisible();
+  await expect(page.getByText('Кандидат не найден или скрыл профиль.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Компетенции' })).toHaveCount(0);
   await expect(page.getByText(/грейд подтверждён/)).toHaveCount(0);
   // тест показал Middle при заявленном Senior: категория по тесту, заявленный — рядом

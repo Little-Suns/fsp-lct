@@ -136,8 +136,7 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
         "precision_ideal": round(float(np.mean(ceiling)), 3) if ceiling else None,
         "needs_evaluated": len(per["full"]),
         "needs_skipped": skipped,
-        # эталон считает не подтверждённых по правде синтетики (годный без теста — годный), подбор ставит их ниже
-        # прошедших тест: доля среди годных против доли в топе — сколько честно годных подбор опускает
+        # Контроль допуска: кандидаты без теста остаются в датасете, но не входят в пул или выдачу.
         "unconfirmed": {key: round(unc[f"{key}_u"] / unc[key], 3) if unc[key] else None for key in ("pool", "rel", "top")},
     }, ranked_pool
 
@@ -312,7 +311,7 @@ def cheater(bank, seed: int) -> dict:
 
 
 def stability(db: Session, bank, seed: int) -> dict:
-    """Пересдача (как самопроверка irt): та же правда θ, другие клоны и траектория."""
+    """Пересдача после кулдауна на текущий грейд: та же правда θ, другие клоны, без добровольного понижения."""
     rng = random.Random(f"{seed}:retest")
     true = np.array([rng.gauss(0, 1) for _ in range(N_RETEST)])
     s1 = [irt.simulate_session(bank, t, rng) for t in true]
@@ -475,7 +474,7 @@ def run(db: Session, *, k: int = 10, seed: int = 42, today: date | None = DEMO_T
                                 .options(selectinload(Need.company)).order_by(Need.id)))
         pools = _pools(db, needs)
         q, ranked_pool = quality(db, needs, pools, k)
-        population = list(db.scalars(select(Candidate).where(Candidate.status == "open")))  # с не подтверждёнными: они в выдаче
+        population = list(db.scalars(select(Candidate).where(Candidate.status == "open")))  # знаменатель охвата включает ещё не прошедших тест
         mk = market(needs, ranked_pool, population, seed)
     finally:
         config.LLM_BASE_URL = saved
@@ -517,7 +516,7 @@ def report(res: dict) -> str:
     L += [f"  {v['label']:<26}{f(v['precision']):>14}{f(v['ndcg']):>10}" for v in q["variants"]]
     u = q.get("unconfirmed") or {}
     pc = lambda x: "—" if x is None else f"{x:.1%}"  # noqa: E731
-    L.append(f"  не подтверждённые тестом (идут после прошедших): в пуле {pc(u.get('pool'))}, среди годных по эталону {pc(u.get('rel'))}, "
+    L.append(f"  не подтверждённые тестом (исключены из выдачи): в пуле {pc(u.get('pool'))}, среди годных по эталону {pc(u.get('rel'))}, "
              f"в топ-{k} {pc(u.get('top'))}")
     L.append("  по типам потребностей (precision / nDCG):")
     for kd, d2 in q["by_kind"].items():
