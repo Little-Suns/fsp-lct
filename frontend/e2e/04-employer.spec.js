@@ -293,6 +293,26 @@ test('Ладога ↔ кандидат: принятое приглашение
   await expect(orlov.locator('.chip.ok')).toHaveText('наняли');
 });
 
+test('Ладога: соседняя категория в подборке открывает поиск по банку с её фильтрами', async ({ page }) => {
+  await demo(page, 'e');
+  await open(page, '/e/signup');
+  await expect(page.getByText(/Принято приглашений: \d+/)).toBeVisible();
+  await expect(page.getByText('Оплата')).toHaveCount(0);  // биллинга нет — и обещания оплаты тоже
+  await open(page, '/e/picks');
+  const cat = page.locator('button.chip[data-act=cat-search]').first();
+  await expect(cat).toBeVisible();
+  const { spec, track, grade, msg } = await cat.evaluate(b => ({ ...b.dataset }));
+  const q = api(page, 'GET', '/api/employer/search');
+  await cat.click();
+  const url = new URL((await q).url());
+  expect([url.searchParams.get('spec'), url.searchParams.get('track') || '', url.searchParams.get('grade')]).toEqual([spec, track, grade]);
+  await expect(page.getByText(/^Найдено \d+ · сортировка/)).toBeVisible();
+  await expect(page.getByLabel('Специализация')).toHaveValue(spec);
+  await expect(page.getByLabel('Грейд')).toHaveValue(grade);
+  if (track) await expect(page.getByLabel('Трек')).toHaveValue(track);
+  if (msg) await expect(toast(page)).toHaveText(msg);
+});
+
 test('Ладога: поиск по банку — фасеты, флаги, текст и навыки, страницы', async ({ page }) => {
   await demo(page, 'e');
   await page.locator('nav.chips').getByRole('button', { name: 'Поиск по банку' }).click();

@@ -1008,7 +1008,7 @@ V['/'] = () => `
       <h1>Один тест — и&nbsp;работодатели <em>сами приходят</em> с&nbsp;вилкой</h1>
       <p class="lead">Пройдите тест-квест один раз и получите категорию: специализация, стек и грейд. Компании ищут в базе и присылают приглашения с зарплатой «от — до». Контакты открываются, только когда вы согласились.</p>
       <div class="row">
-        <button class="btn primary" data-go="/c/signup">Я разработчик</button>
+        <button class="btn primary" data-go="/c/signup">Я ищу работу</button>
         <button class="btn dark" data-go="/e/signup">Я нанимаю</button>
       </div>
     </div>
@@ -1137,7 +1137,6 @@ function achPanel() {
         ${A.hackathons.map(achRow).join('')}<span class="muted small">Протоколы загружают организаторы</span></div></div>
       <div><span class="dot ${cf && cf.verified ? 'on' : ''}"></span><div>${cfBlock}</div></div>
       <div><span class="dot ${ct ? 'on' : ''}"></span><div>${ctBlock}</div></div>
-      <div><span class="dot"></span><div><b>Kaggle</b> · <button class="btn ghost small" data-act="noop" data-msg="Kaggle — для ML/DS треков">Подключить</button></div></div>
     </div>
     <button class="switch" role="switch" aria-checked="${ok}" data-act="consent-ext"><i></i> Согласие на обработку данных внешних профилей (Codeforces, CTFtime)</button>
     ${confirmBox('revokeExt', 'Отозвать согласие? Привязки Codeforces и CTFtime и полученные из них достижения будут удалены.', 'Отозвать')}
@@ -1320,7 +1319,9 @@ function sceneView() {
        </div>`
     : `<div class="stack"><p class="q">${esc(it.prompt)}</p><div class="opts">${it.options.map((o, i) => `<button class="opt" data-act="ans" data-i="${i}" aria-pressed="${S.qAns === i}"><span class="k">${'ABCDEFGH'[i]}</span><span>${esc(o)}</span></button>`).join('')}</div></div>`;
   const canNext = isCode ? true : isMark ? !!S.codeMark : S.qAns != null;
-  const sec = q.remaining_s != null ? Math.max(0, q.remaining_s - Math.round((Date.now() - (S.qAt || Date.now())) / 1000)) : it.time_limit_s;
+  const ago = Math.round((Date.now() - (S.qAt || Date.now())) / 1000);
+  const sec = q.remaining_s != null ? Math.max(0, q.remaining_s - ago) : it.time_limit_s;
+  const dl = q.deadline_s != null ? Math.max(0, q.deadline_s - ago) : sec;  // после нуля таймера ответ ещё засчитывается до dl
   return `
   ${crumbs([['Тест-квест', '/c/quest'], [(S.story ? 'Сцена ' : 'Задание ') + n]])}
   <div class="quest fade">
@@ -1329,7 +1330,7 @@ function sceneView() {
       <div class="pr" aria-label="Прогресс">${Array.from({ length: total }, (_, i) => `<i class="${i + 1 < n ? 'on' : i + 1 === n ? 'cur' : ''}"></i>`).join('')}</div>
       <span class="qt-comp" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> сюжет</button>
-      <span class="timer" id="timer" data-sec="${sec}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
+      <span class="timer" id="timer" data-sec="${sec}" data-dl="${dl}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
     </div>
     <div class="quest-body">
       <div class="stack">
@@ -1339,6 +1340,7 @@ function sceneView() {
       <div>${right}</div>
     </div>
     <div class="quest-foot${isCode ? ' qf-code' : ''}">
+      <div class="alert" id="tmo" style="flex-basis:100%" hidden><span>!</span><span></span></div>
       <span>${isCode ? 'Решение проверяется на скрытых тестах после отправки, исправить его потом нельзя. Правильность не показываем до конца теста.' : 'Ответ сохраняется сразу. Правильность не показываем до конца теста.'}</span>
       <div class="row">
         <button class="btn primary small" ${canNext ? '' : 'disabled'} data-act="qnext">${isCode ? 'Отправить решение' : 'Дальше'}</button>
@@ -1909,9 +1911,6 @@ V['/e/signup'] = () => {
     <aside class="panel tight stack-s">
       <span class="label">Проверка компании</span>
       <p class="small">ИНН — контрольные цифры, рабочая почта — на домене сайта компании. Неподтверждённая компания работает с квотой 3 приглашения в неделю, кандидаты видят плашку.</p>
-      <div class="divider"></div>
-      <span class="label">Оплата</span>
-      <p class="small">Только за принятые приглашения.</p>
     </aside>
   </div>`;
   }
@@ -1943,10 +1942,7 @@ V['/e/signup'] = () => {
     <aside class="panel tight stack-s">
       <span class="label">Квота приглашений</span>
       <p class="small">Старт — 10 приглашений в неделю, у неподтверждённой компании — 3. Лимит растёт, если кандидаты принимают больше половины приглашений.</p>
-      ${q ? `<p class="small num">Сейчас: <b>${q.used} / ${q.max}</b>, обновится ${DAYMON(q.resets_at)}</p>` : ''}
-      <div class="divider"></div>
-      <span class="label">Оплата</span>
-      <p class="small">Только за принятые приглашения.${q ? ` Принято: <b class="num">${q.paid_accepts}</b>.` : ''}</p>
+      ${q ? `<p class="small num">Сейчас: <b>${q.used} / ${q.max}</b>, обновится ${DAYMON(q.resets_at)}. Принято приглашений: <b>${q.paid_accepts}</b></p>` : ''}
     </aside>
   </div>`;
 };
@@ -2101,7 +2097,7 @@ V['/e/picks'] = () => {
       </div>
       <div class="panel tight stack-s">
         <span class="label">Рекомендованные категории</span>
-        ${cats.map(c => `<button class="chip ${c.current ? 'on' : ''}" style="justify-content:space-between;width:100%" ${c.current ? '' : `data-act="noop" data-msg="${esc(c.note || 'Соседняя категория')}"`}>${esc([c.spec, c.track, c.grade].filter(Boolean).join(' · '))} <b class="num">${c.count}</b></button>`).join('')}
+        ${cats.map(c => `<button class="chip ${c.current ? 'on' : ''}" style="justify-content:space-between;width:100%" ${c.current ? '' : `data-act="cat-search" data-spec="${esc(c.spec)}" data-track="${esc(c.track || '')}" data-grade="${esc(c.grade)}" data-msg="${esc(c.note || '')}"`}>${esc([c.spec, c.track, c.grade].filter(Boolean).join(' · '))} <b class="num">${c.count}</b></button>`).join('')}
         ${warnCat ? `<span class="hint">${esc(warnCat.note)}</span>` : ''}
       </div>
       <div class="panel tight stack-s m-before">
@@ -3009,17 +3005,25 @@ async function show(keep) {
 }
 const refresh = () => show(true);
 
+// таймер задания; на нуле — плашка: сервер ещё принимает ответ льготные секунды (quest.TIMEOUT_GRACE_S), потом засчитывает неверным
 function startTimer() {
   clearInterval(timerId);
-  const el = document.getElementById('timer');
+  const el = document.getElementById('timer'), tmo = document.getElementById('tmo');
   if (!el) return;
-  let s = +el.dataset.sec;
-  el.classList.toggle('low', s < 60);
-  timerId = setInterval(() => {
-    s = Math.max(0, s - 1);
+  let s = +el.dataset.sec, dl = +el.dataset.dl;
+  const tick = () => {
     el.querySelector('span').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     el.classList.toggle('low', s < 60);
-    if (!s) clearInterval(timerId);
+    tmo.hidden = s > 0;
+    tmo.className = 'alert ' + (dl ? 'warn' : 'bad');
+    tmo.lastChild.textContent = dl ? `Время вышло. Ответ засчитается, если отправить его в ближайшие ${dl} с.`
+      : 'Время вышло, ответ не засчитается — переходите к следующему.';
+  };
+  tick();
+  timerId = setInterval(() => {
+    s = Math.max(0, s - 1); dl = Math.max(0, dl - 1);
+    tick();
+    if (!dl) clearInterval(timerId);
   }, 1000);
 }
 
@@ -3097,7 +3101,8 @@ const ACT = {
     a.closest('.fold').classList.toggle('open', S.fold[d.k]);
     a.setAttribute('aria-expanded', S.fold[d.k]); a.setAttribute('aria-label', foldLabel(d.k) + ' ' + FOLD[d.k]); a.textContent = foldLabel(d.k);
   },
-  noop: (a, d) => toast(d.msg || 'Пока не реализовано'),
+  // соседняя категория из подборки → поиск по банку с её фильтрами; пояснение категории — тостом
+  'cat-search'(a, d) { S.sf = { spec: d.spec, track: d.track, grade: d.grade, skills: '', q: '', fsp: false, cf: false, hackathon: false, format: '', city: '', page: 1 }; go('/e/search'); if (d.msg) toast(d.msg); },
   reload: () => refresh(),
   ask: (a, d) => { S.confirm = d.k; rerender(); },
   'confirm-no': () => { S.confirm = null; rerender(); },

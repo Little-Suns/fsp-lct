@@ -9,7 +9,7 @@ test('главная: герой, двери ролей и ссылка на в�
   await open(page, '/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('работодатели сами приходят');
   await expect(page.getByText('У кандидата не больше 4 открытых приглашений')).toBeVisible();
-  await page.getByRole('button', { name: 'Я разработчик' }).click();
+  await page.getByRole('button', { name: 'Я ищу работу' }).click();
   await expect(page.getByRole('heading', { name: 'Создайте профиль' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Войти через ФСП ID/ })).toBeVisible();  // сам вход — 09-fsp-id.spec.js
   await page.locator('.brand').click();
