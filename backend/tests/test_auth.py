@@ -76,9 +76,9 @@ def test_index_without_frontend_is_503(client, tmp_path, monkeypatch):
 
 
 def test_cabinet_paths_serve_index_only_on_explicit_prefixes(client, tmp_path, monkeypatch):
-    # маршруты фронта через History API: страница на адресах кабинетов и /v, 503 без файла — как на «/»
+    # маршруты фронта через History API: страница на адресах кабинетов, /v и /org, 503 без файла — как на «/»
     monkeypatch.setattr("app.main._front", tmp_path)
-    paths = ("/v", "/candidate", "/candidate/", "/candidate/test/result", "/candidate/chat/12", "/employer",
+    paths = ("/v", "/org", "/candidate", "/candidate/", "/candidate/test/result", "/candidate/chat/12", "/employer",
              "/employer/candidates/A-1042/invite", "/employer/опечатка")
     for p in paths:
         r = client.get(p)
