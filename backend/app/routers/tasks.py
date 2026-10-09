@@ -230,20 +230,22 @@ def _live(inv: Invitation) -> bool:
 
 
 def _via_invite(t: Task, inv: Invitation) -> bool:
-    """Непубличное задание доступно по приглашению той же потребности."""
-    return t.need_id is not None and inv.need_id == t.need_id and inv.company_id == t.company_id and _live(inv)
+    """Задание доступно по действующему приглашению той же компании: приложенное к нему (Invitation.task_id) или,
+    как у старых приглашений без task_id, любое задание той же потребности."""
+    if inv.company_id != t.company_id or not _live(inv):
+        return False
+    return inv.task_id == t.id or (t.need_id is not None and inv.need_id == t.need_id)
 
 
 def _can_see(db: Session, c: Candidate, t: Task) -> bool:
-    """Публичное задание своей специализации или задание из действующего приглашения по той же потребности.
+    """Публичное задание своей специализации или задание из действующего приглашения (приложенное или той же потребности).
     Задания заблокированной компании (services/reputation.py) не видны."""
     if t.company.blocked_at:
         return False
     if t.public and t.spec == c.spec:
         return True
-    if t.need_id is None:
-        return False
-    invs = db.scalars(select(Invitation).where(Invitation.candidate_id == c.id, Invitation.need_id == t.need_id))
+    linked = [Invitation.task_id == t.id] + ([Invitation.need_id == t.need_id] if t.need_id is not None else [])
+    invs = db.scalars(select(Invitation).where(Invitation.candidate_id == c.id, or_(*linked)))
     return any(_via_invite(t, i) for i in invs)
 
 
@@ -282,14 +284,16 @@ def my_submissions(c: Candidate = Depends(current_candidate), db: Session = Depe
 
 @router.get("/for-invitation/{invitation_id}")
 def tasks_for_invitation(invitation_id: int, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
-    """Задания из приглашения: задания той же компании по потребности приглашения. Чужое или неактивное → 404."""
+    """Задания из приглашения: приложенное (Invitation.task_id) и задания той же компании по потребности приглашения.
+    Чужое или неактивное → 404."""
     inv = db.get(Invitation, invitation_id)
     if not inv or inv.candidate_id != c.id or not _live(inv):
         raise HTTPException(404, "Приглашение не найдено")
-    if inv.need_id is None or inv.company.blocked_at:
+    linked = ([Task.id == inv.task_id] if inv.task_id is not None else []) + ([Task.need_id == inv.need_id] if inv.need_id is not None else [])
+    if not linked or inv.company.blocked_at:
         return []
     ts = db.scalars(
-        select(Task).where(Task.company_id == inv.company_id, Task.need_id == inv.need_id)
+        select(Task).where(Task.company_id == inv.company_id, or_(*linked))
         .options(selectinload(Task.company)).order_by(Task.created_at.desc(), Task.id.desc())
     ).all()
     return _for_candidate(ts, _submitted(db, c))
@@ -315,7 +319,7 @@ def submit(task_id: int, body: SubmitIn, c: Candidate = Depends(current_candidat
     if not t or t.company.blocked_at:
         raise HTTPException(404, "Задание не найдено")
     if body.invitation_id is not None:
-        # ponytail: задание «из приглашения» = та же потребность; явная связь Invitation.task_id, если понадобится точность
+        # задание «из приглашения» — приложенное явно (Invitation.task_id); у старых приглашений без task_id — та же потребность
         inv = db.get(Invitation, body.invitation_id)
         if not inv or inv.candidate_id != c.id or inv.company_id != t.company_id or not _live(inv):
             raise HTTPException(404, "Приглашение не найдено")

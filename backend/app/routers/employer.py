@@ -567,6 +567,7 @@ class InviteIn(BaseModel):
     format: str = Field(max_length=64)  # «Гибрид» или «Гибрид, Москва, 2 дня в офисе»
     description: str = Field(default="", max_length=5000)
     task: str | None = Field(default=None, max_length=2000)
+    task_id: int | None = None  # задание компании вместо первого созвона: кандидат откроет его из приглашения
     lottery_id: int | None = None  # приглашение по жребию: кандидат должен быть среди выбранных
 
 
@@ -648,6 +649,11 @@ def send_invite(body: InviteIn, bg: BackgroundTasks, co: Company = Depends(activ
         if body.need_id is not None and body.need_id != lot.need_id:
             raise HTTPException(422, {"errors": ["Потребность приглашения не совпадает с потребностью лотереи"], "warnings": []})
         n = _own_need(db, co, lot.need_id) if lot.need_id else None
+    t = db.get(Task, body.task_id) if body.task_id is not None else None
+    # как выбор в форме и tasks._can_see: своё задание, которое кандидат сможет открыть — публичное его специализации
+    # или привязанное к потребности приглашения
+    if body.task_id is not None and not (t and t.company_id == co.id and ((t.public and t.spec == c.spec) or (n and t.need_id == n.id))):
+        raise HTTPException(422, {"errors": ["Задание не найдено или кандидат не сможет его открыть"], "warnings": []})
     base_fmt = next((f for f in catalog.FORMATS if body.format.startswith(f)), None)
     if not base_fmt:
         raise HTTPException(422, {"errors": [f"Формат начинается с одного из: {', '.join(catalog.FORMATS)}"], "warnings": []})
@@ -677,7 +683,8 @@ def send_invite(body: InviteIn, bg: BackgroundTasks, co: Company = Depends(activ
         salary_to=body.salary_to,
         format=body.format,
         description=body.description,
-        task=body.task,
+        task=body.task or (f"{t.title}: ~{t.minutes} мин" if t else None),
+        task_id=t.id if t else None,
         status="sent",
         sent_at=now,
         expires_at=now + timedelta(days=catalog.INVITE_TTL_DAYS),

@@ -220,6 +220,8 @@ class Invitation(Base):
     format: Mapped[str] = mapped_column(String(64))
     description: Mapped[str] = mapped_column(Text, default="")
     task: Mapped[str | None] = mapped_column(Text)  # задача вместо первого созвона, по желанию
+    # задание из списка компании, приложенное к приглашению; удалили задание — приглашение и текст task остаются
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(String(12), default="sent")
     decline_reason: Mapped[str | None] = mapped_column(String(16))  # catalog.DECLINE_REASONS
     decline_comment: Mapped[str | None] = mapped_column(Text)
