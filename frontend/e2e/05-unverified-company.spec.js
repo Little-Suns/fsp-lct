@@ -27,8 +27,9 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
   await expect(page.getByLabel('О компании, 1–2 предложения')).toHaveValue(`Edtech, MVP ${XSS}`);
   expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 
-  // приглашение A-1042: вилка от 25-го перцентиля рынка его грейда
-  await open(page, '/employer/candidates/A-1042/invite');
+  // приглашение A-1042 по потребности (адрес с ?need=): вилка от 25-го перцентиля рынка его грейда
+  const needId = (await (await page.request.get('/api/employer/needs', { headers: await auth(page) })).json())[0].id;
+  await open(page, `/employer/candidates/A-1042/invite?need=${needId}`);
   await expect(page.getByRole('heading', { name: 'Приглашение для A-1042' })).toBeVisible();
   await expect(banner).toBeVisible();
   await expect(page.locator('#f-msgs .alert.bad')).toContainText('ниже 25-го перцентиля');  // вилка потребности джуна
@@ -57,14 +58,14 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
   const list = (await (await page.request.get(`/api/employer/needs/${picks.id}/picks?limit=20`, { headers: await auth(page) })).json()).items
     .filter(c => !c.invited && !c.busy && c.id !== 'A-1042');
   for (const c of list.slice(0, 2)) {
-    await open(page, '/employer/candidates/' + c.id + '/invite');
+    await open(page, `/employer/candidates/${c.id}/invite?need=${picks.id}`);
     await expect(page.getByRole('heading', { name: 'Приглашение для ' + c.id })).toBeVisible();
     await fork();
     await page.getByRole('button', { name: 'Отправить приглашение' }).click();
     await expect(page.getByRole('row', { name: new RegExp(c.id) })).toBeVisible();
   }
   await expect(page.getByText(/квота 3 \/ 3/)).toBeVisible();
-  await open(page, '/employer/candidates/' + list[2].id + '/invite');
+  await open(page, `/employer/candidates/${list[2].id}/invite?need=${picks.id}`);
   await expect(page.getByText('Квота на неделю исчерпана. Обновится в понедельник.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Отправить приглашение' })).toBeDisabled();
 
