@@ -94,6 +94,19 @@ def test_cabinet_paths_serve_index_only_on_explicit_prefixes(client, tmp_path, m
     assert client.get("/docs").status_code == 200 and "<html>ok</html>" not in client.get("/docs").text
 
 
+def test_security_headers_on_pages_and_api(client, tmp_path, monkeypatch):
+    # страницу кабинета нельзя встроить во фрейм (кликджекинг согласия на контакты); то же — на API и ассетах
+    monkeypatch.setattr("app.main._front", tmp_path)
+    (tmp_path / "index.html").write_text("<html>ok</html>", encoding="utf8")
+    for p in ("/", "/candidate/invites/1", "/employer", "/v", "/api/health", "/api/опечатка"):
+        h = client.get(p).headers
+        assert h["x-frame-options"] == "DENY" and h["content-security-policy"] == "frame-ancestors 'none'", p
+        assert h["x-content-type-options"] == "nosniff" and h["referrer-policy"] == "same-origin", p
+    # свой заголовок роутера не перетирается: возврат из ФСП ID — no-referrer (код и state не утекают)
+    r = client.get("/api/auth/fsp/callback?state=x&code=y", follow_redirects=False)
+    assert r.headers["referrer-policy"] == "no-referrer"
+
+
 def test_otp_hashed_and_login(client):
     email = "Otp.User@Example.ru "
     otp = _code(client, email)

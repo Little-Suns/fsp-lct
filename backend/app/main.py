@@ -43,6 +43,23 @@ async def limit_body(request: Request, call_next):
         return JSONResponse({"detail": "Слишком большой запрос"}, status_code=413)
     return await call_next(request)
 
+
+# заголовки безопасности на каждый ответ; роутер, поставивший свой (no-referrer у ФСП ID), не перетирается
+SECURITY_HEADERS = {
+    "X-Frame-Options": "DENY",  # кликджекинг: чужой сайт не встроит кабинет и не подставит «Принять и открыть контакты»
+    "Content-Security-Policy": "frame-ancestors 'none'",  # ponytail: только запрет фреймов; полный CSP — с хэшем inline-скрипта (table.md)
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",  # адреса кабинетов с id не уходят на чужие сайты
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    r = await call_next(request)
+    for k, v in SECURITY_HEADERS.items():
+        r.headers.setdefault(k, v)
+    return r
+
 for r in (deps, fsp_id, mock_fsp_id, candidate, employer, quest, achievements, lottery, validation, vacancies, tasks, chat):
     app.include_router(r.router)
 
