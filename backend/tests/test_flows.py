@@ -624,14 +624,15 @@ def test_invite_email(client, monkeypatch, caplog):
     в тексте; без SMTP, без аккаунта и демо-персонажу не шлётся; сбой SMTP не отменяет приглашение и не пишет адрес в лог."""
     with SessionLocal() as db:
         u = User(email="hr@mail-co.example", role="employer", email_confirmed=True)
-        logins = [User(email=f"login-m{i}@example.ru", role="candidate") for i in range(1, 5)]
+        logins = [User(email=f"login-m{i}@example.ru", role="candidate") for i in range(1, 6)]
         db.add_all([u, *logins])
         db.flush()
         db.add(Company(user_id=u.id, inn="7704000017", name="Почта Ко", site_domain="mail-co.example", recruiter_name="Ирина Рекрутер",
                        recruiter_email="hr@mail-co.example", verified=True))
         db.add_all([_cand("M-0001", user_id=logins[0].id, email="stranger@example.ru"),  # в анкете чужая почта
                     _cand("M-0002", user_id=logins[1].id, notif={"mail": False, "tg": True}),
-                    _cand("M-0003", user_id=logins[2].id), _cand("M-0004", user_id=logins[3].id), _cand("M-0005")])  # M-0005 — без аккаунта
+                    _cand("M-0003", user_id=logins[2].id), _cand("M-0004", user_id=logins[3].id), _cand("M-0005"),  # M-0005 — без аккаунта
+                    _cand("M-0006", user_id=logins[4].id)])  # M-0006 — демо-персонаж (ниже)
         db.commit()
         hdr = {"Authorization": "Bearer " + issue_token(db, u)}
     inv = {"role": "Backend-разработчик", "format": "Гибрид", "salary_from": 240000, "salary_to": 300000}
@@ -645,9 +646,11 @@ def test_invite_email(client, monkeypatch, caplog):
     assert f"{config.PUBLIC_URL}/#/c/home" in sent[0][2]
     assert not any(x in sent[0][1] + sent[0][2] for x in ("Почта Ко", "Ирина", "hr@mail-co", "Имя M-0001", "M-0001", "stranger"))
     # кандидат выключил письма, синтетика без аккаунта, демо-персонаж на стенде — не шлём
-    for pid in ("M-0002", "M-0005", "A-1042"):
+    monkeypatch.setattr(config, "DEMO", True)
+    monkeypatch.setattr(employer, "DEMO_PERSONAS", {"candidate": "login-m5@example.ru"})
+    for pid in ("M-0002", "M-0005", "M-0006"):
         assert client.post("/api/employer/invites", json={**inv, "candidate_id": pid}, headers=hdr).status_code == 200, pid
-    assert config.DEMO and len(sent) == 1
+    assert len(sent) == 1
 
     def down(to, subj, text):
         raise OSError(f"550 {to} refused")  # исключения smtplib несут адрес получателя
@@ -658,4 +661,4 @@ def test_invite_email(client, monkeypatch, caplog):
     assert r.status_code == 200 and r.json()["invite"]["status"] == "sent"
     assert "Письмо о приглашении не отправлено: OSError" in caplog.text and "login-m3" not in caplog.text
     with SessionLocal() as db:
-        assert db.query(Invitation).join(Candidate).filter(Candidate.public_id.like("M-%")).count() == 5
+        assert db.query(Invitation).join(Candidate).filter(Candidate.public_id.like("M-%")).count() == 6

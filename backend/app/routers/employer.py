@@ -669,7 +669,7 @@ def send_invite(body: InviteIn, bg: BackgroundTasks, co: Company = Depends(activ
     )
     db.add(inv)
     db.commit()
-    # адрес входа (подтверждён кодом или ФСП ID), а не почта из анкеты: её кандидат вписывает сам — письмо ушло бы постороннему.
+    # адрес входа (код, ФСП ID или IdP брокера с Trust Email), а не почта из анкеты: её кандидат вписывает сам — письмо ушло бы постороннему.
     # Без аккаунта (синтетика) и демо-персонажу на стенде письма нет: адреса не настоящие
     to = db.scalar(select(User.email).where(User.id == c.user_id)) if c.user_id else None
     if config.SMTP_HOST and to and (c.notif or {}).get("mail", True) and not (config.DEMO and to in DEMO_PERSONAS.values()):
