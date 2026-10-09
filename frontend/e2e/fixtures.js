@@ -1,4 +1,4 @@
-// Общие фикстуры: страница со сбором V8-покрытия, помощники входа и навигации по хеш-маршрутам.
+// Общие фикстуры: страница со сбором V8-покрытия, помощники входа и навигации по адресам кабинетов (/candidate/…, /employer/…).
 const base = require('@playwright/test');
 const MCR = require('monocart-coverage-reports');
 const { options, APP_JS, isAppScript } = require('./coverage');
@@ -29,16 +29,18 @@ const { expect } = base;
 // приложение дорисовало экран: пока грузится следующий, #app помечен aria-busy (и inert)
 const settled = page => expect(page.locator('#app')).not.toHaveAttribute('aria-busy', 'true');
 
-// экран по хеш-маршруту и ожидание его загрузки (без входа приложение само уводит на экран входа)
-async function open(page, route) {
-  if (!page.url().startsWith('http')) await page.goto('/#' + route);
+// экран по адресу и ожидание его загрузки (без входа приложение само уводит на экран входа)
+// первый экран — настоящая загрузка страницы, дальше — переход без перезагрузки, как по ссылке внутри приложения
+async function open(page, path) {
+  if (!page.url().startsWith('http')) await page.goto(path);
   else {
-    // busy ставим синхронно вместе со сменой хеша: иначе ожидание успело бы увидеть прежний, уже готовый экран
-    await page.evaluate(r => {
-      if (location.hash === '#' + r) return;
+    // busy ставим синхронно вместе со сменой адреса: иначе ожидание успело бы увидеть прежний, уже готовый экран
+    await page.evaluate(p => {
+      if (location.pathname + location.search === p) return;
       document.getElementById('app').setAttribute('aria-busy', 'true');
-      location.hash = '#' + r;
-    }, route);
+      history.pushState(null, '', p);
+      show();
+    }, path);
   }
   await settled(page);
 }
@@ -60,11 +62,12 @@ async function demo(page, who) {
   expect(r.ok(), 'демо-вход ' + who).toBe(true);
   const { token } = await r.json();
   if (!page.url().startsWith('http')) await open(page, '/');
-  const to = side === 'c' ? '/c/home' : '/e/picks';
+  const to = side === 'c' ? '/candidate' : '/employer';
   await page.evaluate(([s, t, to]) => {
     clearSide(s); setTok(s, t);
     document.getElementById('app').setAttribute('aria-busy', 'true');
-    if (location.hash === '#' + to) show(); else location.hash = '#' + to;  // уже на кабинете — перерисовать под новым токеном
+    if (location.pathname !== to) history.pushState(null, '', to);
+    show();  // уже на кабинете — перерисовать под новым токеном
   }, [side, token, to]);
   // ждём сам экран после входа (крошки), а не любой заголовок
   await expect(page.locator('#app .crumbs b')).toHaveText(side === 'c' ? 'Кабинет кандидата' : 'Подборка');
