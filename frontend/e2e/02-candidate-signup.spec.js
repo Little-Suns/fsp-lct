@@ -51,7 +51,7 @@ async function answerAll(page, checks = false) {
     if (checks && answered === 0) {  // таймер сцены идёт; с сюжетом у сцены — часы смены
       const t = await page.locator('#timer span').textContent();
       await expect(page.locator('#timer span')).not.toHaveText(t, { timeout: 3000 });
-      await expect(page.locator('.story .t')).toHaveText(/^\d\d:\d\d$/);
+      await expect(page.locator('.story .t')).toHaveText('02:14');  // первая сцена — начало смены Backend (items.STORY)
     }
     if (checks && answered === 1) {  // сюжет можно выключить посреди теста — задание и его условие те же, без часов и заголовка сцены
       const cond = await page.locator('.story').textContent();

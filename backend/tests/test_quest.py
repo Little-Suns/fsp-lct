@@ -119,12 +119,15 @@ def _run(client, items, ok, start: dict | None = None) -> dict:
     _no_leak(r)
     assert client.post("/api/quest/start", json={"story": False}).json()["session_id"] == r["session_id"]  # возобновление
     assert client.post("/api/quest/answer", json={"item_id": -1, "response": 0}).status_code == 409
+    scene = r["progress"]["n"] - 1  # сессия может продолжаться с уже отвеченными заданиями
     while not r["done"]:
         it = r["item"]
         item = items[it["id"]]
-        # сюжет — из items.STORY: название квеста и часы сцены по её номеру в сессии, а не по семейству
+        scene += 1
+        # сюжет — из items.STORY: название квеста и часы сцены по её номеру в сессии (первая — clock[0]), а не по семейству
         clock = STORY[item.spec]["clock"]
-        assert r["quest_title"] == STORY[item.spec]["title"] and it["time"] == clock[min(r["progress"]["n"], len(clock)) - 1]
+        assert r["progress"]["n"] == scene and r["quest_title"] == STORY[item.spec]["title"]
+        assert it["time"] == clock[min(scene, len(clock)) - 1]
         keys = item.payload["key"] if isinstance(item.payload["key"], list) else [item.payload["key"]]
         if ok(item):
             resp = keys[0]
