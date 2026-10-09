@@ -688,7 +688,7 @@ const setTok = (role, t) => { TOK[role] = t; LS.set('fsp.tok.' + role, t); };
 
 /* ===================== маршруты: адрес ↔ экран ===================== */
 // экраны внутри — по ключам ('/c/home', '/e/cand/A-1042'), в адресной строке — настоящие пути кабинетов (History API).
-// Одна таблица в обе стороны; «*» — один сегмент адреса (id, собеседник чата). Сервер отдаёт страницу на /candidate…, /employer… и /v.
+// Одна таблица в обе стороны; «*» — один сегмент адреса (id, собеседник чата). Сервер отдаёт страницу на /candidate…, /employer…, /v и /org.
 const ROUTES = [
   ['/', '/'], ['/v', '/v'], ['/org', '/org'],
   ['/c/home', '/candidate'], ['/c/login', '/candidate/login'], ['/c/signup', '/candidate/signup'], ['/c/profile', '/candidate/profile'],
@@ -717,7 +717,7 @@ const route = () => {
   const p = location.pathname.replace(/\/+$/, '') || '/';
   return keyOf(p) || (/^\/employer\//.test(p) ? '/e/404' : /^\/candidate\//.test(p) ? '/c/404' : '/');
 };
-// кабинет экрана явно: c | e, вне кабинетов (главная, /v) — ''
+// кабинет экрана явно: c | e, вне кабинетов (главная, /v, /org) — ''
 const roleOf = k => k.startsWith('/c/') ? 'c' : k.startsWith('/e/') ? 'e' : '';
 // экраны кабинета, открытые без входа: вход, регистрация, «Не найдено»
 const OPEN = k => /^\/[ce]\/(login|signup|404)$/.test(k);
