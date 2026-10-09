@@ -265,12 +265,16 @@ def _state(sess: QuestSession, bank: dict[int, Item], spec: str) -> dict:
         total = min(irt.MAX_ITEMS, n_fam) + (1 if any(it.pilot for it in items) else 0)
     out = {"session_id": sess.id, "quest_title": STORY[spec]["title"] if spec in STORY else "Тест", "mode": sess.mode,
            "story": sess.story, "target_grade": sess.target_grade, "focus": sess.focus, "done": pend is None, "progress": {"n": len(sess.answers), "total": max(total, len(sess.answers))},
-           "item": None, "time_limit_s": None, "remaining_s": None}
+           "item": None, "time_limit_s": None, "remaining_s": None, "deadline_s": None, "submitted": False}
     if pend and pend["item_id"] in bank:
         item = bank[pend["item_id"]]
         elapsed = (_now() - datetime.fromisoformat(pend["served_at"])).total_seconds()
         lim = _limit(sess, item)
-        out |= {"item": {**_public(item, len(sess.answers)), "time_limit_s": lim}, "time_limit_s": lim, "remaining_s": max(0, round(lim - elapsed))}
+        # песочница была занята: время ответа зафиксировано первой отправкой — вовремя она или нет, повтор этого не меняет
+        sub = pend.get("submitted_at")
+        sub_ok = bool(sub) and (datetime.fromisoformat(sub) - datetime.fromisoformat(pend["served_at"])).total_seconds() <= lim + TIMEOUT_GRACE_S
+        out |= {"submitted": sub_ok, "item": {**_public(item, len(sess.answers)), "time_limit_s": lim}, "time_limit_s": lim, "remaining_s": max(0, round(lim - elapsed)),
+                "deadline_s": max(0, round(lim + TIMEOUT_GRACE_S - elapsed))}  # до этого момента ответ ещё засчитывается
     return out
 
 
