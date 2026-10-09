@@ -32,6 +32,13 @@ GIGACHAT_SCOPE = os.environ.get("GIGACHAT_SCOPE") or "GIGACHAT_API_PERS"  # GIGA
 GIGACHAT_OAUTH_URL = os.environ.get("GIGACHAT_OAUTH_URL") or "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 # доп. корневые сертификаты (GigaChat — «Russian Trusted Root CA» Минцифры): добавляются к системным, проверка TLS не отключается
 LLM_CA_BUNDLE = os.environ.get("LLM_CA_BUNDLE", "")
+# OCR скана резюме (PDF без текстового слоя) — отдельно от LLM_PROVIDER: vision-модель на своём vLLM, OpenAI-совместимый API.
+# Картинка страницы уходит в модель неотмаскированной (ФИО, телефон, фото), поэтому OCR_URL — только self-hosted контур, не облако.
+# Пусто — OCR выключен, скан без текста → 422 «заполните вручную».
+OCR_URL = os.environ.get("OCR_URL", "")  # база API с /v1, например http://vllm:8000/v1
+OCR_MODEL = os.environ.get("OCR_MODEL") or "Qwen/Qwen2.5-VL-7B-Instruct"
+OCR_API_KEY = os.environ.get("OCR_API_KEY", "")  # Bearer, если vLLM запущен с --api-key
+OCR_TIMEOUT = float(os.environ.get("OCR_TIMEOUT") or "120")  # общий на весь документ, с
 
 FRONTEND_DIR = os.environ.get("FRONTEND_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
 
