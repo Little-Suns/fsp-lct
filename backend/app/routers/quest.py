@@ -238,7 +238,7 @@ def _serve(sess: QuestSession, bank: dict[int, Item]) -> Item | None:
 
 def _public(item: Item, n: int) -> dict:
     p = {k: v for k, v in item.payload.items() if k != "key"}
-    clock = STORY.get(item.spec, ("", []))[1]
+    clock = STORY[item.spec]["clock"] if item.spec in STORY else []
     if clock:
         p["time"] = clock[min(n, len(clock)) - 1]  # «часы» сюжета идут по номеру сцены, а не по семейству
     return {"id": item.id, "kind": item.kind, "competency": item.competency, **p}
@@ -252,7 +252,7 @@ def _state(sess: QuestSession, bank: dict[int, Item], spec: str) -> dict:
         total = min(irt.EXPRESS_ITEMS, n_fam)
     else:
         total = min(irt.MAX_ITEMS, n_fam) + (1 if any(it.pilot for it in items) else 0)
-    out = {"session_id": sess.id, "quest_title": STORY.get(spec, ("Тест",))[0], "mode": sess.mode,
+    out = {"session_id": sess.id, "quest_title": STORY[spec]["title"] if spec in STORY else "Тест", "mode": sess.mode,
            "story": sess.story, "target_grade": sess.target_grade, "focus": sess.focus, "done": pend is None, "progress": {"n": len(sess.answers), "total": max(total, len(sess.answers))},
            "item": None, "time_limit_s": None, "remaining_s": None, "deadline_s": None, "submitted": False}
     if pend and pend["item_id"] in bank:

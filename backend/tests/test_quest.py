@@ -28,6 +28,7 @@ from app.deps import issue_token  # noqa: E402
 from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession, User  # noqa: E402
 from app.routers import candidate, quest  # noqa: E402
 from app.services import irt, matching, profile_pdf  # noqa: E402
+from app.services.items import STORY  # noqa: E402
 from app.services.items import generate_bank, plan_for_need, seed_items  # noqa: E402
 
 NEED_TEXT = "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. Уровень — мидл, до 300 на руки. Гибрид, Москва."
@@ -118,9 +119,15 @@ def _run(client, items, ok, start: dict | None = None) -> dict:
     _no_leak(r)
     assert client.post("/api/quest/start", json={"story": False}).json()["session_id"] == r["session_id"]  # возобновление
     assert client.post("/api/quest/answer", json={"item_id": -1, "response": 0}).status_code == 409
+    scene = r["progress"]["n"] - 1  # сессия может продолжаться с уже отвеченными заданиями
     while not r["done"]:
         it = r["item"]
         item = items[it["id"]]
+        scene += 1
+        # сюжет — из items.STORY: название квеста и часы сцены по её номеру в сессии (первая — clock[0]), а не по семейству
+        clock = STORY[item.spec]["clock"]
+        assert r["progress"]["n"] == scene and r["quest_title"] == STORY[item.spec]["title"]
+        assert it["time"] == clock[min(scene, len(clock)) - 1]
         keys = item.payload["key"] if isinstance(item.payload["key"], list) else [item.payload["key"]]
         if ok(item):
             resp = keys[0]

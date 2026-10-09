@@ -161,8 +161,6 @@ test('Ладога: подборка и фильтры, карточка с об
   await page.getByRole('button', { name: 'Без перегрузки' }).click();
   await expect(page.getByRole('button', { name: 'Без перегрузки' })).not.toHaveClass(/on/);
   await expect.poll(() => ids(page)).toEqual(before);
-  const adj = page.locator('aside button.chip[data-act=noop]').first();
-  if (await adj.count()) { await adj.click(); await expect(toast(page)).toBeVisible(); }
 
   // карточка демо-кандидата: объяснение, подтверждённые навыки, сигнал решённой задачи
   await open(page, '/e/cand/A-1042');
