@@ -43,7 +43,7 @@ test('приглашения: открыть → просмотрено, отк�
   // срок повышения — из профиля (кулдаун 90 дн. от теста); после этой даты строки нет — проверка не завязана на сегодняшний день
   const until = await page.evaluate(() => ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? DATE(ME.next_upgrade_at) : null);
   if (until) await expect(page.getByText('Повышение возможно с ' + until)).toBeVisible();
-  await page.locator('.roles').getByRole('button', { name: 'Кандидат' }).click();
+  await page.locator('.brand').click();
   await expect(lad).toContainText('просмотрено');
 
   // «Кипрей»: отказ — причина обязательна, отмена, затем отказ с комментарием
@@ -62,10 +62,10 @@ test('приглашения: открыть → просмотрено, отк�
   expect((await dec).request().postDataJSON()).toEqual({ reason: 'salary', comment: 'Ищу от 260 тыс.' });
   await expect(toast(page)).toHaveText('Отказ отправлен. Компания видит только причину');
   await expect(page.getByText('Вы отклонили приглашение. Причина «Зарплата» передана компании')).toBeVisible();
-  await page.getByRole('button', { name: 'Кабинет', exact: true }).first().click();
+  await page.getByRole('link', { name: 'Кабинет', exact: true }).first().click();
   await expect(kip).toContainText('отклонено');
 
-  await open(page, '/c/invite/999999');
+  await open(page, '/candidate/invites/999999');
   await expect(page.getByText('Приглашение не найдено.')).toBeVisible();
 });
 
@@ -87,7 +87,7 @@ test('отзыв о компании по давно принятому приг
 });
 
 test('вход по почте в существующий аккаунт ведёт в кабинет, а не на регистрацию', async ({ page }) => {
-  await open(page, '/c/signup');
+  await open(page, '/candidate/login');
   await page.getByLabel('Почта').fill('d.orlov@example.ru');
   await page.getByRole('button', { name: 'Получить код на почту' }).click();
   await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
@@ -95,18 +95,18 @@ test('вход по почте в существующий аккаунт вед
   await expect(toast(page)).toHaveText('Вход выполнен');
   await expect(page.getByText('Дмитрий Орлов · виден как A-1042')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Профиль' })).toHaveCount(0);
-  await expect(page).toHaveURL(/#\/c\/home$/);
+  await expect(page).toHaveURL(/\/candidate$/);
 });
 
 test('сбой /api/candidate/me: «Не удалось загрузить профиль · Повторить», а не «Профиль ещё не создан»', async ({ page }) => {
   // вход по почте, а /me отвечает 500: кабинет с ошибкой и повтором, не регистрация и не noProfile
   await page.route('**/api/candidate/me', r => r.fulfill({ status: 500, json: { detail: 'Внутренняя ошибка сервера' } }));
-  await open(page, '/c/signup');
+  await open(page, '/candidate/login');
   await page.getByLabel('Почта').fill('d.orlov@example.ru');
   await page.getByRole('button', { name: 'Получить код на почту' }).click();
   await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
   await page.getByRole('button', { name: 'Войти', exact: true }).click();
-  await expect(page).toHaveURL(/#\/c\/home$/);
+  await expect(page).toHaveURL(/\/candidate$/);
   await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toBeVisible();
   await expect(page.getByText('Профиль ещё не создан')).toHaveCount(0);
   await expect(toast(page)).toHaveText('Внутренняя ошибка сервера');
@@ -119,7 +119,7 @@ test('сбой /api/candidate/me: «Не удалось загрузить пр�
 
   // обрыв сети на другом экране кандидата — та же ошибка с повтором вместо прежних данных
   await page.route('**/api/candidate/me', r => r.abort('connectionrefused'));
-  await open(page, '/c/settings');
+  await open(page, '/candidate/settings');
   await expect(toast(page)).toHaveText('Сервер недоступен');
   await expect(page.getByRole('heading', { name: 'Не удалось загрузить профиль' })).toBeVisible();
   await expect(page.getByRole('switch', { name: /Обработка персональных данных/ })).toHaveCount(0);
@@ -155,7 +155,7 @@ test('сбой /api/candidate/me: «Не удалось загрузить пр�
 
 test('профиль и результат теста демо-кандидата', async ({ page }) => {
   await demo(page, 'c');
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   await expect(page.getByText('orlov_cv.pdf')).toBeVisible();
   await expect(page.getByText('Навыки из резюме:')).toBeVisible();
   await expect(page.getByText('Владение подтверждено кодом в профиле Codeforces')).toBeVisible();
@@ -186,18 +186,19 @@ test('профиль и результат теста демо-кандидат�
   expect(await (await off).json()).toEqual({ pdf_experience: false });
   await expect(toast(page)).toHaveText('Места работы исключены из PDF-профиля');
   await expect(sw).toHaveAttribute('aria-checked', 'false');
-  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(toast(page)).toHaveText('Профиль сохранён');
-  await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
+  await expect(page).toHaveURL(/\/candidate\/profile$/);  // раздел кабинета: остаёмся на месте
+  await expect(page.locator('nav.subnav .chip.on')).toHaveText('Профиль');
 
-  await open(page, '/c/result');
+  await open(page, '/candidate/test/result');
   await expect(page.getByText('Ваша категория')).toBeVisible();
   await expect(page.locator('.cat').first()).toHaveText('BackendPythonMiddle');
   await expect(page.getByText('Перцентиль в категории').or(page.getByText('Перцентиль в специализации'))).toBeVisible();
   await expect(page.getByText(/До Senior не хватает уверенности/)).toBeVisible();
   await expect(page.getByText('Codeforces · 1912')).toBeVisible();
   await page.getByRole('button', { name: 'Готово, жду приглашений' }).click();
-  await expect(page).toHaveURL(/#\/c\/home$/);
+  await expect(page).toHaveURL(/\/candidate$/);
   await expect(page.getByText('Места работы из резюме исключены — включить можно в профиле.')).toBeVisible();
 
   // PDF-профиль из кабинета: файл; ошибка сервера и обрыв сети — понятный тост
@@ -221,20 +222,20 @@ test('профиль и результат теста демо-кандидат�
   await page.route('**/api/candidate/profile.pdf', r => r.fulfill({ status: 401, contentType: 'application/json', body: '{"detail":"Нужен вход"}' }));
   await page.getByRole('button', { name: 'Скачать PDF' }).click();
   await expect(toast(page)).toHaveText('Сессия истекла: войдите снова');
-  await expect(page).toHaveURL(/#\/c\/signup$/);
+  await expect(page).toHaveURL(/\/candidate\/login\?next=%2Fcandidate$/);
   await page.unroute('**/api/candidate/profile.pdf');
   // вернуть места работы в PDF: состояние Орлова для следующих сценариев — как в сиде
   await demo(page, 'c');
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   await page.getByRole('switch', { name: 'Включать места работы в PDF-профиль' }).click();
   await expect(toast(page)).toHaveText('Места работы будут в PDF-профиле');
-  await open(page, '/c/home');
+  await open(page, '/candidate');
   await expect(page.getByText('Места работы распознаны из резюме автоматически — проверьте их в профиле.')).toBeVisible();
 });
 
 test('вакансии: фильтры, отклик с заметкой, отзыв отклика', async ({ page }) => {
   await demo(page, 'c');
-  await page.locator('nav.chips').getByRole('button', { name: 'Вакансии' }).click();
+  await page.locator('nav.chips').getByRole('link', { name: 'Вакансии' }).click();
   await expect(page.getByText(/\d+ из \d+ · по соответствию вашему профилю/)).toBeVisible();
   await expect(page.getByText('Отклики за 7 дней')).toBeVisible();
 
@@ -280,13 +281,13 @@ test('вакансии: фильтры, отклик с заметкой, отз
   await expect(toast(page)).toHaveText('Отклик отозван');
   await expect(row).toContainText('отозван');
 
-  await open(page, '/c/vacancy/999999');
+  await open(page, '/candidate/vacancies/999999');
   await expect(page.getByText('Вакансия не найдена.')).toBeVisible();
 });
 
 test('витрина задач: свои решения с оценкой, отправка нового решения', async ({ page }) => {
   await demo(page, 'c');
-  await open(page, '/c/tasks');
+  await open(page, '/candidate/tasks');
   await expect(page.getByRole('heading', { name: 'Витрина задач' })).toBeVisible();
   const done = page.locator('button.cand', { hasText: 'Идемпотентность платёжного API' });
   await expect(done).toContainText('решение отправлено');
@@ -299,13 +300,13 @@ test('витрина задач: свои решения с оценкой, от
   await expect(page.getByText(/Комментарий компании: Чёткий план/)).toBeVisible();
   await expect(page.getByText(/оценено/)).toBeVisible();
 
-  await page.locator('nav.chips').getByRole('button', { name: 'Задачи' }).click();
+  await page.locator('nav.chips').getByRole('link', { name: 'Задачи' }).click();
   await page.locator('button.cand', { hasText: 'Кэш маршрутов при пиковой нагрузке' }).click();
   await expect(page.getByRole('heading', { name: 'Решение', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Отправить решение' }).click();
   await expect(toast(page)).toHaveText('Напишите решение');
   await page.getByPlaceholder('Код или решение').fill('single-flight: словарь future по ключу, первый считает, остальные ждут; TTL 60 с.');
-  const sub = api(page, 'POST', page.url().replace(/^.*#\/c\/task\//, '/api/tasks/') + '/submit');
+  const sub = api(page, 'POST', page.url().replace(/^.*\/candidate\/tasks\//, '/api/tasks/') + '/submit');
   await page.getByRole('button', { name: 'Отправить решение' }).click();
   expect((await sub).status()).toBe(200);
   await expect(toast(page)).toHaveText('Решение отправлено. Оценка появится в «Моих решениях»');
@@ -313,7 +314,7 @@ test('витрина задач: свои решения с оценкой, от
   await expect(page.getByText('ждёт оценки')).toBeVisible();
 
   // задание с эталоном, один вариант: кнопки выбора, проверяет система, эталон не приходит
-  await page.locator('nav.chips').getByRole('button', { name: 'Задачи' }).click();
+  await page.locator('nav.chips').getByRole('link', { name: 'Задачи' }).click();
   const iso = page.locator('button.cand', { hasText: 'Уровень изоляции для двух счетов' });
   await expect(iso).toContainText('проверяет система');
   const got = api(page, 'GET', /^\/api\/tasks\/\d+$/);
@@ -336,16 +337,16 @@ test('витрина задач: свои решения с оценкой, от
   await expect(page.getByText('Ответ совпал с эталоном', { exact: true })).toBeVisible();
 
   // число: неверный ответ — «не совпало», без подсказки эталона
-  await page.locator('nav.chips').getByRole('button', { name: 'Задачи' }).click();
+  await page.locator('nav.chips').getByRole('link', { name: 'Задачи' }).click();
   await page.locator('button.cand', { hasText: 'Сколько соединений занято' }).click();
   await page.getByPlaceholder('Число, например 42 или 3,14').fill('16');
   await page.getByRole('button', { name: 'Отправить решение' }).click();
   await expect(toast(page)).toHaveText('Решение отправлено. Ответ не совпал с эталоном');
   await expect(page.locator('.chip', { hasText: 'неверно · автопроверка' })).toBeVisible();
-  await page.locator('nav.chips').getByRole('button', { name: 'Задачи' }).click();
+  await page.locator('nav.chips').getByRole('link', { name: 'Задачи' }).click();
   await expect(page.locator('aside')).toContainText('неверно · автопроверка');
 
-  await open(page, '/c/task/999999');
+  await open(page, '/candidate/tasks/999999');
   await expect(page.getByText('Задача не найдена.')).toBeVisible();
 });
 
@@ -356,11 +357,11 @@ test('новая редакция согласия: баннер, блокиро
     const real = await (await page.request.get(r.request().url(), { headers: r.request().headers() })).json();
     await r.fulfill({ json: { ...real, needs_reconsent: true } });
   });
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   const banner = page.locator('.alert.warn', { hasText: 'Текст согласия обновился — подтвердите согласия.' });
   await expect(banner).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Сохранить и перейти к тесту' })).toBeDisabled();
-  await open(page, '/c/home');
+  await expect(page.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled();
+  await open(page, '/candidate');
   await expect(banner).toBeVisible();
   await expect(page.getByRole('switch', { name: 'Почта' })).toBeDisabled();
   await page.unroute('**/api/candidate/me');
@@ -377,18 +378,18 @@ test('выход: из шапки и из настроек', async ({ page }) =>
   await expect(page.locator('#logout')).toBeVisible();
   await page.locator('#logout').click();
   await expect(toast(page)).toHaveText('Вы вышли');
-  await expect(page).toHaveURL(/#\/c\/signup$/);
+  await expect(page).toHaveURL(/\/candidate\/login$/);
   await expect(page.locator('#logout')).toBeHidden();
 
   await demo(page, 'c');
-  await open(page, '/c/settings');
+  await open(page, '/candidate/settings');
   await expect(page.getByText('d.orlov@example.ru')).toBeVisible();
   await page.locator('aside').getByRole('button', { name: 'Выйти' }).click();
-  await expect(page).toHaveURL(/#\/c\/signup$/);
+  await expect(page).toHaveURL(/\/candidate\/login$/);
   // экран входа с живым токеном показывает «Вы уже вошли»
   await demo(page, 'c');
-  await open(page, '/c/signup');
+  await open(page, '/candidate/login');
   await expect(page.getByText('Вы уже вошли.')).toBeVisible();
-  await page.getByRole('button', { name: 'В кабинет' }).click();
-  await expect(page).toHaveURL(/#\/c\/home$/);
+  await page.getByRole('link', { name: 'В кабинет' }).click();
+  await expect(page).toHaveURL(/\/candidate$/);
 });

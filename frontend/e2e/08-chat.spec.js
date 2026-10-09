@@ -14,10 +14,10 @@ const XSS = '<img src=x onerror="window.__xss=1">';
 test('Чат: сообщение, бейдж, прочитано, ответ', async ({ page }) => {
   // работодатель пишет из строки приглашения
   await demo(page, 'e');
-  await open(page, '/e/pipeline');
+  await open(page, '/employer/invites');
   await page.getByRole('row', { name: /A-1042/ }).getByRole('button', { name: 'Написать в чат' }).click();
   await settled(page);
-  await expect(page).toHaveURL(/#\/e\/chat\/A-1042$/);
+  await expect(page).toHaveURL(/\/employer\/chat\/A-1042$/);
   await expect(page.locator('.chat-box')).toContainText('Дмитрий Орлов');  // принял приглашение — имя открыто
   await expect(page.locator('#chat-messages')).toContainText('Здесь будет история переписки');
   await page.locator('#chat-input').fill(`Здравствуйте! Это Ладога. ${XSS}`);
@@ -31,20 +31,20 @@ test('Чат: сообщение, бейдж, прочитано, ответ', a
 
   // кандидат видит бейдж в разделах и список диалогов, открытие гасит бейдж
   await demo(page, 'c');
-  const chip = page.locator('nav.chips').getByRole('button', { name: /^Чат/ });
+  const chip = page.locator('nav.chips').getByRole('link', { name: /^Чат/ });
   await expect(chip).toContainText('1');
   // цифра помещается в бейдж: раньше точка блока достижений .dot (14×14 с рамкой) перебивал стиль бейджа
   const fits = el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight && el.clientWidth >= 18;
-  expect(await chip.locator('.unread').evaluate(fits)).toBe(true);
+  await expect.poll(() => chip.locator('.unread').evaluate(fits)).toBe(true);  // poll: размер считается после подгрузки шрифта
   await chip.click();
   await settled(page);
   await expect(page.locator('.chat-peer', { hasText: 'Ладога Пэй' })).toContainText('Здравствуйте!');
-  expect(await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
+  await expect.poll(() => page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
   await expect(page.locator('.chat-box')).toContainText('выберите диалог', { ignoreCase: true });
   await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).click();
   await settled(page);
   await expect(page.locator('#chat-messages')).toContainText('Здравствуйте! Это Ладога.');
-  await expect(page.locator('nav.chips').getByRole('button', { name: /^Чат$/ })).toBeVisible();
+  await expect(page.locator('nav.chips').getByRole('link', { name: /^Чат$/ })).toBeVisible();
 
   // Enter отправляет, Shift+Enter — перенос строки
   await page.locator('#chat-input').fill('Добрый день');
@@ -56,8 +56,8 @@ test('Чат: сообщение, бейдж, прочитано, ответ', a
 
   // работодатель: бейдж, ответ, и его сообщение отмечено прочитанным
   await demo(page, 'e');
-  await expect(page.locator('nav.chips').getByRole('button', { name: /^Чат/ })).toContainText('1');
-  await page.locator('nav.chips').getByRole('button', { name: /^Чат/ }).click();
+  await expect(page.locator('nav.chips').getByRole('link', { name: /^Чат/ })).toContainText('1');
+  await page.locator('nav.chips').getByRole('link', { name: /^Чат/ }).click();
   await settled(page);
   await page.locator('.chat-peer', { hasText: 'Дмитрий Орлов' }).click();
   await settled(page);
@@ -69,29 +69,29 @@ test('Чат: сообщение, бейдж, прочитано, ответ', a
   await candidateSays(page, 'Ещё вопрос про вилку');
   await expect(page.locator('#chat-messages')).toContainText('Ещё вопрос про вилку');
   await expect(page.locator('#chat-input')).toHaveValue('черновик ответа');
-  await expect(page.locator('nav.chips').getByRole('button', { name: /^Чат$/ })).toBeVisible();  // открытый диалог сразу прочитан
+  await expect(page.locator('nav.chips').getByRole('link', { name: /^Чат$/ })).toBeVisible();  // открытый диалог сразу прочитан
 
   // вне чата бейдж появляется сам, без перехода по экранам
-  await open(page, '/e/pipeline');
+  await open(page, '/employer/invites');
   await candidateSays(page, 'Вы здесь?');
-  await expect(page.locator('nav.chips').getByRole('button', { name: /^Чат/ })).toContainText('1');
+  await expect(page.locator('nav.chips').getByRole('link', { name: /^Чат/ })).toContainText('1');
 });
 
 test('Чат: кнопки «Написать», недоступный диалог, догрузка истории', async ({ page }) => {
   await demo(page, 'c');  // токен кандидата нужен candidateSays
   await demo(page, 'e');
   // карточка кандидата с принятым приглашением
-  await open(page, '/e/cand/A-1042');
+  await open(page, '/employer/candidates/A-1042');
   await expect(page.getByRole('button', { name: 'Написать в чат' })).toBeVisible();
   // чужой кандидат без связи: кнопки нет, а прямой переход показывает понятное сообщение
-  await open(page, '/e/search');
+  await open(page, '/employer/search');
   const other = await page.evaluate(async () => {
     const r = await fetch('/api/employer/search?limit=5', { headers: { Authorization: 'Bearer ' + localStorage.getItem('fsp.tok.e') } });
     return (await r.json()).items.map(c => c.id).find(id => id !== 'A-1042');
   });
-  await open(page, '/e/cand/' + other);
+  await open(page, '/employer/candidates/' + other);
   await expect(page.getByRole('button', { name: 'Написать в чат' })).toHaveCount(0);
-  await open(page, '/e/chat/' + other);
+  await open(page, '/employer/chat/' + other);
   await expect(page.locator('.chat-box')).toContainText('Диалог недоступен');
 
   // «Показать ранее»: бэкенд отдаёт more=true, старая страница подгружается перед текущими
@@ -103,7 +103,7 @@ test('Чат: кнопки «Написать», недоступный диал
     const res = await r.fetch();
     await r.fulfill({ response: res, json: { ...(await res.json()), more: true } });
   });
-  await open(page, '/e/chat/A-1042');
+  await open(page, '/employer/chat/A-1042');
   await page.getByRole('button', { name: 'Показать ранее' }).click();
   await expect(page.locator('#chat-messages')).toContainText('Самое раннее сообщение');
   await expect(page.getByRole('button', { name: 'Показать ранее' })).toHaveCount(0);
@@ -115,15 +115,15 @@ test('Чат: кнопки «Написать», недоступный диал
     const res = await r.fetch();
     await r.fulfill({ response: res, json: { ...(await res.json()), can_write: false } });
   });
-  await open(page, '/e/pipeline');
-  await open(page, '/e/chat/A-1042');
+  await open(page, '/employer/invites');
+  await open(page, '/employer/chat/A-1042');
   await expect(page.getByText('Писать больше нельзя')).toBeVisible();
   await expect(page.locator('#chat-input')).toHaveCount(0);
   await page.unroute('**/api/chat/A-1042');
 
   // доступ закрыт посреди сессии: уведомление приходит, перечитывание отдаёт 403 — загруженная переписка убирается с экрана
-  await open(page, '/e/pipeline');
-  await open(page, '/e/chat/A-1042');
+  await open(page, '/employer/invites');
+  await open(page, '/employer/chat/A-1042');
   await expect(page.locator('#chat-input')).toBeVisible();
   await page.route('**/api/chat/A-1042', r => r.request().method() === 'GET' ? r.fulfill({ status: 403, json: { detail: 'закрыт' } }) : r.fallback());
   await candidateSays(page, 'Последнее сообщение');
@@ -135,7 +135,7 @@ test('Чат: кнопки «Написать», недоступный диал
   await page.locator('button.inv', { hasText: 'Ладога Пэй' }).click();
   await page.getByRole('button', { name: 'Написать в чат' }).click();
   await settled(page);
-  await expect(page).toHaveURL(/#\/c\/chat\/\d+$/);
+  await expect(page).toHaveURL(/\/candidate\/chat\/\d+$/);
   await page.route('**/api/chat/*', r => r.request().method() === 'POST' && !r.request().url().endsWith('/read') ? r.fulfill({ status: 429, json: { detail: 'Слишком часто: подождите минуту' } }) : r.fallback());
   await page.locator('#chat-input').fill('спам');
   await page.getByRole('button', { name: 'Отправить' }).click();

@@ -6,7 +6,7 @@ const { tinyPdf, uniq } = require('./helpers');
 
 // вход по почте: код в демо приходит в ответе и подставляется в поле
 async function signup(page, email, { c152 = true, publish = false } = {}) {
-  await open(page, '/c/signup');
+  await open(page, '/candidate/signup');
   await page.getByRole('button', { name: 'Получить код на почту' }).click();
   await expect(toast(page)).toHaveText('Укажите почту');
   await page.getByLabel('Почта').fill(email);
@@ -81,14 +81,31 @@ async function fillProfile(page) {
 }
 
 test('вход: некорректная почта — текст сервера', async ({ page }) => {
-  await open(page, '/c/signup');
+  await open(page, '/candidate/signup');
   await page.getByLabel('Почта').fill('not-an-email');
   await page.getByRole('button', { name: 'Получить код на почту' }).click();
   await expect(toast(page)).toHaveText('Некорректная почта');
-  await open(page, '/e/signup');
+  await open(page, '/employer/login');
   await page.getByLabel('Рабочая почта').fill('hr.example.ru');
   await page.getByRole('button', { name: 'Получить код на почту' }).click();
   await expect(toast(page)).toHaveText('Некорректная почта');
+});
+
+test('согласия с регистрации доходят до шага «Профиль», но не достаются следующему во вкладке', async ({ page }) => {
+  await signup(page, `consent-a-${uniq()}@example.ru`, { publish: true });
+  const c152 = page.getByLabel(/обработку персональных данных по 152-ФЗ/), pub = page.getByLabel(/Показывать мою обезличенную карточку/);
+  await expect(c152).toBeChecked();  // отмечено на регистрации — тот же человек
+  await expect(pub).toBeChecked();
+  await page.locator('#logout').click();
+  await expect(page).toHaveURL(/\/candidate\/login$/);
+  const email = `consent-b-${uniq()}@example.ru`;
+  await page.getByLabel('Почта').fill(email);
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Профиль' })).toBeVisible();
+  await expect(c152).not.toBeChecked();  // следующий человек ставит согласия сам
+  await expect(pub).not.toBeChecked();
 });
 
 test('без согласия на обработку ПДн профиль не сохраняется', async ({ page }) => {
@@ -96,13 +113,26 @@ test('без согласия на обработку ПДн профиль не
   await fillProfile(page);
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
   await expect(toast(page)).toContainText('Нужно согласие на обработку персональных данных');
-  // экраны кабинета без профиля предлагают его заполнить
-  for (const r of ['/c/home', '/c/vacancies', '/c/applications', '/c/tasks', '/c/settings', '/c/vacancy/1', '/c/task/1']) {
+  // согласие — здесь же, в шаге «Профиль»: введённое не потерялось
+  await expect(page.getByLabel('Имя и фамилия')).toHaveValue('Ева Тестова');
+  await expect(page.getByLabel(/обработку персональных данных по 152-ФЗ/)).not.toBeChecked();
+  // экраны кабинета без профиля предлагают его заполнить (тест — тоже: без профиля нет специализации)
+  for (const r of ['/candidate/test', '/candidate/test/run', '/candidate', '/candidate/vacancies', '/candidate/applications', '/candidate/tasks', '/candidate/settings', '/candidate/vacancies/1', '/candidate/tasks/1']) {
     await open(page, r);
     await expect(page.getByRole('heading', { name: 'Профиль ещё не создан' })).toBeVisible();
   }
-  await open(page, '/c/result');
+  await open(page, '/candidate/test/result');
   await expect(page.getByRole('heading', { name: 'Тест ещё не пройден' })).toBeVisible();
+  // согласие в шаге «Профиль» вместо экрана регистрации: профиль сохраняется, дальше — тест
+  await open(page, '/candidate/profile');
+  await expect(page.getByText('Шаг 2 из 3')).toBeVisible();
+  await fillProfile(page);
+  await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
+  const saved = api(page, 'POST', '/api/candidate/profile');
+  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
+  expect((await saved).request().postDataJSON()).toMatchObject({ consent_152: true, consent_publish: false });
+  await expect(page).toHaveURL(/\/candidate\/test$/);
+  await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
 });
 
 test('кандидат: регистрация → профиль и PDF → тест на грейд → вердикт и история → настройки → выгрузка → удаление', async ({ page }) => {
@@ -242,7 +272,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.locator('table.tbl tbody tr').first()).toContainText(/категория обновлена|не применён/);
 
   // кабинет: карточка не опубликована → предупреждение; статус и уведомления
-  await page.locator('.roles').getByRole('button', { name: 'Кандидат' }).click();
+  await page.locator('.brand').click();  // логотип в кабинете — его дом
   await expect(page.getByText('Карточка не опубликована')).toBeVisible();
   await expect(page.getByText('Приглашений пока нет.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Не ищу' }).click();
@@ -257,7 +287,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.getByRole('switch', { name: 'Почта' })).toHaveAttribute('aria-checked', 'false');
 
   // достижения: согласие на внешние профили, Codeforces и CTFtime (живые API подменены)
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   await expect(page.getByRole('heading', { name: 'Достижения' })).toBeVisible();
   await expect(page.getByText('Опыт в PDF-профиле')).toBeVisible();  // места работы из резюме, загруженного до профиля
   await expect(page.getByPlaceholder('хэндл')).toBeDisabled();
@@ -277,8 +307,8 @@ test('кандидат: регистрация → профиль и PDF → т�
   expect(code2).not.toBe(code1);
   await expect(page.locator('code', { hasText: code2 })).toBeVisible();
   // после ухода с экрана код уже не показывается: в GET /api/achievements его нет
-  await open(page, '/c/settings');
-  await open(page, '/c/profile');
+  await open(page, '/candidate/settings');
+  await open(page, '/candidate/profile');
   await expect(page.getByText('Код подтверждения показывается один раз, сразу после запроса.')).toBeVisible();
   // истёкший код — 400 с текстом сервера
   await page.route('**/api/achievements/codeforces/verify', r => r.fulfill({ status: 400, json: { detail: 'Код истёк — запросите новый' } }));
@@ -310,7 +340,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await page.unrouteAll();
 
   // настройки: публикация карточки, отзыв и возврат согласий, скрытие от компаний
-  await open(page, '/c/settings');
+  await open(page, '/candidate/settings');
   await expect(page.getByRole('heading', { name: 'Согласия' })).toBeVisible();
   await expect(page.getByText(email)).toBeVisible();
   const pub = page.getByRole('switch', { name: /Публикация обезличенной карточки/ });
@@ -350,20 +380,20 @@ test('кандидат: регистрация → профиль и PDF → т�
   const banner = page.locator('.alert.bad', { hasText: 'Согласие на обработку отозвано: восстановите его или удалите аккаунт' });
   await expect(banner).toBeVisible();
   await expect(page.getByRole('button', { name: 'Изменить список' })).toBeDisabled();
-  await open(page, '/c/home');
+  await open(page, '/candidate');
   await expect(banner).toBeVisible();
   await expect(page.getByRole('switch', { name: 'Почта' })).toBeDisabled();
-  await open(page, '/c/profile');
+  await open(page, '/candidate/profile');
   await expect(banner).toBeVisible();
   await expect(page.getByLabel('Имя и фамилия')).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Сохранить и перейти к тесту' })).toBeDisabled();
-  await open(page, '/c/settings');
+  await expect(page.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled();
+  await open(page, '/candidate/settings');
   // без согласия на обработку ПДн откликнуться нельзя: ошибка прямо в форме отклика
-  await open(page, '/c/vacancies');
+  await open(page, '/candidate/vacancies');
   await page.locator('#app button.cand').first().click();
   await page.getByRole('button', { name: 'Откликнуться' }).click();
   await expect(page.locator('.alert.bad', { hasText: 'Нужно согласие на обработку персональных данных' })).toBeVisible();
-  await open(page, '/c/settings');
+  await open(page, '/candidate/settings');
   await c152.click();
   await expect(toast(page)).toHaveText('Согласие дано');
   await expect(page.getByText(/Дано .*версия текста/)).toBeVisible();
@@ -398,7 +428,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await dlg.getByRole('button', { name: 'Удалить навсегда' }).click();
   expect((await del).status()).toBe(200);
   await expect(toast(page)).toHaveText('Аккаунт удалён');
-  await expect(page).toHaveURL(/#\/$/);
+  await expect(page).toHaveURL(/:\d+\/$/);
   await expect(page.locator('#logout')).toBeHidden();
   expect(await page.evaluate(() => localStorage.getItem('fsp.tok.c'))).toBeNull();
 });

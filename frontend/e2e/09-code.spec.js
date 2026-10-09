@@ -10,7 +10,7 @@ const itemId = page => page.evaluate(() => S.quest && S.quest.item && S.quest.it
 
 // новый кандидат (вход по коду, минимальный профиль Backend · Python) и полный тест до задачи на код
 async function toCodeTask(page) {
-  await open(page, '/c/signup');
+  await open(page, '/candidate/signup');
   await page.getByLabel('Почта').fill(`code-${uniq()}@example.ru`);
   await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
   await page.getByRole('button', { name: 'Получить код на почту' }).click();

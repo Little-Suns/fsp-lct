@@ -786,7 +786,7 @@ def test_invite_email(client, monkeypatch, caplog):
     monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.ru")
     assert client.post("/api/employer/invites", json={**inv, "candidate_id": "M-0001"}, headers=hdr).status_code == 200
     assert len(sent) == 1 and sent[0][0] == "login-m1@example.ru"
-    assert f"{config.PUBLIC_URL}/#/c/home" in sent[0][2]
+    assert f"{config.PUBLIC_URL}/candidate" in sent[0][2]
     assert not any(x in sent[0][1] + sent[0][2] for x in ("Почта Ко", "Ирина", "hr@mail-co", "Имя M-0001", "M-0001", "stranger"))
     # кандидат выключил письма, синтетика без аккаунта, демо-персонаж на стенде — не шлём
     monkeypatch.setattr(config, "DEMO", True)
