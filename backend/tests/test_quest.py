@@ -278,6 +278,46 @@ def test_failed_initial_attempt_and_voluntary_lower_level(env):
             db.commit()
 
 
+def test_category_change_cap(env):
+    """Смена трека в интервал: категория в новой — сразу, не выше прежнего грейда; A→B→A не повышает; после срока — обычное правило."""
+    future = datetime.now(UTC) + timedelta(days=30)
+    with SessionLocal() as db:
+        user = User(email=f"cap-{secrets.token_hex(4)}@example.ru", role="candidate")
+        db.add(user)
+        db.flush()
+        cand = Candidate(public_id=f"C-{secrets.token_hex(4)}", user_id=user.id, name="К", email=user.email, **MK)
+        cand.grade, cand.theta, cand.se, cand.tested_at, cand.next_upgrade_at = "Junior", 0.0, 0.3, datetime.now(UTC), future
+        cand.consent_152 = cand.consent_publish = True
+        cand.consent_version = cand.consent_publish_version = catalog.CONSENT_VERSION
+        db.add(cand)
+        db.commit()
+        cid, uid, client = cand.id, user.id, _client(issue_token(db, user))
+    profile = lambda track: client.post("/api/candidate/profile", json={**MK, "name": "К", "track": track, "formats": ["Удалённо"]})  # noqa: E731
+    try:
+        for track in ("Go", "Python"):  # A→B→A: потолок переносится, повышения нет
+            assert profile(track).status_code == 200
+            r = _run(client, env["items"], lambda it: True, {"target_grade": "Junior"})["result"]
+            assert r["applied"] and r["category"] == {"spec": "Backend", "track": track, "grade": "Junior"}
+            assert r["capped"] and r["target"]["verdict"] == "above" and "не выше прежнего грейда Junior" in r["note"]
+            again = client.get("/api/quest/result").json()
+            assert again["capped"] and again["target"]["verdict"] == "above"
+            with SessionLocal() as db:
+                c = db.get(Candidate, cid)
+                assert c.grade == "Junior" and c.grade_cap is None and c.next_upgrade_at == future
+        with SessionLocal() as db:
+            db.get(Candidate, cid).next_upgrade_at = datetime.now(UTC) - timedelta(days=1)
+            db.commit()
+        up = _run(client, env["items"], lambda it: True, {"target_grade": "Middle"})["result"]
+        assert up["applied"] and not up["capped"] and catalog.GRADES.index(up["category"]["grade"]) > catalog.GRADES.index("Junior")
+        with SessionLocal() as db:
+            assert db.get(Candidate, cid).next_upgrade_at > datetime.now(UTC) + timedelta(days=80)
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(Candidate).where(Candidate.id == cid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
+
+
 def test_attempt_started_before_category_snapshot(env):
     """Попытка, начатая до 0011_quest_category (spec/track — NULL), после завершения видна в /result текущей категории."""
     with SessionLocal() as db:

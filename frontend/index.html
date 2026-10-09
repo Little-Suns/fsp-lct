@@ -1475,6 +1475,7 @@ V['/c/result'] = () => {
       </div>
       ${R.express ? `<div class="alert info"><span>≈</span><span><b>Экспресс-оценка.</b> Категория предварительная: ${R.mode === 'express' ? '5 заданий' : 'по экспресс-тесту'}, погрешность ± ${R.se.toFixed(2)} больше, чем у полного теста, поэтому грейд выставлен осторожно: Senior и Lead экспресс почти не присваивает. Работодатели видят пометку «экспресс-оценка». Подтвердите грейд полным тестом — кулдаун не мешает. <button class="btn ghost small" data-act="qstart" data-v="full">Полный тест</button></span></div>` : ''}
       ${R.target ? `<div class="alert ${R.target.verdict === 'below' ? 'warn' : 'ok'}"><span>${R.target.verdict === 'below' ? '↓' : R.target.verdict === 'above' ? '↑' : '✓'}</span><span><b>${esc(R.target.label)}.</b> Тест на ${esc(R.target.grade)}, результат попытки — ${esc(R.target.result_grade)}.</span></div>` : ''}
+      ${R.capped && !(S.finish && S.finish.note) ? `<div class="alert warn"><span>!</span><span>Категория — не выше прежнего грейда ${esc(c.grade)} до ${DATE(ME && ME.next_upgrade_at)}: смена специализации не обходит интервал смены грейда.</span></div>` : ''}
       ${S.finish && S.finish.note ? `<div class="alert warn"><span>!</span><span>${esc(S.finish.note)} Результат попытки: θ = ${S.finish.attempt.theta.toFixed(2)} ± ${S.finish.attempt.se.toFixed(2)}.</span></div>` : ''}
       <div class="panel">
         <div class="row sb"><h3>Компетенции</h3><span class="muted small">точка — оценка θ, полоса — погрешность</span></div>

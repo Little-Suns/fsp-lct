@@ -507,6 +507,8 @@ def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
         "assessment_label": EXPRESS_LABEL if cand.grade_express else None,
         "tested_at": _utc(cand.tested_at).isoformat() if cand.tested_at else None,
         "review_passed": cand.review_passed,
+        # категория ниже результата попытки: потолок прежнего грейда после смены специализации (finish, grade_cap)
+        "capped": bool(sess and sess.applied and sess.grade and sess.grade != cand.grade),
         "assigned": cand.grade is not None,
     }
 
@@ -592,7 +594,8 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     if (senior_plus and not cand.review_passed) or {"inconsistent", "too_fast", "code_pasted"} & set(flags):
         flags.append("review_required")  # ponytail: только флаг; асинхронный «разбор решения» (3–4 вопроса LLM) — отдельный сервис
     # грейд попытки: присвоенный (с гистерезисом), а если не применён — измеренный самой попыткой
-    sess.grade = cand.grade if applied else catalog.grade_from_theta(theta, se)
+    # под потолком — измеренный без потолка: вердикт по целевому уровню не путается с ограничением категории
+    sess.grade = (uncapped if cap else cand.grade) if applied else catalog.grade_from_theta(theta, se)
     if sess.spec is None:  # попытка начата до 0011_quest_category: результат относится к текущей категории
         sess.spec, sess.track = cand.spec, cand.track
     sess.applied = applied

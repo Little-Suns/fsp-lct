@@ -479,7 +479,7 @@ def eligible(db: Session, need: Need, company: Company | None = None) -> list[Ca
 
 def strength(c: Candidate, skills: list[str] | None = None) -> float:
     """Сила подтверждённого профиля для поиска по банку: θ − 0,5·SE + 0,5·достижения (+ покрытие навыков, если заданы).
-    Без теста θ не вкладывается; порядок поиска — сначала прошедшие тест (search_key)."""
+    Без теста θ не вкладывается (в поиск такие кандидаты не входят — visible)."""
     s = (c.theta or 0) - 0.5 * (c.se or 0) + 0.5 * achievement_signal(c)
     if skills:
         confirmed, claimed = set(c.skills_confirmed or []), set(c.skills_claimed or [])
@@ -488,7 +488,7 @@ def strength(c: Candidate, skills: list[str] | None = None) -> float:
 
 
 def search_key(c: Candidate, skills: list[str] | None = None) -> tuple:
-    """Порядок поиска по банку — как order_key: не подтверждённые тестом строго ниже."""
+    """Порядок поиска по банку: по силе профиля, ничьи — по публичному коду."""
     return (not tested(c), -strength(c, skills), c.public_id)
 
 
