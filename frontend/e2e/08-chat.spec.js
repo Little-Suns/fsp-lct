@@ -35,11 +35,11 @@ test('Чат: сообщение, бейдж, прочитано, ответ', a
   await expect(chip).toContainText('1');
   // цифра помещается в бейдж: раньше точка блока достижений .dot (14×14 с рамкой) перебивал стиль бейджа
   const fits = el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight && el.clientWidth >= 18;
-  expect(await chip.locator('.unread').evaluate(fits)).toBe(true);
+  await expect.poll(() => chip.locator('.unread').evaluate(fits)).toBe(true);  // poll: размер считается после подгрузки шрифта
   await chip.click();
   await settled(page);
   await expect(page.locator('.chat-peer', { hasText: 'Ладога Пэй' })).toContainText('Здравствуйте!');
-  expect(await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
+  await expect.poll(() => page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
   await expect(page.locator('.chat-box')).toContainText('выберите диалог', { ignoreCase: true });
   await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).click();
   await settled(page);

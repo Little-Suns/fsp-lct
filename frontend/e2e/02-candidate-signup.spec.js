@@ -92,6 +92,23 @@ test('вход: некорректная почта — текст сервер�
   await expect(toast(page)).toHaveText('Некорректная почта');
 });
 
+test('согласия с регистрации доходят до шага «Профиль», но не достаются следующему во вкладке', async ({ page }) => {
+  await signup(page, `consent-a-${uniq()}@example.ru`, { publish: true });
+  const c152 = page.getByLabel(/обработку персональных данных по 152-ФЗ/), pub = page.getByLabel(/Показывать мою обезличенную карточку/);
+  await expect(c152).toBeChecked();  // отмечено на регистрации — тот же человек
+  await expect(pub).toBeChecked();
+  await page.locator('#logout').click();
+  await expect(page).toHaveURL(/\/candidate\/login$/);
+  const email = `consent-b-${uniq()}@example.ru`;
+  await page.getByLabel('Почта').fill(email);
+  await page.getByRole('button', { name: 'Получить код на почту' }).click();
+  await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Профиль' })).toBeVisible();
+  await expect(c152).not.toBeChecked();  // следующий человек ставит согласия сам
+  await expect(pub).not.toBeChecked();
+});
+
 test('без согласия на обработку ПДн профиль не сохраняется', async ({ page }) => {
   await signup(page, `noconsent-${uniq()}@example.ru`, { c152: false });
   await fillProfile(page);

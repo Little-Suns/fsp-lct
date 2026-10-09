@@ -96,7 +96,7 @@ if (_front / "index.html").is_file():
 @app.get("/candidate/{rest:path}", include_in_schema=False)
 @app.get("/employer", include_in_schema=False)
 @app.get("/employer/{rest:path}", include_in_schema=False)
-def index(rest: str = ""):
+def index(rest: str = ""):  # rest — хвост адреса кабинета: роутинг на фронте, сервер его не читает
     page = _front / "index.html"
     if not page.is_file():
         raise HTTPException(503, f"Фронт недоступен: нет файла {page}. Пересоберите образ api (docker compose up -d --build) или задайте FRONTEND_DIR.")

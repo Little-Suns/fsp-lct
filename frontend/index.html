@@ -755,7 +755,8 @@ function fail(e) { toast(e && e.message ? e.message : 'Ошибка'); }
 // сброс токена и данных одной роли: выход, 401, смена пользователя
 function clearSide(role) {
   setTok(role, null);
-  if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
+  // согласия 152-ФЗ с экрана регистрации — только того, кто входит сейчас: следующий человек во вкладке ставит их сам
+  if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S.signup, { c152: false, publish: false }); Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
   else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
 }
 // вход по коду; учётка другой роли — отказ с плашкой «войдите как …» на экране входа (S.roleErr)
@@ -766,7 +767,9 @@ async function verifyLogin(role, email, otp) {
     S.roleErr = role; (role === 'c' ? S.esignup : S.signup).email = email; rerender();
     throw new Error(want === 'employer' ? 'Эта почта зарегистрирована как кандидат' : 'Эта почта зарегистрирована как работодатель');
   }
+  const { c152, publish } = S.signup;  // согласия, отмеченные на регистрации этим же человеком, переживают вход
   clearSide(role);
+  Object.assign(S.signup, { c152, publish });
   setTok(role, r.token);
   return r;
 }
@@ -3194,6 +3197,7 @@ const ACT = {
     });
     if (!first) { toast('Профиль сохранён'); S.pf = pfFromMe(); return rerender(); }  // раздел «Профиль» кабинета: остаёмся на месте
     await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
+    Object.assign(S.signup, { c152: false, publish: false });  // согласия уже на сервере (журнал ConsentEvent)
     toast('Профиль сохранён'); go('/c/quest');
   },
   async 'consent-ext'() {
@@ -3558,8 +3562,9 @@ for (const ev of ['pointerdown', 'mousedown']) document.addEventListener(ev, e =
 // при загрузке и при смене одного хеша на открытой странице
 function oldHash() {
   if (!location.hash.startsWith('#/')) return false;
-  const old = location.hash.slice(1);
-  history.replaceState(null, '', pathOf(old === '/e/signup' ? (TOK.e ? '/e/company' : '/e/login') : old) + location.search);
+  const k = location.hash.slice(1) === '/e/signup' ? (TOK.e ? '/e/company' : '/e/login') : location.hash.slice(1), p = pathOf(k);
+  // неизвестный старый ключ кабинета — тот же хвост в кабинете, там его встретит «Не найдено»
+  history.replaceState(null, '', (p === '/' && /^\/[ce]\//.test(k) ? (k[1] === 'c' ? '/candidate' : '/employer') + k.slice(2) : p) + location.search);
   return true;
 }
 addEventListener('hashchange', () => { if (oldHash()) show(); });

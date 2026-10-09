@@ -108,7 +108,10 @@ test('адреса кабинетов: вход с ?next= и возврат, «�
   await expect(page).toHaveURL(/\/employer\/login$/);
   await page.goto('/#/c/chat/12');
   await expect(page).toHaveURL(/\/candidate\/chat\/12$/);
-  await page.goto('/#/x/y');  // неизвестный старый ключ — главная
+  await page.goto('/#/c/nope');  // неизвестный старый ключ кабинета — «Не найдено» в кабинете
+  await expect(page).toHaveURL(/\/candidate\/nope$/);
+  await expect(page.getByRole('heading', { name: 'Страница не найдена' })).toBeVisible();
+  await page.goto('/#/x/y');  // вне кабинетов — главная
   await expect(page).toHaveURL(HOME);
   await page.goto('/#/e/pipeline');  // кабинет компании без входа — вход компании с возвратом
   await expect(page).toHaveURL(/\/employer\/login\?next=%2Femployer%2Finvites$/);
