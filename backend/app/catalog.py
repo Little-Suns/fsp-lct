@@ -32,6 +32,9 @@ FEEDBACK = {"confirmed": "грейд подтвердился", "not_confirmed":
 # регуляторы рынка
 CANDIDATE_CAP = 4  # открытых приглашений (sent|seen) у кандидата
 INVITE_TTL_DAYS = 7
+# повторное приглашение той же компании: после истечения — сразу (кандидат не ответил, квота тратится заново),
+# после отказа — не раньше чем через столько дней (не спамим), по принятой потребности — никогда (routers/employer.repeat_block)
+REINVITE_AFTER_DECLINE_DAYS = 30
 QUOTA_BASE = 10  # приглашений в неделю (сброс в понедельник)
 QUOTA_BONUS = 12  # при доле принятых ≥ QUOTA_BONUS_AT
 QUOTA_BONUS_AT = 0.5

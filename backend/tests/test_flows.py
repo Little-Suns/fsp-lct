@@ -12,6 +12,7 @@ os.environ["LLM_BASE_URL"] = ""
 os.environ.setdefault("DEMO", "1")
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from fastapi import FastAPI
 from pypdf import PdfReader
 from fastapi.testclient import TestClient
@@ -617,3 +618,61 @@ def test_salary_upper_bound(client):
     too_big(client.post("/api/employer/invites", json=inv, headers=E))
     too_big(client.post("/api/employer/invites", json={**inv, "salary_from": huge}, headers=E))
     too_big(client.post("/api/lottery/", json={"need_id": 1, "threshold": {"fork_to": huge}, "draw_count": 1}, headers=E))
+
+
+def test_reinvite(client):
+    """Повтор той же компании: открытое — 409, истёкшее — можно, отказ — пауза REINVITE_AFTER_DECLINE_DAYS, принятое по потребности — никогда."""
+    with SessionLocal() as db:
+        db.query(Company).filter(Company.inn == INN).update({"quota_max": 10})
+        db.add_all([_cand("V-0011"), _cand("V-0012")])
+        db.commit()
+    need_id = client.get("/api/employer/needs", headers=E).json()[-1]["id"]
+    card = lambda pid, **q: client.get(f"/api/employer/candidates/{pid}", params=q, headers=E).json()  # noqa: E731
+    inv = {"need_id": need_id, "role": "Backend (Python)", "salary_from": 240000, "salary_to": 300000, "format": "Гибрид"}
+    post = lambda pid, **kw: client.post("/api/employer/invites", json={**inv, "candidate_id": pid, **kw}, headers=E)  # noqa: E731
+
+    acc = post("V-0012").json()["invite"]["id"]
+    with SessionLocal() as db:
+        db.get(Invitation, acc).status = "accepted"
+        db.commit()
+    accepted = "Кандидат уже принял приглашение по этой потребности"
+    assert card("V-0012", need_id=need_id)["invite_block"] == accepted
+    assert post("V-0012").json()["detail"] == accepted
+    assert card("V-0012")["invite_block"] is None  # без потребности или по другой — можно
+
+    first = post("V-0011").json()["invite"]["id"]
+    assert post("V-0011").json()["detail"] == "Кандидат уже приглашён"
+    assert post("V-0011", need_id=None).json()["detail"] == "Кандидат уже приглашён"  # одно открытое на пару при любой потребности
+    assert card("V-0011", need_id=need_id)["invite_block"] == "Кандидат уже приглашён"
+    with SessionLocal() as db:  # две открытые строки по одной потребности не пропустит и сама база
+        dup = Invitation(**{k: getattr(db.get(Invitation, first), k) for k in ("company_id", "candidate_id", "need_id", "role", "salary_from", "salary_to", "format", "expires_at")})
+        db.add(dup)
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+    # истекло без ответа → «Пригласить снова», та же потребность, квота тратится заново
+    with SessionLocal() as db:
+        db.get(Invitation, first).expires_at = NOW - timedelta(hours=1)
+        db.commit()
+    c = card("V-0011", need_id=need_id)
+    assert (c["invited"], c["invite_block"]) == ("exp", None)
+    used = client.get("/api/employer/quota", headers=E).json()["used"]
+    r = post("V-0011")
+    assert r.status_code == 200 and r.json()["quota"]["used"] == used + 1
+    second = r.json()["invite"]["id"]
+    rows = [x for x in client.get("/api/employer/pipeline", headers=E).json()["items"] if x["cid"] == "V-0011"]
+    assert [(x["id"], x["status"]) for x in rows] == [(second, "sent"), (first, "exp")]
+
+    # отказ → пауза по любой потребности; после неё — снова можно
+    with SessionLocal() as db:
+        db.get(Invitation, second).status, db.get(Invitation, second).responded_at = "declined", NOW
+        db.commit()
+    for q in ({}, {"need_id": None}):
+        r = post("V-0011", **q)
+        assert r.status_code == 409 and r.json()["detail"].startswith("Кандидат отклонил приглашение; повторно — не раньше "), r.json()
+    assert card("V-0011")["invite_block"].startswith("Кандидат отклонил приглашение")
+    with SessionLocal() as db:
+        db.get(Invitation, second).responded_at = NOW - timedelta(days=catalog.REINVITE_AFTER_DECLINE_DAYS + 1)
+        db.commit()
+    assert card("V-0011", need_id=need_id)["invite_block"] is None
+    assert post("V-0011").status_code == 200
