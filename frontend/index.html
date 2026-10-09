@@ -711,7 +711,7 @@ const LS = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* приватный режим */ } },
 };
-const TOK = { c: LS.get('fsp.tok.c'), e: LS.get('fsp.tok.e') };
+const TOK = { c: LS.get('fsp.tok.c'), e: LS.get('fsp.tok.e'), org: null };  // org — токен организатора, только в памяти
 const setTok = (role, t) => { TOK[role] = t; LS.set('fsp.tok.' + role, t); };
 const roleOf = p => p.startsWith('/e') ? 'e' : 'c';
 
@@ -726,7 +726,7 @@ async function api(method, path, body, role = roleOf(route())) {
   const det = data && data.detail;
   const msg = typeof det === 'string' ? det : Array.isArray(det) ? det.map(x => x.msg).join('; ') : det && det.errors ? det.errors.join(' ') : `Ошибка ${r.status}`;
   const err = Object.assign(new Error(msg), { status: r.status, detail: det });
-  if (r.status === 401 && !path.startsWith('/api/auth/')) {
+  if (r.status === 401 && role !== 'org' && !path.startsWith('/api/auth/')) {
     clearSide(role);
     const to = role === 'e' ? '/e/signup' : '/c/signup';
     if (route() !== to) go(to);
@@ -2726,6 +2726,7 @@ V['/v'] = () => {
     <div class="row" style="gap:10px">
       <span class="demo-tag">${R ? `синтетика · прогон ${DATE(R.generated_at)}` : 'прогон не запускался'}</span>
       ${META && META.demo ? `<button class="btn dark" data-act="valrun" ${S.valBusy ? 'disabled' : ''}>${S.valBusy ? 'Считаем… до минуты' : R ? 'Пересчитать' : 'Запустить прогон'}</button>` : ''}
+      <button class="btn ghost small" data-go="/org">Организатору: импорт протоколов →</button>
     </div>
   </div>
   <div class="grid g2">
@@ -2810,12 +2811,102 @@ function vsep(Sp) {
   <p class="small muted">Слабо различающих заданий (r<sub>pb</sub> &lt; 0,2): ${PCT(it.rpb_poor)} — на модельных ответах по той же 2PL, калибровки по живым ответам пока нет. AUC — вероятность, что у кандидата старшего грейда оценка θ выше, чем у младшего; 0,5 — не различает.</p>` : ''}`;
 }
 
+/* ===================== организатор: импорт протоколов ===================== */
+// POST /api/achievements/import с Bearer ORGANIZER_TOKEN (или токеном пользователя с ролью admin).
+// Токен живёт только в памяти вкладки (TOK.org, без localStorage): перезагрузка страницы — вход заново.
+const ORG_SRC = { hackathon: 'Хакатон', fsp: 'Соревнование ФСП', ctftime: 'CTFtime — подтверждение мест команды' };
+const ORG_LEVEL = { '': 'не указан', international: 'международный', national: 'всероссийский', regional: 'региональный', local: 'локальный' };
+const ORG_FIELDS = ['source', 'external_id', 'title', 'date', 'level', 'discipline', 'participants', 'url', 'tags'];
+const orgEmpty = () => ({ source: 'hackathon', external_id: '', title: '', date: '', level: '', discipline: '', participants: '', url: '', tags: '', text: '' });
+// пример для демо-стенда: ФСП ID демо-кандидата Орлова (засеян seed.generate) и строка, которой нет на платформе
+const ORG_SAMPLE = () => ({
+  source: 'fsp', external_id: 'demo-cup-2026', title: 'Кубок ФСП по продуктовому программированию, финал', date: new Date().toISOString().slice(0, 10),
+  level: 'national', discipline: 'продуктовое программирование', participants: '120', url: '', tags: 'финал, командный',
+  text: 'email,fsp_id,team,place,role,result,rank\n,FSP-1042,Команда «Сапсан»,2,капитан,призёр,КМС\n,FSP-0000,Команда «Ветер»,7,,финалист,',
+});
+const org = () => S.org || (S.org = { form: orgEmpty(), res: null, err: null });
+function orgCapture() {
+  const f = org().form;
+  for (const k of [...ORG_FIELDS, 'text']) { const el = document.getElementById('org-' + k); if (el) f[k] = el.value; }
+}
+// JSON (массив строк или {event, rows}) уходит как есть, иначе текст — CSV в multipart вместе с полями события
+function orgBody(f) {
+  const event = Object.fromEntries(ORG_FIELDS.filter(k => f[k].trim()).map(k => [k, f[k].trim()]));
+  const t = f.text.trim();
+  if (!t) throw new Error('Вставьте протокол или выберите файл');
+  if (/^[[{]/.test(t)) {
+    let j;
+    try { j = JSON.parse(t); } catch { throw new Error('Протокол похож на JSON, но не разбирается: проверьте скобки и кавычки'); }
+    return Array.isArray(j) ? { event, rows: j } : j;
+  }
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(event)) fd.append(k, v);
+  fd.append('file', new Blob([t], { type: 'text/csv' }), 'protocol.csv');
+  return fd;
+}
+// итог импорта: только счётчики и номера строк с причиной — почты и ФСП ID участников обратно не выводим
+function orgResult(r) {
+  const rest = r.unmatched.length - 50;
+  return `<div class="panel stack" id="org-res">
+    <div class="row sb"><h3>Протокол загружен</h3><span class="label">Событие №${esc(r.event_id)}</span></div>
+    <div class="row">
+      <span class="chip">Строк: ${r.matched + r.unmatched.length}</span>
+      <span class="chip ok">Сопоставлено с кандидатами: ${r.matched}</span>
+      <span class="chip">Новых достижений: ${r.created} · обновлено: ${r.updated}</span>
+      ${r.no_consent ? `<span class="chip warn">Без согласия на внешние данные: ${r.no_consent}</span>` : ''}
+      ${r.unmatched.length ? `<span class="chip bad">Не привязано: ${r.unmatched.length}</span>` : ''}
+    </div>
+    <p class="small muted">Сопоставление — только по почте входа или ФСП ID. Достижение из протокола подтверждено и влияет на место кандидата внутри категории, но не на грейд. Повторный импорт того же события обновляет строки, а не дублирует их.</p>
+    ${r.unmatched.length ? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th class="num">Строка протокола</th><th>Почему не привязана</th></tr></thead>
+      <tbody>${r.unmatched.slice(0, 50).map(u => `<tr><td class="num">${esc(u.row)}</td><td>${esc(u.reason)}</td></tr>`).join('')}</tbody>
+    </table></div>${rest > 0 ? `<p class="small muted">и ещё ${rest}</p>` : ''}` : ''}
+  </div>`;
+}
+V['/org'] = () => {
+  const o = org(), f = o.form;
+  const head = `${crumbs([['Главная', '/'], ['Валидация', '/v'], ['Импорт протоколов']])}
+  <div class="stack-s fade" style="margin-bottom:18px"><h2>Импорт протоколов соревнований</h2>
+    <span class="small muted">Для организаторов хакатонов и соревнований ФСП: результаты из протокола становятся подтверждёнными достижениями кандидатов платформы.</span></div>
+  ${o.err ? `<div class="alert bad" role="alert"><span>!</span><span>${esc(o.err)}</span></div>` : ''}`;
+  if (!TOK.org) return `${head}
+  <div class="panel stack" style="max-width:560px">
+    <h3>Вход организатора</h3>
+    <label class="field"><span>Токен организатора</span><input class="input" id="org-tok" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <p class="small muted">Токен задаёт администратор стенда переменной окружения <code>ORGANIZER_TOKEN</code>. Он хранится только в памяти этой вкладки и уходит лишь в запрос импорта.</p>
+    <div class="row"><button class="btn primary" data-act="org-login">Войти</button></div>
+  </div>`;
+  const inp = (k, label, attrs = '') => `<label class="field"><span>${label}</span><input class="input" id="org-${k}" value="${esc(f[k])}" ${attrs}></label>`;
+  const sel = (k, label, opts) => `<label class="field"><span>${label}</span><select class="input" id="org-${k}">${Object.entries(opts).map(([v, t]) => `<option value="${v}" ${v === f[k] ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`;
+  return `${head}
+  <div class="panel stack">
+    <div class="row sb"><h3>Событие</h3><button class="btn ghost small" data-act="org-logout">Выйти</button></div>
+    <div class="grid g2">${sel('source', 'Источник', ORG_SRC)}${inp('external_id', 'Идентификатор события', 'placeholder="Номер в реестре ФСП или id события CTFtime"')}</div>
+    ${inp('title', 'Название', 'placeholder="Кубок ФСП по продуктовому программированию, финал"')}
+    <div class="grid g2">${inp('date', 'Дата', 'type="date"')}${sel('level', 'Уровень', ORG_LEVEL)}</div>
+    <div class="grid g2">${inp('discipline', 'Дисциплина ФСП', 'placeholder="продуктовое программирование"')}${inp('participants', 'Участников всего', 'inputmode="numeric"')}</div>
+    <div class="grid g2">${inp('url', 'Ссылка на протокол', 'type="url" placeholder="https://"')}${inp('tags', 'Теги через запятую')}</div>
+    <p class="small muted">CTFtime: идентификатор — id события на CTFtime; импорт подтверждает места, которые кандидаты подтянули сами по своей команде.</p>
+  </div>
+  <div class="panel stack">
+    <div class="row sb"><h3>Протокол</h3><div class="row">
+      ${META && META.demo ? '<button class="btn ghost small" data-act="org-sample">Демо: подставить пример</button>' : ''}
+      <input type="file" id="org-file" accept=".csv,.json,text/csv,application/json" hidden>
+      <button class="btn ghost small" data-act="org-pick">Загрузить файл</button></div></div>
+    <label class="field"><span>CSV или JSON, до 2 МБ</span><textarea class="input" id="org-text" spellcheck="false" style="min-height:160px;font-family:var(--mono)" placeholder="email,fsp_id,team,place,role,result,rank">${esc(f.text)}</textarea></label>
+    <p class="small muted">CSV: заголовок <code>email,fsp_id,team,place,role,result,rank</code>, разделитель «,» или «;». Кандидат ищется по почте входа или ФСП ID. <code>result</code> — победитель, призёр, финалист или участник (пусто — по месту), <code>rank</code> — разряд по протоколу. JSON — массив строк с теми же полями или целиком <code>{"event": {…}, "rows": […]}</code>: тогда поля события выше не используются.</p>
+    <div class="row"><button class="btn primary" data-act="org-import">Импортировать</button></div>
+  </div>
+  ${o.res ? orgResult(o.res) : ''}`;
+};
+
 /* ===================== карта экранов ===================== */
 const MAP = [
   ['Общее', [['/', 'Главная']]],
   ['Кандидат', [['/c/signup', 'Вход и регистрация'], ['/c/profile', 'Профиль, резюме и достижения'], ['/c/quest', 'Тест-квест: грейд и история'], ['/c/quest/go', 'Тест-квест: задания'], ['/c/result', 'Категория и вердикт'], ['/c/home', 'Кабинет и приглашения'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Витрина задач'], ['/c/settings', 'Согласия и мои данные']]],
   ['Работодатель', [['/e/signup', 'Вход и компания'], ['/e/need', 'Потребность и план теста'], ['/e/picks', 'Подборка и лотерея'], ['/e/search', 'Поиск по банку'], ['/e/cand/A-1042', 'Карточка кандидата'], ['/e/invite/C-0775', 'Форма приглашения'], ['/e/pipeline', 'Статусы и обратная связь'], ['/e/vacancies', 'Вакансии и отклики'], ['/e/tasks', 'Задания и решения']]],
   ['Жюри', [['/v', 'Дашборд валидации']]],
+  ['Организатор', [['/org', 'Импорт протоколов']]],
 ];
 function openMap() {
   const r = route(), role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
@@ -3115,6 +3206,27 @@ const ACT = {
     S.valBusy = true; rerender();
     try { D.val = await api('POST', '/api/validation/run?today=now'); toast('Прогон готов'); }
     finally { S.valBusy = false; rerender(); }
+  },
+
+  // организатор: токен проверяет сервер при импорте, до него держим в памяти
+  'org-login': () => {
+    const t = document.getElementById('org-tok').value.trim();
+    if (!t) return toast('Введите токен организатора');
+    TOK.org = t; org().err = null; rerender();
+  },
+  'org-logout': () => { TOK.org = null; S.org = null; rerender(); },
+  'org-sample': () => { org().form = ORG_SAMPLE(); rerender(); },
+  'org-pick': () => document.getElementById('org-file').click(),
+  async 'org-import'() {
+    orgCapture();
+    const o = org();
+    o.err = null; o.res = null;
+    try { o.res = await api('POST', '/api/achievements/import', orgBody(o.form), 'org'); toast('Протокол импортирован'); }
+    catch (e) {
+      if (e.status === 401 || e.status === 403) TOK.org = null;  // токен не подошёл — назад ко входу
+      o.err = e.status === 401 || e.status === 403 ? 'Токен организатора не подошёл' : e.message;
+    }
+    rerender();
   },
 
   // вход
@@ -3479,6 +3591,12 @@ document.addEventListener('change', async e => {
   if (t.id.startsWith('nc-') && S.needCat) {
     const c = S.needCat;
     if (t.id === 'nc-spec') { c.spec = t.value; c.track = ''; rerender(); } else c[t.id.slice(3)] = t.value;
+  }
+  if (t.id === 'org-file' && t.files[0]) {  // файл протокола — в поле текста: видно, что уйдёт, и один путь отправки
+    orgCapture();
+    if (t.files[0].size > 2 * 1024 * 1024) { toast('Файл протокола больше 2 МБ'); return; }
+    org().form.text = await t.files[0].text();
+    rerender();
   }
   if (t.id === 'cv-file' && t.files[0]) {
     capture();
