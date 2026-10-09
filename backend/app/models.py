@@ -204,7 +204,13 @@ class Invitation(Base):
     """Приглашение-оффер. Статусы: sent → seen → accepted | declined | expired."""
 
     __tablename__ = "invitations"
-    __table_args__ = (UniqueConstraint("company_id", "candidate_id", "need_id"),)
+    # открытое приглашение по потребности — одно; истёкшие и отклонённые остаются в истории, повтор — по правилам
+    # routers/employer.repeat_block (строже индекса: одно открытое на пару компания–кандидат при любой потребности)
+    __table_args__ = (
+        Index("uq_invite_open", "company_id", "candidate_id", "need_id", unique=True,
+              postgresql_where=text("status IN ('sent', 'seen')")),
+        Index("ix_invitations_company_candidate", "company_id", "candidate_id"),  # воронка, квота, повтор — по компании
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"))

@@ -30,6 +30,8 @@ services:
       SMTP_FROM: ${SMTP_FROM:-no-reply@fsp-career.local}
       # перец для HMAC кодов входа; задайте постоянный на стенде, иначе коды сгорают при рестарте
       SECRET_KEY: ${SECRET_KEY:-}
+      # токен организатора: импорт протоколов (страница /org, POST /api/achievements/import); пусто — только роль admin
+      ORGANIZER_TOKEN: ${ORGANIZER_TOKEN:-}
       # адрес стенда в браузере: redirect_uri ФСП ID и issuer мок-провайдера
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
       # ФСП ID (Keycloak OIDC): пусто + DEMO=1 → встроенный мок /mock-fsp-id; боевой — issuer realm, клиент и секрет
@@ -59,9 +61,9 @@ services:
       # песочница задач на код; без SANDBOX_TOKEN задачи на код не выдаются (тест — без них)
       SANDBOX_URL: http://sandbox:8080
       SANDBOX_TOKEN: ${SANDBOX_TOKEN:-}
-    # DEMO=1: пустая база при старте засевается синтетикой от сегодняшней даты (~1 мин до ответа API; засеянную не трогает,
-    # пересоздать стенд — seed.generate --reset вручную); без DEMO — миграции и банк заданий теста (засевает сам API при старте), как в боевом режиме
-    command: ["sh", "-c", "if [ \"$$DEMO\" = 1 ]; then python -m seed.generate --if-empty --today now; fi; exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    # DEMO=1: пустая база при старте засевается синтетикой от сегодняшней даты (~1 мин до ответа API; засеянную не пересеивает,
+    # только освежает демо-приглашения, истёкшие без ответа — --refresh-demo; пересоздать стенд — seed.generate --reset вручную); без DEMO — миграции и банк заданий теста (засевает сам API при старте), как в боевом режиме
+    command: ["sh", "-c", "if [ \"$$DEMO\" = 1 ]; then python -m seed.generate --if-empty --refresh-demo --today now; fi; exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     extra_hosts: ["host.docker.internal:host-gateway"]
     # правка фронта без пересборки — docker-compose.override.yml.example (скопируйте в docker-compose.override.yml)
     ports: ["8000:8000"]

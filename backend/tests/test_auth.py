@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine, reset_schema
 from app.deps import hash_secret, issue_token, otp_hash
-from app.main import app
+from app.main import MAX_BODY, app
 from app.models import Candidate, Company, LoginChallenge, User
 from app.services.items import STORY
 
@@ -55,7 +55,7 @@ def test_app_wiring(client):
     assert client.get("/api/health").json() == {"ok": True}
     meta = client.get("/api/meta").json()
     assert meta["cap"] == catalog.CANDIDATE_CAP and meta["invite_ttl_days"] == catalog.INVITE_TTL_DAYS and "Backend" in meta["specs"]
-    assert meta["demo"] is config.DEMO
+    assert meta["demo"] is config.DEMO and meta["mail"] is bool(config.SMTP_HOST)
     # вводная и финал теста на фронте — тот же сюжет, что в items.STORY (без часов: их подставляет /api/quest)
     assert meta["stories"] == {spec: {k: v for k, v in st.items() if k != "clock"} for spec, st in STORY.items()}
     paths = set(app.openapi()["paths"])
@@ -76,9 +76,9 @@ def test_index_without_frontend_is_503(client, tmp_path, monkeypatch):
 
 
 def test_cabinet_paths_serve_index_only_on_explicit_prefixes(client, tmp_path, monkeypatch):
-    # маршруты фронта через History API: страница на адресах кабинетов и /v, 503 без файла — как на «/»
+    # маршруты фронта через History API: страница на адресах кабинетов, /v и /org, 503 без файла — как на «/»
     monkeypatch.setattr("app.main._front", tmp_path)
-    paths = ("/v", "/candidate", "/candidate/", "/candidate/test/result", "/candidate/chat/12", "/employer",
+    paths = ("/v", "/org", "/candidate", "/candidate/", "/candidate/test/result", "/candidate/chat/12", "/employer",
              "/employer/candidates/A-1042/invite", "/employer/опечатка")
     for p in paths:
         r = client.get(p)
@@ -92,6 +92,24 @@ def test_cabinet_paths_serve_index_only_on_explicit_prefixes(client, tmp_path, m
         r = client.get(p)
         assert r.status_code == 404 and r.json() == {"detail": "Not Found"}, p
     assert client.get("/docs").status_code == 200 and "<html>ok</html>" not in client.get("/docs").text
+
+
+def test_security_headers_on_pages_and_api(client, tmp_path, monkeypatch):
+    # страницу кабинета нельзя встроить во фрейм (кликджекинг согласия на контакты); то же — на API и ассетах
+    monkeypatch.setattr("app.main._front", tmp_path)
+    (tmp_path / "index.html").write_text("<html>ok</html>", encoding="utf8")
+    for p in ("/", "/candidate/invites/1", "/employer", "/v", "/api/health", "/api/опечатка"):
+        h = client.get(p).headers
+        assert h["x-frame-options"] == "DENY" and h["content-security-policy"] == "frame-ancestors 'none'", p
+        assert h["x-content-type-options"] == "nosniff" and h["referrer-policy"] == "same-origin", p
+    # 413 из limit_body — тоже: security_headers объявлен после него и снаружи (перестановка декораторов уронит проверку)
+    r = client.post("/api/candidate/profile", content=b"x" * (MAX_BODY + 1))
+    assert r.status_code == 413 and r.headers["x-frame-options"] == "DENY"
+    if os.path.isdir(os.path.join(config.FRONTEND_DIR, "assets")):  # ассеты StaticFiles
+        assert client.get("/assets/logo.svg").headers["x-content-type-options"] == "nosniff"
+    # свой заголовок роутера не перетирается: возврат из ФСП ID — no-referrer (код и state не утекают)
+    r = client.get("/api/auth/fsp/callback?state=x&code=y", follow_redirects=False)
+    assert r.headers["referrer-policy"] == "no-referrer"
 
 
 def test_otp_hashed_and_login(client):

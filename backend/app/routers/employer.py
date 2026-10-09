@@ -5,16 +5,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import AfterValidator, BaseModel, Field
 from pydantic_core import PydanticCustomError
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, defer, selectinload
 
-from app import catalog
+from app import catalog, config, mail
 from app.api_schemas import CandidateCard, InviteResult, NeedView, PicksResult, SearchResult
 from app.db import get_db
-from app.deps import active_company, current_company, current_user
+from app.deps import DEMO_PERSONAS, active_company, current_company, current_user
 from app.models import Candidate, Company, Invitation, Lottery, Need, Task, User, Vacancy
 from app.services import lottery as lottery_svc
 from app.services import matching, reputation
@@ -105,7 +105,7 @@ def _accepted_share(db: Session, company_id: int, before: datetime | None = None
 def quota(db: Session, co: Company) -> dict:
     """Недельная квота (сброс в понедельник 00:00 МСК). Лимит растёт до QUOTA_BONUS, если в прошлые недели
     принято ≥ 50 % закрытых приглашений. Неподтверждённая компания — UNVERIFIED_QUOTA без бонуса. Много плохих отзывов
-    кандидатов за окно — FEEDBACK_PENALTY_QUOTA без бонуса, блок — 0 (services/reputation.py). Оплата — только за принятые."""
+    кандидатов за окно — FEEDBACK_PENALTY_QUOTA без бонуса, блок — 0 (services/reputation.py)."""
     start = _week_start(datetime.now(UTC))
     used = db.scalar(select(func.count()).select_from(Invitation).where(Invitation.company_id == co.id, Invitation.sent_at >= start))
     bonus = lambda share: max(co.quota_max, catalog.QUOTA_BONUS) if share is not None and share >= catalog.QUOTA_BONUS_AT else co.quota_max
@@ -461,6 +461,7 @@ def _visible(db: Session, co: Company, public_id: str) -> Candidate:
 def candidate_card(public_id: str, need_id: int | None = None, co: Company = Depends(current_company), db: Session = Depends(get_db)):
     c = _visible(db, co, public_id)
     n = _own_need(db, co, need_id) if need_id else None
+    matching.expire_invites(db, company_id=co.id, candidate_id=c.id)  # «истекло» и кнопка «Пригласить снова» — по свежему статусу
     r = matching.score_candidates(db, n, [c], limit=1)[0] if n else None
     out = matching.card(c, ranked=r, need=n)
     if r is None:
@@ -471,6 +472,7 @@ def candidate_card(public_id: str, need_id: int | None = None, co: Company = Dep
     out["breakdown"] = r.explanation["parts"] if r else None
     out["market"] = catalog.market(c.spec, matching.category_grade(c), n.city if n else c.city)
     out["invited"] = _invited(db, co, [c.id]).get(c.id)
+    out["invite_block"] = repeat_block(db, co.id, c.id, n.id if n else None)  # кнопка «Пригласить снова» или причина, почему нельзя
     out["chat_peer"] = c.public_id if peers_linked(db, "employer", co.id, [c.id]) and may_talk(c, co) else None
     out["cap"] = catalog.CANDIDATE_CAP
     from app.routers.tasks import task_signal  # локально: tasks импортирует из этого модуля
@@ -604,8 +606,27 @@ def _locked(db: Session, model, pk: int):
     return db.scalars(select(model).where(model.id == pk).with_for_update().execution_options(populate_existing=True)).one()
 
 
+def repeat_block(db: Session, company_id: int, candidate_id: int, need_id: int | None) -> str | None:
+    """Почему компания не может пригласить кандидата ещё раз (None — может). Открытое приглашение — одно на пару;
+    истёкшее не мешает; отказ — пауза catalog.REINVITE_AFTER_DECLINE_DAYS по любой потребности; принятое по этой потребности — навсегда."""
+    now = matching._now()
+    since = now - timedelta(days=catalog.REINVITE_AFTER_DECLINE_DAYS)
+    rows = db.execute(
+        select(Invitation.status, Invitation.need_id, Invitation.expires_at, func.coalesce(Invitation.responded_at, Invitation.sent_at))
+        .where(Invitation.company_id == company_id, Invitation.candidate_id == candidate_id)
+    ).all()
+    if any(st in matching.OPEN and exp > now for st, _, exp, _ in rows):
+        return "Кандидат уже приглашён"
+    if need_id is not None and any(st == "accepted" and nid == need_id for st, nid, _, _ in rows):
+        return "Кандидат уже принял приглашение по этой потребности"
+    if last := max((at for st, _, _, at in rows if st == "declined" and at > since), default=None):
+        until = (last + timedelta(days=catalog.REINVITE_AFTER_DECLINE_DAYS)).astimezone(MSK)
+        return f"Кандидат отклонил приглашение; повторно — не раньше {until.day} {MONTHS[until.month - 1]}"
+    return None
+
+
 @router.post("/invites", response_model=InviteResult)
-def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
+def send_invite(body: InviteIn, bg: BackgroundTasks, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     cid = db.scalar(select(Candidate.id).where(Candidate.public_id == body.candidate_id))
     if not cid:
         raise HTTPException(404, "Кандидат не найден")
@@ -637,15 +658,8 @@ def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Sessi
         raise HTTPException(422, {"errors": errors, "warnings": warnings})
     if not matching.format_ok(c.formats, c.city, base_fmt, (n.city if n else None) or c.city):
         warnings.append(f"Кандидат не рассматривает формат «{base_fmt}»: вероятность принятия ниже.")
-    dup = db.scalar(
-        select(Invitation).where(
-            Invitation.company_id == co.id,
-            Invitation.candidate_id == c.id,
-            or_(Invitation.status.in_(matching.OPEN), Invitation.need_id == n.id) if n else Invitation.status.in_(matching.OPEN),
-        )
-    )
-    if dup:
-        raise HTTPException(409, "Кандидат уже приглашён")
+    if block := repeat_block(db, co.id, c.id, n.id if n else None):
+        raise HTTPException(409, block)
     if matching.candidate_loads(db, [c.id])[c.id] >= catalog.CANDIDATE_CAP:
         raise HTTPException(409, "У кандидата максимум открытых приглашений")
     q = quota(db, co)
@@ -670,7 +684,13 @@ def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Sessi
     )
     db.add(inv)
     db.commit()
-    # ponytail: уведомления (почта/Telegram) не отправляются; очередь + бот, когда появятся ключи
+    # адрес входа (код, ФСП ID или IdP брокера с Trust Email), а не почта из анкеты: её кандидат вписывает сам — письмо ушло бы постороннему.
+    # Без аккаунта (синтетика) и демо-персонажу на стенде письма нет: адреса не настоящие
+    to = db.scalar(select(User.email).where(User.id == c.user_id)) if c.user_id else None
+    if config.SMTP_HOST and to and (c.notif or {}).get("mail", True) and not (config.DEMO and to in DEMO_PERSONAS.values()):
+        # ponytail: фоном в том же процессе, без очереди и повторов — упавшее письмо теряется (приглашение видно в кабинете);
+        # расширять — outbox-таблица и воркер с повтором. Telegram-бота нет (table.md)
+        bg.add_task(mail.invite_notice, to)
     return {"invite": _row(inv), "warnings": warnings, "quota": quota(db, co)}
 
 

@@ -465,6 +465,7 @@ a.chip.on { color: var(--blue-ink); }
   .quest .q { font-size: 16px; }
   .quest-foot { position: sticky; bottom: 0; z-index: 5; background: var(--dark); flex-wrap: nowrap; gap: 12px;
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); font-size: 11px; line-height: 1.4; box-shadow: 0 -10px 18px rgba(0,0,0,.35); }
+  .quest-foot:has(> #tmo:not([hidden])) { flex-wrap: wrap; }  /* плашка таймера — отдельной строкой над подсказкой и «Дальше» */
   .quest-foot .row { flex: none; }
   /* у задачи на код подсказка длинная, а отправка — осознанный последний шаг: низ не прилипает */
   .quest-foot.qf-code { position: static; flex-wrap: wrap; box-shadow: none; }
@@ -529,11 +530,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .tbl.heat caption { position: sticky; left: 0; }
 }
 
-.tg { background: #E7EBF0; border-radius: 16px; padding: 14px; max-width: 360px; font-family: var(--sans); }
-.tg .bubble { background: #fff; border-radius: 12px 12px 12px 4px; padding: 10px 12px; font-size: 13px; line-height: 1.45; color: #111; }
-.tg .bubble b { font-weight: 600; }
-.tg .kb { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; }
-.tg .kb span { background: rgba(255,255,255,.7); border-radius: 8px; text-align: center; padding: 7px; font-size: 13px; color: #2D6BB5; font-weight: 500; }
 
 .bars { display: flex; flex-direction: column; gap: 10px; }
 .bar { display: grid; grid-template-columns: minmax(130px, 200px) minmax(0, 1fr) 52px; gap: 12px; align-items: center; font-size: 13px; }
@@ -659,7 +655,7 @@ const S = {
   story: true,
   quest: null, qAns: null, codeMark: null, qComment: '', qItem: null, qShownAt: 0, finish: null,
   qLang: 'python', qCode: {}, qRun: null, qPasted: 0, edEsc: false,   // задача на код: язык, черновики по языкам, запуск на примерах, вставлено символов
-  signup: { email: '', otp: '', sent: false, c152: false, publish: false, tg: true },
+  signup: { email: '', otp: '', sent: false, c152: false, publish: false },
   esignup: { email: '', otp: '', sent: false },
   confirm: null,                     // ключ открытого инлайн-подтверждения (удаление аккаунта, отзыв согласий)
   target: null,                      // грейд, на который проходится тест
@@ -671,7 +667,7 @@ const S = {
   pf: null, cv: null,
   declineFor: null, declineReason: null,
   need: { text: '', parsed: null },
-  needId: null, needObj: null,
+  needId: null, needObj: null, needs: [],
   filters: new Set(),
   lot: null,
   inviteForm: null,
@@ -683,14 +679,14 @@ const LS = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* приватный режим */ } },
 };
-const TOK = { c: LS.get('fsp.tok.c'), e: LS.get('fsp.tok.e') };
+const TOK = { c: LS.get('fsp.tok.c'), e: LS.get('fsp.tok.e'), org: null };  // org — токен организатора, только в памяти
 const setTok = (role, t) => { TOK[role] = t; LS.set('fsp.tok.' + role, t); };
 
 /* ===================== маршруты: адрес ↔ экран ===================== */
 // экраны внутри — по ключам ('/c/home', '/e/cand/A-1042'), в адресной строке — настоящие пути кабинетов (History API).
-// Одна таблица в обе стороны; «*» — один сегмент адреса (id, собеседник чата). Сервер отдаёт страницу на /candidate…, /employer… и /v.
+// Одна таблица в обе стороны; «*» — один сегмент адреса (id, собеседник чата). Сервер отдаёт страницу на /candidate…, /employer…, /v и /org.
 const ROUTES = [
-  ['/', '/'], ['/v', '/v'],
+  ['/', '/'], ['/v', '/v'], ['/org', '/org'],
   ['/c/home', '/candidate'], ['/c/login', '/candidate/login'], ['/c/signup', '/candidate/signup'], ['/c/profile', '/candidate/profile'],
   ['/c/quest', '/candidate/test'], ['/c/quest/go', '/candidate/test/run'], ['/c/result', '/candidate/test/result'],
   ['/c/invite/*', '/candidate/invites/*'], ['/c/vacancies', '/candidate/vacancies'], ['/c/vacancy/*', '/candidate/vacancies/*'],
@@ -711,13 +707,15 @@ function conv(from, to, s) {
   return to.replace(/\*/g, () => xs.shift());
 }
 const keyOf = p => { for (const [k, u] of ROUTES) { const r = conv(u, k, p); if (r) return r; } return null; };
-const pathOf = k => { for (const [k0, u] of ROUTES) { const r = conv(k0, u, k); if (r) return r; } return '/'; };
+// ключ может нести параметры: '/e/cand/A-1042?need=5' → '/employer/candidates/A-1042?need=5'
+const pathOf = k => { const [p, q] = k.split('?'); for (const [k0, u] of ROUTES) { const r = conv(k0, u, p); if (r) return r + (q ? '?' + q : ''); } return '/'; };
+const routeQ = k => new URLSearchParams(location.search).get(k);  // параметр адреса: /employer/candidates/A-1042?need=5
 // ключ экрана по адресу; неизвестный путь внутри кабинета — экран «Не найдено» этого кабинета
 const route = () => {
   const p = location.pathname.replace(/\/+$/, '') || '/';
   return keyOf(p) || (/^\/employer\//.test(p) ? '/e/404' : /^\/candidate\//.test(p) ? '/c/404' : '/');
 };
-// кабинет экрана явно: c | e, вне кабинетов (главная, /v) — ''
+// кабинет экрана явно: c | e, вне кабинетов (главная, /v, /org) — ''
 const roleOf = k => k.startsWith('/c/') ? 'c' : k.startsWith('/e/') ? 'e' : '';
 // экраны кабинета, открытые без входа: вход, регистрация, «Не найдено»
 const OPEN = k => /^\/[ce]\/(login|signup|404)$/.test(k);
@@ -744,7 +742,7 @@ async function api(method, path, body, role = roleOf(route())) {
   const det = data && data.detail;
   const msg = typeof det === 'string' ? det : Array.isArray(det) ? det.map(x => x.msg).join('; ') : det && det.errors ? det.errors.join(' ') : `Ошибка ${r.status}`;
   const err = Object.assign(new Error(msg), { status: r.status, detail: det });
-  if (r.status === 401 && role && !path.startsWith('/api/auth/')) {
+  if (r.status === 401 && (role === 'c' || role === 'e') && !path.startsWith('/api/auth/')) {  // org — без выхода из кабинетов
     clearSide(role);
     if (route() !== `/${role}/login`) toLogin(role);
   }
@@ -757,7 +755,7 @@ function clearSide(role) {
   setTok(role, null);
   // согласия 152-ФЗ с экрана регистрации — только того, кто входит сейчас: следующий человек во вкладке ставит их сам
   if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S.signup, { c152: false, publish: false }); Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
-  else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
+  else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, needs: [], lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
 }
 // вход по коду; учётка другой роли — отказ с плашкой «войдите как …» на экране входа (S.roleErr)
 async function verifyLogin(role, email, otp) {
@@ -786,7 +784,7 @@ function afterLogin(side, hasProfile, next) {
 async function fspStart(mode, role = 'c', idp = '') {
   const side = mode === 'link' ? 'c' : role;
   const r = await api('POST', '/api/auth/fsp/start', { mode, role: side === 'e' ? 'employer' : 'candidate', ...(idp ? { idp } : {}) }, side);
-  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, mode, next: nextPath(side), c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
+  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, mode, next: nextPath(side), c152: S.signup.c152, publish: S.signup.publish })); } catch { /* приватный режим */ }
   location.assign(r.url);
 }
 // кнопки входа через Keycloak: кандидату — «ФСП ID» (подтянем достижения), компании — SSO; плюс сторонние провайдеры брокера (META.fsp_idps)
@@ -1051,7 +1049,7 @@ V['/'] = () => `
   <div class="steps" style="margin-top:24px">
     <div><span class="n">Шаг 1 · 40–60 мин</span><h3>Тест-квест</h3><p class="prose small">Смена дежурного или неделя до релиза. Каждая сцена — отдельное откалиброванное задание, сложность подстраивается.</p></div>
     <div><span class="n">Шаг 2 · сразу</span><h3>Категория и перцентиль</h3><p class="prose small">Например, «Backend · Python · Middle», 78-й перцентиль. Компетенции с доверительным интервалом, а не одна цифра.</p></div>
-    <div><span class="n">Шаг 3 · без действий</span><h3>Приглашения с вилкой</h3><p class="prose small">Письмо и Telegram с кнопками «Интересно» и «Нет: причина». Не нужно заходить каждый день.</p></div>
+    <div><span class="n">Шаг 3 · без действий</span><h3>Приглашения с вилкой</h3><p class="prose small">Компания сама находит вас и присылает приглашение с вилкой, ответ — «Интересно» или «Нет: причина».${META && META.mail ? ' О новом приглашении сообщим письмом — заходить каждый день не нужно.' : ''}</p></div>
   </div>
 
   <div class="grid g3" style="margin-top:24px">
@@ -1115,8 +1113,7 @@ V['/c/signup'] = () => `
       <h1>Создайте профиль</h1>
       <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений. Уже есть профиль — <a ${href('/c/login')}>войдите</a>.</p>
       ${loggedIn('c')}
-      ${codeForm('c', `${consentChecks('su')}
-      <label class="check"><input type="checkbox" id="su-tg" ${S.signup.tg ? 'checked' : ''}> Присылать приглашения в Telegram</label>`)}
+      ${codeForm('c', `${consentChecks('su')}`)}
     </div>
     ${candAside()}
   </div>`;
@@ -1195,7 +1192,6 @@ function achPanel() {
         ${A.hackathons.map(achRow).join('')}<span class="muted small">Протоколы загружают организаторы</span></div></div>
       <div><span class="dot ${cf && cf.verified ? 'on' : ''}"></span><div>${cfBlock}</div></div>
       <div><span class="dot ${ct ? 'on' : ''}"></span><div>${ctBlock}</div></div>
-      <div><span class="dot"></span><div><b>Kaggle</b> · <button class="btn ghost small" data-act="noop" data-msg="Kaggle — для ML/DS треков">Подключить</button></div></div>
     </div>
     <button class="switch" role="switch" aria-checked="${ok}" data-act="consent-ext"><i></i> Согласие на обработку данных внешних профилей (Codeforces, CTFtime)</button>
     ${confirmBox('revokeExt', 'Отозвать согласие? Привязки Codeforces и CTFtime и полученные из них достижения будут удалены.', 'Отозвать')}
@@ -1370,7 +1366,10 @@ function sceneView() {
        </div>`
     : `<div class="stack"><p class="q">${esc(it.prompt)}</p><div class="opts">${it.options.map((o, i) => `<button class="opt" data-act="ans" data-i="${i}" aria-pressed="${S.qAns === i}"><span class="k">${'ABCDEFGH'[i]}</span><span>${esc(o)}</span></button>`).join('')}</div></div>`;
   const canNext = isCode ? true : isMark ? !!S.codeMark : S.qAns != null;
-  const sec = q.remaining_s != null ? Math.max(0, q.remaining_s - Math.round((Date.now() - (S.qAt || Date.now())) / 1000)) : it.time_limit_s;
+  const ago = Math.round((Date.now() - (S.qAt || Date.now())) / 1000);
+  const sec = q.remaining_s != null ? Math.max(0, q.remaining_s - ago) : it.time_limit_s;
+  // после нуля таймера ответ ещё засчитывается до dl; 2 с — запас на сеть и округление, чтобы не обещать лишнего
+  const dl = q.deadline_s != null ? Math.max(0, q.deadline_s - ago - 2) : sec;
   return `
   ${crumbs([['Тест-квест', '/c/quest'], [(S.story ? 'Сцена ' : 'Задание ') + n]])}
   <div class="quest fade">
@@ -1379,7 +1378,7 @@ function sceneView() {
       <div class="pr" aria-label="Прогресс">${Array.from({ length: total }, (_, i) => `<i class="${i + 1 < n ? 'on' : i + 1 === n ? 'cur' : ''}"></i>`).join('')}</div>
       <span class="qt-comp" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> сюжет</button>
-      <span class="timer" id="timer" data-sec="${sec}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
+      <span class="timer" id="timer" data-sec="${sec}" data-dl="${dl}" data-sub="${q.submitted ? 1 : ''}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
     </div>
     <div class="quest-body">
       <div class="stack">
@@ -1389,6 +1388,7 @@ function sceneView() {
       <div>${right}</div>
     </div>
     <div class="quest-foot${isCode ? ' qf-code' : ''}">
+      <div class="alert" id="tmo" style="flex-basis:100%" hidden><span>!</span><span></span></div>
       <span>${isCode ? 'Решение проверяется на скрытых тестах после отправки, исправить его потом нельзя. Правильность не показываем до конца теста.' : 'Ответ сохраняется сразу. Правильность не показываем до конца теста.'}</span>
       <div class="row">
         <button class="btn primary small" ${canNext ? '' : 'disabled'} data-act="qnext">${isCode ? 'Отправить решение' : 'Дальше'}</button>
@@ -1511,7 +1511,7 @@ V['/c/home'] = () => {
   const list = (D.invites && D.invites.items) || [];
   const open = D.invites ? D.invites.open : 0;
   const invErr = !D.invites;
-  const tg = list.find(isOpen) || list[0];
+  const mailOn = !!(META && META.mail) && (ME.notif || {}).mail !== false;  // письмо уходит, только если SMTP настроен и кандидат не выключил
   return `
   ${crumbs([['Главная', '/'], ['Кабинет кандидата']])}
   ${subnav('c')}
@@ -1532,7 +1532,7 @@ V['/c/home'] = () => {
         ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: до подтверждения уровня профиль не показывается работодателям. <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
         ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
-          ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`
+          ? `<p class="prose small">Ничего делать не нужно. ${mailOn ? 'О новых приглашениях сообщим письмом на почту.' : 'Новые приглашения появятся в этом кабинете.'} Активность на сайте не влияет на позицию в выдаче.</p>`
           : `<div class="alert warn">Профиль скрыт из подборок. Уже отправленные приглашения остаются в силе до срока ответа.</div>`}
       </div>
 
@@ -1546,20 +1546,13 @@ V['/c/home'] = () => {
             <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)} на руки</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
           </span>
           <span class="stack-s inv-st">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
-        </button>`).join('') || (invErr ? '' : '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>')}
+        </button>`).join('') || (invErr ? '' : `<div class="panel small muted">Приглашений пока нет.${mailOn ? ' О новом придёт письмо на почту.' : ''}</div>`)}
     </div>
     <aside class="stack">
-      ${tg ? `<div class="panel tight stack">
-        <span class="label">Так приглашение выглядит в Telegram</span>
-        <div class="tg">
-          <div class="bubble"><b>ФСП Карьера</b><br>Новое приглашение: <b>${esc(tg.role)}</b><br>${esc(tg.company)} · ${esc(tg.format[0].toLowerCase() + tg.format.slice(1))}<br>${Math.round(tg.from / 1000)}–${Math.round(tg.to / 1000)} тыс. ₽ на руки<br>Ответить до ${DAYMON(tg.expires_at)}</div>
-          <div class="kb"><span>Интересно</span><span>Нет: причина</span></div>
-        </div>
-      </div>` : ''}
       <div class="panel tight stack-s">
         <span class="label">Уведомления</span>
-        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.mail)}" data-act="notif" data-k="mail" ${withdrawn() ? 'disabled' : ''}><i></i> Почта</button>
-        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.tg)}" data-act="notif" data-k="tg" ${withdrawn() ? 'disabled' : ''}><i></i> Telegram</button>
+        <button class="switch" role="switch" aria-checked="${(ME.notif || {}).mail !== false}" data-act="notif" data-k="mail" ${withdrawn() ? 'disabled' : ''}><i></i> Почта</button>
+        <span class="hint">${META && META.mail ? 'Письмо о каждом новом приглашении, без названия компании — подробности в кабинете.' : 'На этом стенде письма не отправляются (почтовый сервер не настроен): приглашения — только в кабинете.'}</span>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Витрина задач</span>
@@ -1937,9 +1930,6 @@ const coAside = () => `<aside class="stack">
       <div class="panel tight stack-s">
         <span class="label">Проверка компании</span>
         <p class="small">ИНН — контрольные цифры, рабочая почта — на домене сайта компании. Неподтверждённая компания работает с квотой 3 приглашения в неделю, кандидаты видят плашку.</p>
-        <div class="divider"></div>
-        <span class="label">Оплата</span>
-        <p class="small">Только за принятые приглашения.</p>
       </div>
       <p class="small muted">Ищете работу? <a ${href('/c/login')}>Вход для кандидатов</a></p>
     </aside>`;
@@ -1990,10 +1980,7 @@ V['/e/company'] = () => {
     <aside class="panel tight stack-s">
       <span class="label">Квота приглашений</span>
       <p class="small">Старт — 10 приглашений в неделю, у неподтверждённой компании — 3. Лимит растёт, если кандидаты принимают больше половины приглашений.</p>
-      ${q ? `<p class="small num">Сейчас: <b>${q.used} / ${q.max}</b>, обновится ${DAYMON(q.resets_at)}</p>` : ''}
-      <div class="divider"></div>
-      <span class="label">Оплата</span>
-      <p class="small">Только за принятые приглашения.${q ? ` Принято: <b class="num">${q.paid_accepts}</b>.` : ''}</p>
+      ${q ? `<p class="small num">Сейчас: <b>${q.used} / ${q.max}</b>, обновится ${DAYMON(q.resets_at)}. Принято приглашений: <b>${q.paid_accepts}</b></p>` : ''}
     </aside>
   </div>`;
 };
@@ -2107,7 +2094,7 @@ function lotteryPanel(n) {
             <div class="chips">${(d.skills_confirmed || []).map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}</div>
             <span class="small muted num">перцентиль ${d.percentile ?? '—'} · θ ${d.theta != null ? d.theta.toFixed(2) + ' ± ' + (d.se || 0).toFixed(2) : '—'} · нагрузка ${d.load} / ${CAP}</span>
           </div>
-          <div><button class="btn primary small" data-go="/e/invite/${esc(d.public_id)}">Пригласить</button></div>
+          <div><button class="btn primary small" data-go="/e/invite/${esc(d.public_id)}?need=${n.id}">Пригласить</button></div>
         </div>`).join('')}
       <div class="row"><button class="btn ghost small" data-act="lot-verify">Проверить жеребьёвку</button><button class="btn ghost small" data-act="lot-reset">Новый розыгрыш</button></div>
       ${L.verify ? `<div class="alert ${L.verify.ok ? 'ok' : 'bad'}"><span>${L.verify.ok ? '✓' : '!'}</span><span>${L.verify.ok ? 'Проверка пройдена: sha256(зерно) совпал с опубликованным хешем, пул и порог совпали с обязательством, порядок жребия воспроизведён.' : `Проверка не пройдена: хеш ${L.verify.hash_ok ? 'совпал' : 'не совпал'}, обязательство ${L.verify.commitment_ok ? 'совпало' : 'не совпало'}, порядок ${L.verify.draw_ok ? 'совпал' : 'не совпал'}.`}</span></div>` : ''}`}`;
@@ -2135,7 +2122,7 @@ V['/e/picks'] = () => {
   ${coBanners()}
   <div class="row sb fade" style="margin-bottom:16px">
     <div class="stack-s"><h2>${esc(roleTitle(n))}</h2><span class="small muted">${esc(n.must.join(', '))}${n.nice.length ? ' · желательно ' + esc(n.nice.join(', ')) : ''} · ${K(n.from)} — ${K(n.to)} на руки${n.format ? ' · ' + esc([n.format.toLowerCase(), n.city].filter(Boolean).join(', ')) : ''}</span></div>
-    <div class="row"><button class="btn ghost small" data-go="/e/need">Изменить потребность</button><button class="btn ghost small" data-go="/e/pipeline">Приглашения</button></div>
+    <div class="row"><button class="btn ghost small" data-go="/e/need">Новая потребность</button><button class="btn ghost small" data-go="/e/pipeline">Приглашения</button></div>
   </div>
   <div class="grid side-l">
     <aside class="stack">
@@ -2148,8 +2135,16 @@ V['/e/picks'] = () => {
       </div>
       <div class="panel tight stack-s">
         <span class="label">Рекомендованные категории</span>
-        ${cats.map(c => `<button class="chip ${c.current ? 'on' : ''}" style="justify-content:space-between;width:100%" ${c.current ? '' : `data-act="noop" data-msg="${esc(c.note || 'Соседняя категория')}"`}>${esc([c.spec, c.track, c.grade].filter(Boolean).join(' · '))} <b class="num">${c.count}</b></button>`).join('')}
+        ${cats.map((c, i) => { const lbl = [c.spec, c.track, c.grade].filter(Boolean).join(' · ');
+          return c.current ? `<button class="chip on" style="justify-content:space-between;width:100%" aria-current="true">${esc(lbl)} <b class="num">${c.count}</b></button>`
+            : `<div class="row" style="gap:6px;flex-wrap:nowrap"><button class="chip" style="justify-content:space-between;flex:1;min-width:0;white-space:normal;text-align:left" data-act="need-cat-new" data-i="${i}" title="${esc(c.note || 'Соседняя категория')}">${esc(lbl)} <b class="num">${c.count}</b></button>`
+              + `<button class="btn ghost small" style="flex:none" data-act="cat-search" data-spec="${esc(c.spec)}" data-track="${esc(c.track || '')}" data-grade="${esc(c.grade)}" data-msg="${esc(c.note || '')}" aria-label="Искать в банке: ${esc(lbl)}">Поиск</button></div>`; }).join('')}
         ${warnCat ? `<span class="hint">${esc(warnCat.note)}</span>` : ''}
+        <span class="hint">Категория — новая потребность с теми же навыками и вилкой; «Поиск» — кандидаты этой категории в банке</span>
+      </div>
+      <div class="panel tight stack-s" id="needs">
+        <span class="label">Потребности · ${S.needs.length}</span>
+        ${S.needs.map(x => `<button class="chip ${x.id === n.id ? 'on' : ''}" style="justify-content:space-between;width:100%" ${x.id === n.id ? 'aria-current="true"' : `data-act="need-pick" data-id="${x.id}"`}>${esc(roleTitle(x))} · ${esc(x.grade)} <span class="small muted">${DAYMON(x.created_at)}</span></button>`).join('')}
       </div>
       <div class="panel tight stack-s m-before">
         <span class="label">Фильтры</span>
@@ -2164,7 +2159,7 @@ V['/e/picks'] = () => {
     <div class="stack">
       ${lotteryPanel(n)}
       <div class="row sb small muted"><span>${list.length} в топе из ${P.total} · сортировка по итоговой оценке</span><span>Без ФИО, пола, возраста, вуза и фото</span></div>
-      ${list.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
+      ${list.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}?need=${n.id}">
           <div class="stack-s" style="min-width:0">
             <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${expressChip(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
             <div class="chips">${c.skills.map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${claimedChips(c)}${badgeChips(c)}</div>
@@ -2350,14 +2345,18 @@ async function chatMore() {
   box.scrollTop = box.scrollHeight - h;
 }
 
+// откуда пришли к кандидату: из подборки потребности (?need=) или из поиска по банку
+const candFrom = n => n ? ['Подборка', '/e/picks'] : ['Поиск', '/e/search'];
+const needQ = n => n ? '?need=' + n.id : '';
+
 function candView() {
-  const c = D.cand;
-  if (!c) return `${crumbs([['Подборка', '/e/picks'], ['Кандидат']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
-  const n = S.needObj, e = c.explanation, b = c.breakdown;
+  const c = D.cand, n = D.candNeed;
+  if (!c) return `${crumbs([candFrom(n), ['Кандидат']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
+  const e = c.explanation, b = c.breakdown;
   const must = e ? e.confirmed.filter(s => n && n.must.includes(s)) : [];
   const ach = [...(c.badges || []).map(badgeTitle), c.sport_rank ? 'спортивный разряд: ' + c.sport_rank : '', c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
   return `
-  ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id)]])}
+  ${crumbs([candFrom(n), ['Кандидат ' + esc(c.id)]])}
   ${coBanners()}
   <div class="grid side fade">
     <div class="stack">
@@ -2373,10 +2372,10 @@ function candView() {
         ${c.grade_tested === false ? `<div class="alert warn"><span>!</span><span>Тест не пройден: грейд ${esc(c.grade)} заявлен кандидатом. Перцентиля, θ и компетенций нет; в подборке и поиске такие кандидаты идут после прошедших тест, в лотерею не попадают. Навыки — со слов кандидата: ${esc((c.claimed || []).join(', ')) || '—'}.</span></div>` : ''}
       </div>
       <div class="panel stack">
-        <h3>Почему в подборке</h3>
+        <h3>${n ? 'Почему в подборке' : 'О кандидате'}</h3>
         <div class="stack-s">
           ${e && e.why ? `<div class="alert info"><span>→</span><span>${esc(e.why)}</span></div>` : ''}
-          ${c.grade_tested === false ? '<div class="alert warn"><span>!</span><span>Навыки не подтверждены: тест не пройден</span></div>' : `<div class="alert ok"><span>✓</span><span>Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}</span></div>`}
+          ${c.grade_tested === false ? '<div class="alert warn"><span>!</span><span>Навыки не подтверждены: тест не пройден</span></div>' : `<div class="alert ok"><span>✓</span><span>${n ? `Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}` : `Навыки подтверждены тестом: ${esc(c.skills.join(', ')) || '—'}`}</span></div>`}
           ${c.gaps.map(g => `<div class="alert warn"><span>!</span><span>${esc(g)}</span></div>`).join('')}
           ${c.inFork != null ? `<div class="alert ${c.inFork ? 'ok' : 'warn'}"><span>${c.inFork ? '✓' : '!'}</span><span>Ожидания от ${RUB(c.salary)} на руки ${c.inFork ? '— внутри вашей вилки' : '— выше вашей вилки: вероятность принятия ниже'}</span></div>` : ''}
           <div class="alert ${c.fmtOk === false ? 'warn' : 'ok'}"><span>${c.fmtOk === false ? '!' : '✓'}</span><span>Формат: ${esc(c.format)}</span></div>
@@ -2412,7 +2411,8 @@ function candView() {
         <p class="small num">${c.load} из ${c.cap} открытых приглашений${c.busy ? '. Ответ может задержаться.' : ''}</p>
       </div>
       ${chatBtn('e', c.chat_peer, 'btn ghost block')}
-      ${c.invited ? '<button class="btn ghost block" data-go="/e/pipeline">Уже приглашён — к статусам</button>' : `<button class="btn primary block" data-act="invite" data-id="${esc(c.id)}">Пригласить</button>`}
+      ${c.invite_block ? `<button class="btn ghost block" data-go="/e/pipeline">Уже приглашён — к статусам</button>${c.invited === 'sent' || c.invited === 'seen' ? '' : `<span class="hint">${esc(c.invite_block)}</span>`}`
+        : `<button class="btn primary block" data-go="/e/invite/${esc(c.id)}${needQ(n)}">${c.invited ? 'Пригласить снова' : 'Пригласить'}</button>`}
       <span class="hint">ФИО и контакты откроются, когда кандидат примет приглашение</span>
     </aside>
   </div>`;
@@ -2423,13 +2423,18 @@ const acceptProb = (to, min) => { const r = Math.max(-.5, Math.min(.5, (to - min
 
 function inviteFormView() {
   const c = D.cand;
-  if (!c) return `${crumbs([['Подборка', '/e/picks'], ['Приглашение']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
-  const n = S.needObj;
-  if (!S.inviteForm || S.inviteForm.cid !== c.id) S.inviteForm = {
-    cid: c.id, role: n ? roleTitle(n) : '', from: n && n.from, to: n && n.to, format: (n && n.format) || 'Гибрид',
-    desc: n ? n.text : '', task: true, server: null,
+  const n = D.candNeed;
+  if (!c) return `${crumbs([candFrom(n), ['Приглашение']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
+  // без потребности (из поиска) — роль по категории кандидата, вилку компания указывает сама
+  if (!S.inviteForm || S.inviteForm.cid !== c.id || S.inviteForm.needId !== (n ? n.id : null)) S.inviteForm = {
+    cid: c.id, needId: n ? n.id : null, role: roleTitle(n || c), from: n && n.from, to: n && n.to, format: (n && n.format) || 'Гибрид',
+    desc: n ? n.text : '', task: false, taskId: null, taskText: '', server: null,
   };
   const f = S.inviteForm, mk = c.market, maxW = (META && META.fork_max_width) || .4;
+  // задача вместо созвона — из заданий компании, которые кандидат сможет открыть: публичные его специализации
+  // или привязанные к потребности приглашения (tasks._can_see); подходящих нет — своим текстом
+  const tasks = (D.mytasks || []).filter(t => (t.public && t.spec === c.spec) || (n && t.need_id === n.id));
+  if (f.task && tasks.length && !tasks.some(t => t.id === f.taskId)) f.taskId = tasks[0].id;
   const errs = [], warns = [];
   if (!f.from || !f.to) errs.push('Укажите обе границы вилки.');
   else {
@@ -2438,11 +2443,12 @@ function inviteFormView() {
     if ((f.to - f.from) / f.from > maxW) errs.push(`Вилка слишком широкая: верхняя граница не больше нижней + ${Math.round(maxW * 100)} %.`);
     if (f.to < c.salary) warns.push(`Верхняя граница ниже минимума кандидата (${RUB(c.salary)} на руки). Вероятность принятия упадёт примерно до ${DEC(acceptProb(f.to, c.salary))}.`);
   }
+  if (f.task && !tasks.length && !f.taskText.trim()) errs.push('Опишите задачу или снимите галочку.');
   if (f.server) { errs.push(...f.server.errors.filter(x => !errs.includes(x))); warns.push(...f.server.warnings.filter(x => !warns.includes(x))); }
   const q = D.quota || { used: 0, max: 1 };
   const ok = !errs.length && q.used < q.max;
   return `
-  ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id), '/e/cand/' + esc(c.id)], ['Приглашение']])}
+  ${crumbs([candFrom(n), ['Кандидат ' + esc(c.id), '/e/cand/' + esc(c.id) + needQ(n)], ['Приглашение']])}
   ${coBanners()}
   <div class="grid side fade">
     <form class="panel stack" id="inv-form" novalidate>
@@ -2457,10 +2463,12 @@ function inviteFormView() {
       </div>
       <div class="field"><span>Формат</span><div class="seg" role="group">${((META && META.formats) || ['Офис', 'Гибрид', 'Удалённо']).map(x => `<button type="button" data-act="fmt" data-v="${x}" aria-pressed="${f.format === x}">${x}</button>`).join('')}</div></div>
       <label class="field"><span>О работе</span><textarea class="input" id="f-desc" style="min-height:80px">${esc(f.desc)}</textarea></label>
-      <label class="check"><input type="checkbox" id="f-task" ${f.task ? 'checked' : ''}> Приложить задачу вместо первого созвона: «Разбор инцидента с дублями платежей», ~45 мин</label>
+      <label class="check"><input type="checkbox" id="f-task" ${f.task ? 'checked' : ''}> Приложить задачу вместо первого созвона</label>
+      ${!f.task ? '' : tasks.length ? `<label class="field"><span>Задача</span><select class="input" id="f-task-id">${tasks.map(t => `<option value="${t.id}" ${t.id === f.taskId ? 'selected' : ''}>${esc(t.title)}, ~${t.minutes} мин</option>`).join('')}</select></label>`
+        : `<label class="field"><span>Задача</span><input class="input" id="f-task-text" maxlength="500" placeholder="Что сделать и сколько времени займёт" value="${esc(f.taskText)}"><span class="hint">Заданий, которые кандидат сможет открыть, нет: нужно публичное по ${esc(c.spec)} или привязанное к потребности — раздел «Задания»</span></label>`}
       <div class="row small muted">Срок ответа — ${(META && META.invite_ttl_days) || 7} дней. Изменить нельзя.</div>
       ${q.used >= q.max ? '<div class="alert bad">Квота на неделю исчерпана. Обновится в понедельник.</div>' : ''}
-      <div class="row"><button class="btn primary" type="submit" ${ok ? '' : 'disabled'}>Отправить приглашение</button><button class="btn ghost" type="button" data-go="/e/cand/${esc(c.id)}">Отмена</button></div>
+      <div class="row"><button class="btn primary" type="submit" ${ok ? '' : 'disabled'}>Отправить приглашение</button><button class="btn ghost" type="button" data-go="/e/cand/${esc(c.id)}${needQ(n)}">Отмена</button></div>
     </form>
     <aside class="stack">
       <div class="panel tight stack-s">
@@ -2502,7 +2510,7 @@ V['/e/pipeline'] = () => {
     <div class="tbl-wrap"><table class="tbl stack">
       <thead><tr><th>Кандидат</th><th>Роль</th><th class="num">Вилка на руки</th><th>Отправлено</th><th>Статус</th><th>Контакты</th><th>После собеседования</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
-        <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}">${esc(r.cid)}</button> ${chatBtn('e', r.chat_peer)}${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
+        <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}${r.need_id ? '?need=' + r.need_id : ''}">${esc(r.cid)}</button> ${chatBtn('e', r.chat_peer)}${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
         <td data-l="Роль">${esc(r.role)}</td>
         <td class="num" data-l="Вилка на руки">${K(r.from)} — ${K(r.to)}</td>
         <td class="muted" data-l="Отправлено">${esc(r.when)}</td>
@@ -2773,6 +2781,7 @@ V['/v'] = () => {
     <div class="row" style="gap:10px">
       <span class="demo-tag">${R ? `синтетика · прогон ${DATE(R.generated_at)}` : 'прогон не запускался'}</span>
       ${META && META.demo ? `<button class="btn dark" data-act="valrun" ${S.valBusy ? 'disabled' : ''}>${S.valBusy ? 'Считаем… до минуты' : R ? 'Пересчитать' : 'Запустить прогон'}</button>` : ''}
+      <a class="btn ghost small" ${href('/org')}>Организатору: импорт протоколов →</a>
     </div>
   </div>
   <div class="grid g2">
@@ -2857,6 +2866,95 @@ function vsep(Sp) {
   <p class="small muted">Слабо различающих заданий (r<sub>pb</sub> &lt; 0,2): ${PCT(it.rpb_poor)} — на модельных ответах по той же 2PL, калибровки по живым ответам пока нет. AUC — вероятность, что у кандидата старшего грейда оценка θ выше, чем у младшего; 0,5 — не различает.</p>` : ''}`;
 }
 
+/* ===================== организатор: импорт протоколов ===================== */
+// POST /api/achievements/import с Bearer ORGANIZER_TOKEN (или токеном пользователя с ролью admin).
+// Токен живёт только в памяти вкладки (TOK.org, без localStorage): уход со страницы или перезагрузка — вход заново.
+const ORG_SRC = { hackathon: 'Хакатон', fsp: 'Соревнование ФСП', ctftime: 'CTFtime — подтверждение мест команды' };
+const ORG_LEVEL = { '': 'не указан', international: 'международный', national: 'всероссийский', regional: 'региональный', local: 'локальный' };
+const ORG_FIELDS = ['source', 'external_id', 'title', 'date', 'level', 'discipline', 'participants', 'url', 'tags'];
+const orgEmpty = () => ({ source: 'hackathon', external_id: '', title: '', date: '', level: '', discipline: '', participants: '', url: '', tags: '', text: '' });
+// пример для демо-стенда: ФСП ID демо-кандидата Орлова (засеян seed.generate) и строка, которой нет на платформе
+const ORG_SAMPLE = () => ({
+  source: 'fsp', external_id: 'demo-cup-2026', title: 'Кубок ФСП по продуктовому программированию, финал', date: new Date().toISOString().slice(0, 10),
+  level: 'national', discipline: 'продуктовое программирование', participants: '120', url: '', tags: 'финал, командный',
+  text: 'email,fsp_id,team,place,role,result,rank\n,FSP-1042,Команда «Сапсан»,2,капитан,призёр,КМС\n,FSP-0000,Команда «Ветер»,7,,финалист,',
+});
+const org = () => S.org || (S.org = { form: orgEmpty(), res: null, err: null });
+function orgCapture() {
+  const f = org().form;
+  for (const k of [...ORG_FIELDS, 'text']) { const el = document.getElementById('org-' + k); if (el) f[k] = el.value; }
+}
+// JSON (массив строк или {event, rows}) уходит как есть, иначе текст — CSV в multipart вместе с полями события
+function orgBody(f) {
+  const event = Object.fromEntries(ORG_FIELDS.filter(k => f[k].trim()).map(k => [k, f[k].trim()]));
+  const t = f.text.trim();
+  if (!t) throw new Error('Вставьте протокол или выберите файл');
+  if (/^[[{]/.test(t)) {
+    let j;
+    try { j = JSON.parse(t); } catch { throw new Error('Протокол похож на JSON, но не разбирается: проверьте скобки и кавычки'); }
+    return Array.isArray(j) ? { event, rows: j } : j;
+  }
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(event)) fd.append(k, v);
+  fd.append('file', new Blob([t], { type: 'text/csv' }), 'protocol.csv');
+  return fd;
+}
+// итог импорта: только счётчики и номера строк с причиной — почты и ФСП ID участников обратно не выводим
+function orgResult(r) {
+  const rest = r.unmatched.length - 50;
+  return `<div class="panel stack" id="org-res">
+    <div class="row sb"><h3>Протокол загружен</h3><span class="label">Событие №${esc(r.event_id)}</span></div>
+    <div class="row">
+      <span class="chip">Строк: ${r.matched + r.unmatched.length}</span>
+      <span class="chip ok">Сопоставлено с кандидатами: ${r.matched}</span>
+      <span class="chip">Новых достижений: ${r.created} · обновлено: ${r.updated}</span>
+      ${r.no_consent ? `<span class="chip warn">Без согласия на внешние данные: ${r.no_consent}</span>` : ''}
+      ${r.unmatched.length ? `<span class="chip bad">Не привязано: ${r.unmatched.length}</span>` : ''}
+    </div>
+    <p class="small muted">Сопоставление — только по почте входа или ФСП ID. Достижение из протокола подтверждено и влияет на место кандидата внутри категории, но не на грейд. Повторный импорт того же события обновляет строки, а не дублирует их.</p>
+    ${r.unmatched.length ? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th class="num">Строка протокола</th><th>Почему не привязана</th></tr></thead>
+      <tbody>${r.unmatched.slice(0, 50).map(u => `<tr><td class="num">${esc(u.row)}</td><td>${esc(u.reason)}</td></tr>`).join('')}</tbody>
+    </table></div>${rest > 0 ? `<p class="small muted">и ещё ${rest}</p>` : ''}` : ''}
+  </div>`;
+}
+V['/org'] = () => {
+  const o = org(), f = o.form;
+  const head = `${crumbs([['Главная', '/'], ['Валидация', '/v'], ['Импорт протоколов']])}
+  <div class="stack-s fade" style="margin-bottom:18px"><h2>Импорт протоколов соревнований</h2>
+    <span class="small muted">Для организаторов хакатонов и соревнований ФСП: результаты из протокола становятся подтверждёнными достижениями кандидатов платформы.</span></div>
+  ${o.err ? `<div class="alert bad" role="alert"><span>!</span><span>${esc(o.err)}</span></div>` : ''}`;
+  if (!TOK.org) return `${head}
+  <div class="panel stack" style="max-width:560px">
+    <h3>Вход организатора</h3>
+    <label class="field"><span>Токен организатора</span><input class="input" id="org-tok" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <p class="small muted">Токен задаёт администратор стенда переменной окружения <code>ORGANIZER_TOKEN</code>. Он хранится только в памяти этой вкладки и уходит лишь в запрос импорта.</p>
+    <div class="row"><button class="btn primary" data-act="org-login">Войти</button></div>
+  </div>`;
+  const inp = (k, label, attrs = '') => `<label class="field"><span>${label}</span><input class="input" id="org-${k}" value="${esc(f[k])}" ${attrs}></label>`;
+  const sel = (k, label, opts) => `<label class="field"><span>${label}</span><select class="input" id="org-${k}">${Object.entries(opts).map(([v, t]) => `<option value="${v}" ${v === f[k] ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`;
+  return `${head}
+  <div class="panel stack">
+    <div class="row sb"><h3>Событие</h3><button class="btn ghost small" data-act="org-logout">Выйти</button></div>
+    <div class="grid g2">${sel('source', 'Источник', ORG_SRC)}${inp('external_id', 'Идентификатор события', 'placeholder="Номер в реестре ФСП или id события CTFtime"')}</div>
+    ${inp('title', 'Название', 'placeholder="Кубок ФСП по продуктовому программированию, финал"')}
+    <div class="grid g2">${inp('date', 'Дата', 'type="date"')}${sel('level', 'Уровень', ORG_LEVEL)}</div>
+    <div class="grid g2">${inp('discipline', 'Дисциплина ФСП', 'placeholder="продуктовое программирование"')}${inp('participants', 'Участников всего', 'inputmode="numeric"')}</div>
+    <div class="grid g2">${inp('url', 'Ссылка на протокол', 'type="url" placeholder="https://"')}${inp('tags', 'Теги через запятую')}</div>
+    <p class="small muted">CTFtime: идентификатор — id события на CTFtime; импорт подтверждает места, которые кандидаты подтянули сами по своей команде.</p>
+  </div>
+  <div class="panel stack">
+    <div class="row sb"><h3>Протокол</h3><div class="row">
+      ${META && META.demo ? '<button class="btn ghost small" data-act="org-sample">Демо: подставить пример</button>' : ''}
+      <input type="file" id="org-file" accept=".csv,.json,text/csv,application/json" hidden>
+      <button class="btn ghost small" data-act="org-pick">Загрузить файл</button></div></div>
+    <label class="field"><span>CSV или JSON, до 2 МБ</span><textarea class="input" id="org-text" spellcheck="false" style="min-height:160px;font-family:var(--mono)" placeholder="email,fsp_id,team,place,role,result,rank">${esc(f.text)}</textarea></label>
+    <p class="small muted">CSV: заголовок <code>email,fsp_id,team,place,role,result,rank</code>, разделитель «,» или «;». Кандидат ищется по почте входа или ФСП ID. <code>result</code> — победитель, призёр, финалист или участник (пусто — по месту), <code>rank</code> — разряд по протоколу. JSON — массив строк с теми же полями или целиком <code>{"event": {…}, "rows": […]}</code>: тогда поля события выше не используются.</p>
+    <div class="row"><button class="btn primary" data-act="org-import">Импортировать</button></div>
+  </div>
+  ${o.res ? orgResult(o.res) : ''}`;
+};
+
 /* ===================== загрузка данных экрана ===================== */
 const or404 = p => p.catch(e => { if (e.status === 404) return null; throw e; });
 
@@ -2875,12 +2973,15 @@ async function ensureCo() {
   D.coName = D.co.name;
 }
 
-// текущая потребность работодателя: выбранная в этой сессии или последняя созданная
+// все потребности компании; текущая — выбранная в этой сессии или последняя созданная
 async function ensureNeed() {
-  if (S.needId && S.needObj && S.needObj.id === S.needId) return;
-  const needs = await api('GET', '/api/employer/needs');
-  const n = needs.find(x => x.id === S.needId) || needs[0] || null;
+  S.needs = await api('GET', '/api/employer/needs');
+  const n = S.needs.find(x => x.id === S.needId) || S.needs[0] || null;
   S.needId = n && n.id; S.needObj = n;
+}
+// сделать потребность текущей: лотерея, фильтры и черновик приглашения — от прежней, сбрасываются
+function pickNeed(n) {
+  S.needId = n.id; S.needObj = n; S.lot = null; S.filters.clear(); S.inviteForm = null;
 }
 
 async function loadPicks() {
@@ -2937,8 +3038,11 @@ async function load(r) {
     else if (page === 'picks') await loadPicks();
     else if (page === 'search') await loadSearch();
     else if (page === 'cand' || page === 'invite') {
-      D.cand = await or404(api('GET', `/api/employer/candidates/${encodeURIComponent(arg)}${S.needId ? '?need_id=' + S.needId : ''}`));
-      if (page === 'invite') D.quota = await api('GET', '/api/employer/quota');
+      // потребность — только явно из адреса (пришли из подборки или лотереи); из поиска и статусов — без неё
+      const nid = +routeQ('need') || null;
+      D.candNeed = nid ? S.needs.find(x => x.id === nid) || null : null;  // чужая или удалённая — как без потребности
+      D.cand = await or404(api('GET', `/api/employer/candidates/${encodeURIComponent(arg)}${D.candNeed ? '?need_id=' + nid : ''}`));
+      if (page === 'invite') [D.quota, D.mytasks] = await Promise.all([api('GET', '/api/employer/quota'), api('GET', '/api/tasks/mine')]);
     }
     else if (page === 'pipeline') D.pipe = await api('GET', '/api/employer/pipeline');
     else if (page === 'vacancies') D.myvac = await api('GET', '/api/vacancies/mine');
@@ -3002,6 +3106,7 @@ async function show(keep) {
   const r = route(), my = ++seq, y = scrollY;
   const side = r.split('/')[1];
   busy(true);
+  if (r !== '/org') TOK.org = null;  // токен организатора — только пока открыта его страница
   if (roleOf(r) && !OPEN(r) && !TOK[side]) { toLogin(side, true); return; }  // без входа — на вход своей роли, после него — сюда же (?next=)
   try {
     await load(r);
@@ -3017,17 +3122,26 @@ async function show(keep) {
 }
 const refresh = () => show(true);
 
+// таймер задания; на нуле — плашка: сервер ещё принимает ответ льготные секунды (quest.TIMEOUT_GRACE_S), потом засчитывает неверным
 function startTimer() {
   clearInterval(timerId);
-  const el = document.getElementById('timer');
+  const el = document.getElementById('timer'), tmo = document.getElementById('tmo');
   if (!el) return;
-  let s = +el.dataset.sec;
-  el.classList.toggle('low', s < 60);
-  timerId = setInterval(() => {
-    s = Math.max(0, s - 1);
+  let s = +el.dataset.sec, dl = +el.dataset.dl;
+  const sub = !!el.dataset.sub;  // решение уже отправлено вовремя (песочница была занята): время ответа зафиксировано
+  const tick = () => {
     el.querySelector('span').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     el.classList.toggle('low', s < 60);
-    if (!s) clearInterval(timerId);
+    tmo.hidden = s > 0 || sub;
+    tmo.className = 'alert ' + (dl ? 'warn' : 'bad');
+    tmo.lastChild.textContent = dl ? `Время вышло. Ответ засчитается, если отправить его в ближайшие ${dl} с.`
+      : 'Время вышло, ответ не засчитается — переходите к следующему.';
+  };
+  tick();
+  timerId = setInterval(() => {
+    s = Math.max(0, s - 1); dl = Math.max(0, dl - 1);
+    tick();
+    if (!dl) clearInterval(timerId);
   }, 1000);
 }
 
@@ -3043,7 +3157,6 @@ function capture() {
   if (v('su-mail') != null) S.signup.email = v('su-mail').trim();
   // согласия — на экране регистрации или в шаге «Профиль» (вход без регистрации); на экране входа их нет
   for (const p of ['su', 'p']) if (ck(p + '-152') != null) Object.assign(S.signup, { c152: ck(p + '-152'), publish: ck(p + '-pub') });
-  if (ck('su-tg') != null) S.signup.tg = ck('su-tg');
   if (v('su-otp') != null) S.signup.otp = v('su-otp').trim();
   if (v('es-mail') != null) S.esignup.email = v('es-mail').trim();
   if (v('es-otp') != null) S.esignup.otp = v('es-otp').trim();
@@ -3053,6 +3166,7 @@ function capture() {
   if (v('dc-comment') != null) S.dcComment = v('dc-comment');
   if (v('ap-note') != null) S.applyNote = v('ap-note');
   if (v('tk-answer') != null) S.answer = v('tk-answer');
+  if (v('org-text') != null) orgCapture();
   if (S.lot && v('lot-fork') != null) {
     S.lot.fork_to = num(v('lot-fork'));
     S.lot.draw_count = Math.max(1, Math.min(50, parseInt(v('lot-k'), 10) || 1));
@@ -3106,7 +3220,8 @@ const ACT = {
     a.closest('.fold').classList.toggle('open', S.fold[d.k]);
     a.setAttribute('aria-expanded', S.fold[d.k]); a.setAttribute('aria-label', foldLabel(d.k) + ' ' + FOLD[d.k]); a.textContent = foldLabel(d.k);
   },
-  noop: (a, d) => toast(d.msg || 'Пока не реализовано'),
+  // соседняя категория из подборки → поиск по банку с её фильтрами; пояснение категории — тостом
+  'cat-search'(a, d) { S.sf = { spec: d.spec, track: d.track, grade: d.grade, skills: '', q: '', fsp: false, cf: false, hackathon: false, format: '', city: '', page: 1 }; go('/e/search'); if (d.msg) toast(d.msg); },
   reload: () => refresh(),
   ask: (a, d) => { S.confirm = d.k; rerender(); },
   'confirm-no': () => { S.confirm = null; rerender(); },
@@ -3125,6 +3240,26 @@ const ACT = {
     S.valBusy = true; rerender();
     try { D.val = await api('POST', '/api/validation/run?today=now'); toast('Прогон готов'); }
     finally { S.valBusy = false; rerender(); }
+  },
+
+  // организатор: токен проверяет сервер при импорте, до него держим в памяти
+  'org-login': () => {
+    const t = document.getElementById('org-tok').value.trim();
+    if (!t) return toast('Введите токен организатора');
+    TOK.org = t; org().err = null; rerender();
+  },
+  'org-logout': () => { TOK.org = null; S.org = null; rerender(); },
+  'org-sample': () => { org().form = ORG_SAMPLE(); rerender(); },
+  'org-pick': () => document.getElementById('org-file').click(),
+  async 'org-import'() {
+    const o = org();
+    o.err = null; o.res = null;
+    try { o.res = await api('POST', '/api/achievements/import', orgBody(o.form), 'org'); toast('Протокол импортирован'); }
+    catch (e) {
+      if (e.status === 401 || e.status === 403) TOK.org = null;  // токен не подошёл — назад ко входу
+      o.err = e.status === 401 || e.status === 403 ? 'Токен организатора не подошёл' : e.message;
+    }
+    rerender();
   },
 
   // вход
@@ -3198,7 +3333,6 @@ const ACT = {
       ...(first && S.cv && S.cv.text ? { cv_text: S.cv.text, cv_filename: S.cv.filename } : {}),
     });
     if (!first) { toast('Профиль сохранён'); S.pf = pfFromMe(); return rerender(); }  // раздел «Профиль» кабинета: остаёмся на месте
-    await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
     Object.assign(S.signup, { c152: false, publish: false });  // согласия уже на сервере (журнал ConsentEvent)
     toast('Профиль сохранён'); go('/c/quest');
   },
@@ -3293,7 +3427,7 @@ const ACT = {
 
   // кабинет кандидата
   async status(a, d) { await api('PATCH', '/api/candidate/status', { status: d.v }); ME.status = d.v; rerender(); },
-  async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: !(ME.notif && ME.notif[d.k]) })).notif; rerender(); },
+  async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: (ME.notif || {})[d.k] === false })).notif; rerender(); },
   async accept(a, d) { D.inv = await api('POST', `/api/candidate/invites/${d.id}/accept`); toast('Приглашение принято. Компания получила ваши контакты'); rerender(); },
   'co-fb': (a, d) => { S.coFb = d.v; rerender(); },
   async 'co-fb-send'(a, d) {
@@ -3372,8 +3506,19 @@ const ACT = {
       text: S.need.text, spec: p.spec, track: p.track, grade: p.grade, must: p.must, nice: p.nice,
       salary_from: p.from, salary_to: p.to, format: p.format, city: p.city, parsed_by: p.parsed_by,
     });
-    S.needId = n.id; S.needObj = n; S.needCat = null; S.lot = null; S.filters.clear(); S.inviteForm = null; S.need.parsed = null; S.plan = null;
+    pickNeed(n); S.needCat = null; S.need.parsed = null; S.plan = null;
     go('/e/picks');
+  },
+  // раздел «Потребности» в подборке: переключить текущую
+  'need-pick': (a, d) => { pickNeed(S.needs.find(x => x.id === +d.id)); show(); },
+  // рекомендованная категория → новая потребность с той же структурой, но другой категорией
+  async 'need-cat-new'(a, d) {
+    const n = D.picks.need, c = D.picks.categories[+d.i];
+    const m = await api('POST', '/api/employer/needs', {
+      text: n.text, spec: c.spec, track: c.track, grade: c.grade, must: n.must, nice: n.nice,
+      salary_from: n.from, salary_to: n.to, format: n.format, city: n.city, parsed_by: n.parsed_by,
+    });
+    pickNeed(m); toast('Новая потребность: ' + [c.spec, c.track, c.grade].filter(Boolean).join(' · ')); show();
   },
   async filter(a, d) { S.filters.has(d.k) ? S.filters.delete(d.k) : S.filters.add(d.k); await loadPicks(); rerender(); },
   'lot-skill': (a, d) => { const m = S.lot.must; m.includes(d.v) ? m.splice(m.indexOf(d.v), 1) : m.push(d.v); rerender(); },
@@ -3390,7 +3535,6 @@ const ACT = {
   async 'lot-draw'() { S.lot.drawn = await api('POST', `/api/lottery/${S.lot.created.id}/draw`); rerender(); },
   async 'lot-verify'() { S.lot.verify = await api('GET', `/api/lottery/${S.lot.created.id}/verify`); rerender(); },
   'lot-reset': () => { Object.assign(S.lot, { created: null, drawn: null, verify: null }); rerender(); },
-  invite: (a, d) => go('/e/invite/' + d.id),
   fmt: (a, d) => { S.inviteForm.format = d.v; S.inviteForm.server = null; rerender(); },
   async fb(a, d) {
     await api('POST', `/api/employer/invites/${d.id}/feedback`, { value: d.v });
@@ -3494,6 +3638,14 @@ document.addEventListener('change', async e => {
     const c = S.needCat;
     if (t.id === 'nc-spec') { c.spec = t.value; c.track = ''; rerender(); } else c[t.id.slice(3)] = t.value;
   }
+  if (t.id === 'org-file' && t.files[0]) {  // файл протокола — в поле текста: видно, что уйдёт, и один путь отправки
+    orgCapture();
+    if (t.files[0].size > 2 * 1024 * 1024) { toast('Файл протокола больше 2 МБ'); return; }
+    try { org().form.text = new TextDecoder('utf-8', { fatal: true }).decode(await t.files[0].arrayBuffer()); }
+    catch { toast('Сохраните протокол в UTF-8'); return; }  // CP1251 молча стал бы кракозябрами
+    finally { t.value = ''; }  // тот же файл можно выбрать снова
+    rerender();
+  }
   if (t.id === 'cv-file' && t.files[0]) {
     capture();
     const fd = new FormData();
@@ -3516,6 +3668,14 @@ document.addEventListener('change', async e => {
   }
 });
 
+// перерисовываем только сообщения и кнопку формы приглашения, чтобы не терять фокус
+function invMsgs() {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = inviteFormView();
+  document.getElementById('f-msgs').innerHTML = tmp.querySelector('#f-msgs').innerHTML;
+  document.querySelector('#inv-form [type=submit]').disabled = tmp.querySelector('#inv-form [type=submit]').disabled;
+}
+
 document.addEventListener('input', e => {
   if (e.target.id === 'ap-note') { const el = document.getElementById('ap-left'); if (el) el.textContent = (300 - e.target.value.length) + ' символов'; }
   if (!S.inviteForm || !document.getElementById('inv-form')) return;
@@ -3524,31 +3684,30 @@ document.addEventListener('input', e => {
     const v = parseInt(e.target.value.replace(/\D/g, ''), 10) || 0;
     S.inviteForm[id === 'f-from' ? 'from' : 'to'] = v;
     S.inviteForm.server = null;
-    // перерисовываем только сообщения и кнопку, чтобы не терять фокус
-    const tmp = document.createElement('div');
-    tmp.innerHTML = inviteFormView();
-    document.getElementById('f-msgs').innerHTML = tmp.querySelector('#f-msgs').innerHTML;
-    document.querySelector('#inv-form [type=submit]').disabled = tmp.querySelector('#inv-form [type=submit]').disabled;
+    invMsgs();
   }
   if (id === 'f-role') S.inviteForm.role = e.target.value;
   if (id === 'f-desc') S.inviteForm.desc = e.target.value;
-  if (id === 'f-task') S.inviteForm.task = e.target.checked;
+  if (id === 'f-task') { S.inviteForm.task = e.target.checked; S.inviteForm.server = null; rerender(); }
+  if (id === 'f-task-id') S.inviteForm.taskId = +e.target.value;
+  if (id === 'f-task-text') { S.inviteForm.taskText = e.target.value; invMsgs(); }
 });
 
 document.addEventListener('submit', async e => {
   if (e.target.id !== 'inv-form') return;
   e.preventDefault();
-  const f = S.inviteForm, n = S.needObj, btn = e.target.querySelector('[type=submit]');
+  const f = S.inviteForm, n = D.candNeed, btn = e.target.querySelector('[type=submit]');
+  const t = f.task && (D.mytasks || []).find(x => x.id === f.taskId);
   btn.disabled = true;
   try {
     const r = await api('POST', '/api/employer/invites', {
       candidate_id: f.cid, need_id: n ? n.id : null, role: f.role, salary_from: f.from, salary_to: f.to,
-      lottery_id: S.lot && S.lot.drawn && S.lot.drawn.drawn.some(d => d.public_id === f.cid) ? S.lot.created.id : null,
+      lottery_id: n && S.lot && S.lot.needId === n.id && S.lot.drawn && S.lot.drawn.drawn.some(d => d.public_id === f.cid) ? S.lot.created.id : null,
       format: f.format + (f.format !== 'Удалённо' && n && n.city ? ', ' + n.city : ''), description: f.desc,
-      task: f.task ? 'Разбор инцидента с дублями платежей: ~45 минут, заменяет первый созвон' : null,
+      task: !f.task ? null : t ? `${t.title}: ~${t.minutes} мин, заменяет первый созвон` : f.taskText.trim(),
     });
     S.inviteForm = null;
-    toast(r.warnings.length ? 'Приглашение отправлено. ' + r.warnings[0] : 'Приглашение отправлено. Кандидат получит письмо и сообщение в Telegram');
+    toast(r.warnings.length ? 'Приглашение отправлено. ' + r.warnings[0] : 'Приглашение отправлено. Кандидат увидит его в кабинете' + (META && META.mail ? ' и получит письмо, если не отключил уведомления' : ''));
     go('/e/pipeline');
   } catch (err) {
     if (err.status === 422 && err.detail && err.detail.errors) { f.server = err.detail; rerender(); }

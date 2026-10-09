@@ -44,6 +44,24 @@ async def limit_body(request: Request, call_next):
         return JSONResponse({"detail": "Слишком большой запрос"}, status_code=413)
     return await call_next(request)
 
+
+# заголовки безопасности на каждый ответ (объявлен после limit_body — внешний, 413 тоже получает; 500 из ServerErrorMiddleware — нет);
+# роутер, поставивший свой (no-referrer у ФСП ID), не перетирается
+SECURITY_HEADERS = {
+    "X-Frame-Options": "DENY",  # кликджекинг: чужой сайт не встроит кабинет и не подставит «Принять и открыть контакты»
+    "Content-Security-Policy": "frame-ancestors 'none'",  # ponytail: только запрет фреймов; полный CSP — с хэшем inline-скрипта (table.md)
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",  # адреса кабинетов с id не уходят на чужие сайты
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    r = await call_next(request)
+    for k, v in SECURITY_HEADERS.items():
+        r.headers.setdefault(k, v)
+    return r
+
 for r in (deps, fsp_id, mock_fsp_id, candidate, employer, quest, achievements, lottery, validation, vacancies, tasks, chat):
     app.include_router(r.router)
 
@@ -76,6 +94,7 @@ def meta():
         "fsp_id": fsp_id_client.enabled(),  # кнопка «Войти через ФСП ID»
         "fsp_idps": [{"alias": a, "label": l} for a, l in config.FSP_ID_IDPS.items()] if fsp_id_client.enabled() else [],  # брокер Keycloak
         "demo": config.DEMO,  # кнопка «Запустить прогон» на /v
+        "mail": bool(config.SMTP_HOST),  # письма о приглашениях уходят: без SMTP фронт их не обещает
         # сюжет теста по специализации — вводная и финал на фронте; часы сцен подставляет /api/quest
         "stories": {spec: {k: v for k, v in st.items() if k != "clock"} for spec, st in items.STORY.items()},
     }
@@ -93,6 +112,7 @@ if (_front / "index.html").is_file():
 # опечатка в /api/…, /docs и /mock-fsp-id по-прежнему отвечают своим 404, а не страницей
 @app.get("/", include_in_schema=False)
 @app.get("/v", include_in_schema=False)
+@app.get("/org", include_in_schema=False)  # импорт протоколов организатором
 @app.get("/candidate", include_in_schema=False)
 @app.get("/candidate/{rest:path}", include_in_schema=False)
 @app.get("/employer", include_in_schema=False)
