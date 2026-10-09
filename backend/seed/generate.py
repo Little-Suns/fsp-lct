@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from app import catalog as C
 from app.db import SessionLocal, engine, init_db, reset_schema
 from app.integrations.scoring import place_weight, result_of
-from app.services import autocheck
+from app.services import autocheck, matching
 from app.models import (Achievement, Application, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, Message, Need, Task,
                         TaskSubmission, User, Vacancy)
 
@@ -440,6 +440,44 @@ class Gen:
                     salary_from=frm, salary_to=to, format=fmt, city=None if fmt == "Удалённо" else city)
 
 
+# открытые демо-приглашения: (компания, кандидат) → (статус, дней с отправки, срок в днях). Стенд засевается один раз,
+# а приглашение живёт неделю — --refresh-demo на старте стенда возвращает истёкшие без ответа к этому виду (refresh_demo)
+DEMO_OPEN = {
+    ("Ладога Пэй", "A-1042"): ("sent", 5 / 1440, 6 + 5 / 1440),  # «осталось 6 дней»
+    ("Кипрей Логистик", "A-1042"): ("sent", 4, C.INVITE_TTL_DAYS),  # «осталось 3 дня»
+    ("Ладога Пэй", "J-4410"): ("seen", 2, C.INVITE_TTL_DAYS),  # воронка «Ладога Пэй»: просмотрено
+}
+
+
+def refresh_demo(db) -> int:
+    """Освежить демо-приглашения DEMO_OPEN, истёкшие без ответа: статус, отправка и срок — как в свежем засеве от NOW.
+    Берётся последнее приглашение пары; принятое, отклонённое или ещё открытое (действия на стенде) не трогается,
+    как и приглашение кандидату, которого компания сейчас не видит (согласие, статус) или у которого полная ёмкость."""
+    clock = matching.CLOCK.set(NOW)  # ёмкость — на те же часы, что и срок (--today)
+    try:
+        n = sum(_refresh_one(db, co_name, pid, *spec) for (co_name, pid), spec in DEMO_OPEN.items())
+    finally:
+        matching.CLOCK.reset(clock)
+    db.commit()
+    return n
+
+
+def _refresh_one(db, co_name: str, pid: str, status: str, ago: float, ttl: float) -> bool:
+    inv = db.scalar(select(Invitation).join(Company, Invitation.company_id == Company.id)
+                    .join(Candidate, Invitation.candidate_id == Candidate.id)
+                    .where(Company.name == co_name, Candidate.public_id == pid)
+                    .order_by(Invitation.sent_at.desc(), Invitation.id.desc()).limit(1))
+    if not inv or not (inv.status == "expired" or inv.status in ("sent", "seen") and inv.expires_at <= NOW):
+        return False
+    if not matching.visible(inv.candidate, inv.company) or matching.candidate_loads(db, [inv.candidate_id])[inv.candidate_id] >= C.CANDIDATE_CAP:
+        return False
+    inv.status, inv.sent_at = status, NOW - DAY * ago
+    inv.expires_at = inv.sent_at + DAY * ttl
+    inv.seen_at = inv.sent_at + DAY * 0.3 if status == "seen" else None  # как invitation()
+    db.flush()  # следующая пара считает ёмкость уже с этим приглашением
+    return True
+
+
 def consent(at: datetime) -> dict:
     return {"consent_152": True, "consent_152_at": at, "consent_version": C.CONSENT_VERSION}
 
@@ -692,10 +730,11 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     L1 = dict(role="Backend-разработчик (Python), команда платежей", frm=240000, to=300000, fmt="Гибрид, Москва, 2 дня в офисе",
               task="Разбор инцидента с дублями платежей: ~45 минут, заменяет первый созвон",
               description="Сервис приёма платежей, 3 тыс. RPS в пике. Python 3.12, PostgreSQL, Kafka. Команда из 6 человек, релизы ежедневно.")
-    add(invitation(ladoga, orlov, lad_need, "sent", NOW - timedelta(minutes=5), synthetic=False, **L1,
-                   ttl=6 + 5 / 1440))  # «осталось 6 дней»
-    add(invitation(kiprey, orlov, kip_need, "sent", NOW - DAY * 4, role="Python-разработчик, сервис маршрутизации",
-                   frm=190000, to=225000, fmt="Удалённо", synthetic=False, description=kip_need.text))  # «осталось 3 дня»
+    st, ago, ttl = DEMO_OPEN[("Ладога Пэй", "A-1042")]
+    add(invitation(ladoga, orlov, lad_need, st, NOW - DAY * ago, synthetic=False, **L1, ttl=ttl))
+    st, ago, ttl = DEMO_OPEN[("Кипрей Логистик", "A-1042")]
+    add(invitation(kiprey, orlov, kip_need, st, NOW - DAY * ago, role="Python-разработчик, сервис маршрутизации",
+                   frm=190000, to=225000, fmt="Удалённо", synthetic=False, description=kip_need.text, ttl=ttl))
     # принято больше недели назад — у Орлова открыт отзыв о компании (services/reputation.py); без rng: поток засева не сдвигается
     add(invitation(companies[0], orlov, None, "accepted", NOW - DAY * 12, role="Python-разработчик, внутренние сервисы",
                    frm=220000, to=270000, fmt="Удалённо", synthetic=False))
@@ -704,7 +743,8 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     add(invitation(ladoga, P["F-0911"], lad_need, "accepted", NOW - DAY * 7, role=pay, frm=240000, to=300000, synthetic=False))
     add(invitation(ladoga, P["G-2240"], lad_need, "declined", NOW - DAY * 9, role=pay, frm=240000, to=290000, reason="salary", synthetic=False))
     add(invitation(ladoga, P["H-1503"], None, "expired", NOW - DAY * 17, role=af, frm=250000, to=310000, fmt="Гибрид", synthetic=False))
-    add(invitation(ladoga, P["J-4410"], lad_need, "seen", NOW - DAY * 2, role=pay, frm=230000, to=290000, synthetic=False))
+    st, ago, ttl = DEMO_OPEN[("Ладога Пэй", "J-4410")]
+    add(invitation(ladoga, P["J-4410"], lad_need, st, NOW - DAY * ago, role=pay, frm=230000, to=290000, synthetic=False, ttl=ttl))
 
     pool_bp = [c for c in by_spec["Backend"] if c.track == "Python" and c.status == "open"]
     # история «Ладога Пэй»: принято 7 из 12 закрытых ≈ 58 %
@@ -1037,6 +1077,8 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--today", type=parse_today, default=DEMO_TODAY,
                     help=f"«сегодня» синтетики, YYYY-MM-DD (по умолчанию {DEMO_TODAY}) или now — реальное время")
+    ap.add_argument("--refresh-demo", action="store_true",
+                    help="в засеянной базе освежить демо-приглашения, истёкшие без ответа (старт стенда при DEMO=1)")
     a = ap.parse_args()
     if a.reset:
         print(f"--reset: пересоздаю схему в {engine.url.render_as_string(hide_password=True)}")
@@ -1045,13 +1087,17 @@ def main():
     t0 = time.time()
     with SessionLocal() as db:
         if db.scalar(select(User).where(User.email == "d.orlov@example.ru")):
+            if not (a.if_empty or a.refresh_demo):
+                raise SystemExit("База уже засеяна — запустите с --reset")
             if a.if_empty:
                 # банк коммитится после build отдельно: оборванный засев и изменённые шаблоны догоняются на каждом старте
                 from app.services.items import seed_items
 
                 print(f"База уже засеяна — пропускаю; банк заданий: seed_items → {seed_items(db)}")
-                return
-            raise SystemExit("База уже засеяна — запустите с --reset")
+            if a.refresh_demo:
+                set_clock(a.today)
+                print(f"Демо-приглашения освежены: {refresh_demo(db)}")
+            return
         res = build(db, a.candidates, a.needs, a.seed, a.today)
         secs = time.time() - t0
         try:

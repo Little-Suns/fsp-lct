@@ -61,9 +61,9 @@ services:
       # песочница задач на код; без SANDBOX_TOKEN задачи на код не выдаются (тест — без них)
       SANDBOX_URL: http://sandbox:8080
       SANDBOX_TOKEN: ${SANDBOX_TOKEN:-}
-    # DEMO=1: пустая база при старте засевается синтетикой от сегодняшней даты (~1 мин до ответа API; засеянную не трогает,
-    # пересоздать стенд — seed.generate --reset вручную); без DEMO — миграции и банк заданий теста (засевает сам API при старте), как в боевом режиме
-    command: ["sh", "-c", "if [ \"$$DEMO\" = 1 ]; then python -m seed.generate --if-empty --today now; fi; exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    # DEMO=1: пустая база при старте засевается синтетикой от сегодняшней даты (~1 мин до ответа API; засеянную не пересеивает,
+    # только освежает демо-приглашения, истёкшие без ответа — --refresh-demo; пересоздать стенд — seed.generate --reset вручную); без DEMO — миграции и банк заданий теста (засевает сам API при старте), как в боевом режиме
+    command: ["sh", "-c", "if [ \"$$DEMO\" = 1 ]; then python -m seed.generate --if-empty --refresh-demo --today now; fi; exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     extra_hosts: ["host.docker.internal:host-gateway"]
     # правка фронта без пересборки — docker-compose.override.yml.example (скопируйте в docker-compose.override.yml)
     ports: ["8000:8000"]

@@ -3,6 +3,7 @@
 
 import os
 import sys
+from datetime import timedelta
 from types import SimpleNamespace
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:5432/fsp_gen")
@@ -131,3 +132,55 @@ def test_validation_report_on_seed(seeded, tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Валидация ФСП Карьеры" in out and "precision@5" in out and "Стабильность" in out
     assert (tmp_path / "validation.json").exists()
+
+
+def test_refresh_demo(seeded):
+    """--refresh-demo: стенд засеян давно — истёкшие без ответа демо-приглашения снова открыты, ответы на стенде не трогаются."""
+    db = seeded
+
+    def pair(co, pid):
+        return db.scalar(select(Invitation).join(Company, Invitation.company_id == Company.id)
+                         .join(Candidate, Invitation.candidate_id == Candidate.id).where(Company.name == co, Candidate.public_id == pid))
+
+    lad, kip, j = pair("Ладога Пэй", "A-1042"), pair("Кипрей Логистик", "A-1042"), pair("Ладога Пэй", "J-4410")
+    assert (lad.status, kip.status, j.status) == ("sent", "sent", "seen")
+    # засеяно 2026-10-05, стенд стартует через 10 дней: Ладога истекла лениво (статус sent), J-4410 — уже expired, Кипрей принят
+    later = generate.anchor(generate.DEMO_TODAY + timedelta(days=10))
+    j.status, kip.status, kip.responded_at = "expired", "accepted", later
+    db.commit()
+    argv = sys.argv
+    sys.argv = ["seed.generate", "--refresh-demo", "--today", str(generate.DEMO_TODAY + timedelta(days=10))]
+    try:
+        generate.main()
+        for inv in (lad, kip, j):
+            db.refresh(inv)
+        assert (lad.status, lad.sent_at, lad.expires_at - lad.sent_at) == ("sent", later - timedelta(minutes=5), timedelta(days=6, minutes=5))
+        assert lad.seen_at is None and lad.responded_at is None
+        assert (j.status, j.sent_at, j.expires_at) == ("seen", later - timedelta(days=2), later + timedelta(days=5))
+        assert j.seen_at == j.sent_at + timedelta(days=0.3)
+        assert kip.status == "accepted"  # ответ на стенде — не откатывается
+        generate.set_clock(later.date())
+        with SessionLocal() as s:  # ещё открытые не трогаются: повторный запуск ничего не меняет
+            assert generate.refresh_demo(s) == 0
+        # кандидат, которого компания сейчас не видит (закрыл профиль), приглашение снова не получает
+        j.status, j.expires_at, j.candidate.status = "expired", later, "off"
+        db.commit()
+        with SessionLocal() as s:
+            assert generate.refresh_demo(s) == 0
+        db.refresh(j)
+        assert j.status == "expired"
+        # у кандидата полная ёмкость (чужие открытые приглашения) — тоже не освежается
+        j.candidate.status = "open"
+        others = db.scalars(select(Company).where(Company.name.not_in(["Ладога Пэй"])).limit(catalog.CANDIDATE_CAP)).all()
+        db.add_all(Invitation(company_id=co.id, candidate_id=j.candidate_id, role="Backend", salary_from=200000, salary_to=250000,
+                              format="Удалённо", sent_at=later, expires_at=later + timedelta(days=3)) for co in others)
+        db.commit()
+        with SessionLocal() as s:
+            assert generate.refresh_demo(s) == 0
+        db.execute(delete(Invitation).where(Invitation.candidate_id == j.candidate_id, Invitation.role == "Backend", Invitation.sent_at == later))
+        db.commit()
+        with SessionLocal() as s:  # ёмкость освободилась — освежается
+            assert generate.refresh_demo(s) == 1
+    finally:
+        sys.argv = argv
+        generate.set_clock(None)

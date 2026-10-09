@@ -2397,7 +2397,8 @@ function candView() {
         <p class="small num">${c.load} из ${c.cap} открытых приглашений${c.busy ? '. Ответ может задержаться.' : ''}</p>
       </div>
       ${chatBtn('e', c.chat_peer, 'btn ghost block')}
-      ${c.invited ? '<button class="btn ghost block" data-go="/e/pipeline">Уже приглашён — к статусам</button>' : `<button class="btn primary block" data-act="invite" data-id="${esc(c.id)}">Пригласить</button>`}
+      ${c.invite_block ? `<button class="btn ghost block" data-go="/e/pipeline">Уже приглашён — к статусам</button>${c.invited === 'sent' || c.invited === 'seen' ? '' : `<span class="hint">${esc(c.invite_block)}</span>`}`
+        : `<button class="btn primary block" data-act="invite" data-id="${esc(c.id)}">${c.invited ? 'Пригласить снова' : 'Пригласить'}</button>`}
       <span class="hint">ФИО и контакты откроются, когда кандидат примет приглашение</span>
     </aside>
   </div>`;
