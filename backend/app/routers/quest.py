@@ -17,7 +17,7 @@ EXPRESS_TIME_LIMIT_S на каждое, тот же адаптивный выб�
 (applied = False, грейд, θ и компетенции прежние) — кандидат видит результат попытки и может сам принять нижний грейд
 (POST /accept-lower, событие grade_lowered в AuditLog). Результат задан специализацией: при её смене в профиле
 (candidate.save_profile) тест сбрасывается, и первый тест по новой специализации — первое присвоение: он применяется
-всегда, но если кулдаун повышения ещё идёт, грейд не выше того, что был до смены (_reset_cap) — сменой специализации
+всегда, но если кулдаун повышения ещё идёт, грейд не выше того, что был до смены (reset_cap) — сменой специализации
 туда и обратно кулдаун не обойти.
 """
 
@@ -213,7 +213,10 @@ def _cooldown(cand: Candidate) -> dict:
     # без tested_at кулдаун тоже действует: смена специализации сбрасывает тест, но не кулдаун (иначе обход через смену)
     active = bool(until and until > _now())
     return {"active": active, "until": until.isoformat() if active else None,
-            "note": f"Повышение грейда возможно с {_ru_date(until)}. До этого пересдача грейд не повысит, а понизить его можете только вы сами." if active else None}
+            "note": None if not active else
+            f"Повышение грейда возможно с {_ru_date(until)}. До этого пересдача грейд не повысит, а понизить его можете только вы сами."
+            if cand.grade else
+            f"До {_ru_date(until)} идёт кулдаун повышения: грейд по первому тесту после смены специализации не выше прежнего."}
 
 
 def _express(sess: QuestSession) -> bool:
@@ -489,7 +492,7 @@ def _lower_offer(cand: Candidate, sess: QuestSession | None) -> dict | None:
     return {"session_id": sess.id, "grade": sess.grade, "theta": round(sess.theta, 2), "se": round(sess.se, 2)}
 
 
-def _reset_cap(db: Session, cand: Candidate) -> str | None:
+def reset_cap(db: Session, cand: Candidate) -> str | None:
     """Грейд до последнего сброса теста сменой специализации (AuditLog test_reset) — потолок первого теста в кулдаун."""
     log = db.scalar(select(AuditLog).where(AuditLog.action == "test_reset", AuditLog.subject_candidate_id == cand.id)
                     .order_by(AuditLog.id.desc()).limit(1))
@@ -589,12 +592,15 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
         applied = prev is None or not cooldown or theta < cand.theta
         if not applied:
             note = f"Результат не ниже текущего, поэтому категория не изменилась. Повышение возможно с {_ru_date(_utc(cand.next_upgrade_at))}."
+    capped = False
     if applied:
         grade = irt.decide_grade(prev, theta, se, upgrade_allowed=not cooldown)
         # первый тест после смены специализации в кулдаун: грейд не выше того, что был до смены, — иначе сменой
         # специализации туда и обратно кулдаун обходился бы; сам кулдаун не продлевается
-        cap = _reset_cap(db, cand) if not express and prev is None and cooldown else None
-        if cap and catalog.GRADES.index(grade) > catalog.GRADES.index(cap):
+        # потолок — и для экспресса: иначе экспресс в новой специализации выдал бы грейд выше, а сброс обратно записал бы его
+        cap = reset_cap(db, cand) if prev is None and cooldown else None
+        capped = bool(cap and catalog.GRADES.index(grade) > catalog.GRADES.index(cap))
+        if capped:
             note = (f"Результат попытки — {grade}, но до {_ru_date(_utc(cand.next_upgrade_at))} идёт кулдаун повышения: "
                     f"после смены специализации грейд не выше прежнего {cap}.")
             grade = cap
@@ -612,7 +618,8 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     if (senior_plus and not cand.review_passed) or {"inconsistent", "too_fast", "code_pasted"} & set(flags):
         flags.append("review_required")  # ponytail: только флаг; асинхронный «разбор решения» (3–4 вопроса LLM) — отдельный сервис
     # грейд попытки: присвоенный (с гистерезисом), а если не применён — измеренный самой попыткой
-    sess.grade = cand.grade if applied else catalog.grade_from_theta(theta, se)
+    # под потолком — измеренный грейд: вердикт «ниже / выше заявленного» — по самой попытке
+    sess.grade = cand.grade if applied and not capped else catalog.grade_from_theta(theta, se)
     sess.applied = applied
     sess.theta, sess.se, sess.flags, sess.finished_at = theta, se, flags, now
     db.commit()

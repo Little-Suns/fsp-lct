@@ -280,9 +280,11 @@ def test_spec_change_resets_test(env):
         until = c.next_upgrade_at
     # первый тест по новой специализации применяется (кандидат снова виден), но кулдаун идёт: грейд не выше прежнего Senior
     start = client.post("/api/quest/start", json={"story": False}).json()
-    assert start["cooldown"]["active"]
+    assert start["cooldown"]["active"] and "по первому тесту после смены специализации не выше прежнего" in start["cooldown"]["note"]
     res = _run(client, fe, lambda it: True)["result"]
     assert res["applied"] and res["category"]["spec"] == "Frontend" and res["category"]["grade"] == "Senior" and "не выше прежнего Senior" in res["note"]
+    # вердикт попытки — по измеренному грейду, не по потолку
+    assert res["target"]["result_grade"] == catalog.grade_from_theta(res["attempt"]["theta"], res["attempt"]["se"])
     with SessionLocal() as db:
         c = db.get(Candidate, cid)
         assert c.next_upgrade_at == until and matching.visible(c)  # кулдаун не продлён и не снят
@@ -291,10 +293,19 @@ def test_spec_change_resets_test(env):
     assert back["test_reset"] and back["grade"] is None
     res = _run(client, env["items"], lambda it: True)["result"]
     assert res["applied"] and res["category"]["grade"] == "Senior"
+    # экспресс после сброса — тоже под потолком (иначе Senior+ экспрессом, а сброс обратно записал бы его в потолок)
+    client.post("/api/candidate/profile", json={**body, "spec": "Frontend", "track": "React"})
+    res = _run(client, fe, lambda it: True, {"story": False, "mode": "express"})["result"]
+    assert res["applied"] and res["express"] and catalog.GRADES.index(res["category"]["grade"]) <= catalog.GRADES.index("Senior")
     # слабый первый тест после сброса применяется как есть (первое присвоение, не понижение)
+    client.post("/api/candidate/profile", json=body)
     client.post("/api/candidate/profile", json={**body, "spec": "Frontend", "track": "React"})
     res = _run(client, fe, lambda it: False)["result"]
     assert res["applied"] and res["category"]["grade"] == "Intern" and res["lower_offer"] is None
+    # потолок не «отмывается»: сброс из Intern в кулдаун пишет Intern, экспресс всё верно — не выше Intern
+    client.post("/api/candidate/profile", json=body)
+    res = _run(client, env["items"], lambda it: True, {"story": False, "mode": "express"})["result"]
+    assert res["applied"] and res["category"]["grade"] == "Intern"
     with SessionLocal() as db:
         c = db.get(Candidate, cid)
         db.delete(c)
