@@ -303,6 +303,31 @@ test('Ладога ↔ кандидат: принятое приглашение
   await expect(orlov.locator('.chip.ok')).toHaveText('наняли');
 });
 
+test('Ладога: повторное приглашение — после истечения можно, после отказа — пауза с датой', async ({ page }) => {
+  await demo(page, 'e');
+  // G-2240 отклонил приглашение 9 дней назад: кнопки «Пригласить» нет, причина и дата — в подсказке
+  await open(page, '/employer/candidates/G-2240');
+  await expect(page.getByRole('button', { name: 'Уже приглашён — к статусам' })).toBeVisible();
+  await expect(page.getByText(/^Кандидат отклонил приглашение; повторно — не раньше \d+ \S+$/)).toBeVisible();
+  // H-1503 не ответил, приглашение истекло — «Пригласить снова»
+  await open(page, '/employer/candidates/H-1503');
+  await page.getByRole('button', { name: 'Пригласить снова' }).click();
+  await expect(page.getByRole('heading', { name: 'Приглашение для H-1503' })).toBeVisible();
+  const inv = api(page, 'POST', '/api/employer/invites');
+  await page.getByRole('button', { name: 'Отправить приглашение' }).click();
+  expect((await inv).status()).toBe(200);
+  await expect(toast(page)).toContainText('Приглашение отправлено');
+  await expect(page).toHaveURL(/\/employer\/invites$/);
+  const rows = page.getByRole('row', { name: /H-1503/ });
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('отправлено');
+  await expect(rows.nth(1)).toContainText('истекло');
+  // снова открыто — повтор закрыт, без подсказки о паузе
+  await open(page, '/employer/candidates/H-1503');
+  await expect(page.getByRole('button', { name: 'Уже приглашён — к статусам' })).toBeVisible();
+  await expect(page.getByText(/^Кандидат отклонил/)).toHaveCount(0);
+});
+
 test('Ладога: поиск по банку — фасеты, флаги, текст и навыки, страницы', async ({ page }) => {
   await demo(page, 'e');
   await page.locator('nav.chips').getByRole('link', { name: 'Поиск по банку' }).click();
