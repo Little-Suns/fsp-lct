@@ -73,8 +73,6 @@ class Candidate(Base):
     skills_confirmed: Mapped[list[str]] = mapped_column(JSON, default=list)
     tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_upgrade_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # грейд до смены специализации/трека: потолок первого присвоения в новой категории, пока идёт интервал смены грейда
-    grade_cap: Mapped[str | None] = mapped_column(String(16))
     # грейд — предварительная экспресс-оценка (routers/quest.py): помечается в карточке, кулдаун не запускает
     grade_express: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     review_passed: Mapped[bool] = mapped_column(Boolean, default=False)  # «разбор решения» для Senior+
@@ -287,8 +285,6 @@ class QuestSession(Base):
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"))
-    spec: Mapped[str | None] = mapped_column(String(64))  # категория на момент начала попытки
-    track: Mapped[str | None] = mapped_column(String(64))
     story: Mapped[bool] = mapped_column(Boolean, default=True)
     answers: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{"item_id", "response", "correct", "ms"}]
     theta: Mapped[float] = mapped_column(Float, default=0.0)
@@ -298,7 +294,7 @@ class QuestSession(Base):
     focus: Mapped[dict | None] = mapped_column(JSON)  # веса компетенций из описания вакансии {competency: weight}
     mode: Mapped[str] = mapped_column(String(8), default="full", server_default="full")  # full | express
     grade: Mapped[str | None] = mapped_column(String(16))  # грейд, измеренный этой попыткой
-    applied: Mapped[bool | None] = mapped_column(Boolean)  # попал ли результат в профиль
+    applied: Mapped[bool | None] = mapped_column(Boolean)  # попал ли результат в профиль (ниже текущего грейда — только по решению кандидата, /accept-lower)
     flags: Mapped[list[str]] = mapped_column(JSON, default=list)  # подозрения: inconsistent, too_fast…
     started_at: Mapped[datetime] = _now()
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -404,7 +400,7 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(primary_key=True)
     actor_user_id: Mapped[int | None] = mapped_column(Integer)  # без FK: запись переживает удаление аккаунта
-    action: Mapped[str] = mapped_column(String(32))  # contacts_revealed | data_exported | account_deleted | consent_changed | company_blocked | company_unblocked
+    action: Mapped[str] = mapped_column(String(32))  # contacts_revealed | data_exported | account_deleted | consent_changed | company_blocked | company_unblocked | test_reset | grade_lowered
     subject_candidate_id: Mapped[int | None] = mapped_column(Integer)
     detail: Mapped[dict | None] = mapped_column(JSON)  # без самих ПДн: только идентификаторы и основания
     at: Mapped[datetime] = _now()

@@ -513,7 +513,7 @@ CANDS = [
      2105, 320000, ["Гибрид"], "Москва", 3),
 ]
 COHORT = 30
-UNTESTED_SHARE = 0.08  # синтетика без пройденного теста: видна работодателям с пометкой «грейд не подтверждён», ниже прошедших
+UNTESTED_SHARE = 0.08  # синтетика без пройденного теста: зарегистрировались, но тест не прошли — работодателям не видны
 PERSONA_LOAD = {"B-2318": 4, "D-3390": 2, "E-1187": 1}  # открытые приглашения от других компаний, как в макете
 LADOGA_NEED = {
     "text": "Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. "
@@ -552,7 +552,7 @@ def persona(g: Gen, pid, pct, theta, se, skills, months, *, claimed=None, name=N
 
 
 def untest(c: Candidate) -> Candidate:
-    """Кандидат без пройденного теста: категория — по заявленному грейду, ни θ, ни перцентиля, ни компетенций."""
+    """Кандидат без пройденного теста: ни категории, ни θ, ни перцентиля, ни компетенций — работодателям не виден."""
     c.grade = c.theta = c.se = c.percentile = c.tested_at = c.next_upgrade_at = None
     c.competencies, c.skills_confirmed, c.review_passed = [], [], False
     return c
@@ -615,7 +615,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     # свой генератор (общие множества id, почт и handle): основной поток случайных чисел не сдвигается
     gx = Gen(seed + 2)
     gx.ids, gx.handles, gx.emails = g.ids, g.handles, g.emails
-    # тест не пройден: в подборке «Ладога Пэй» — с пометкой «грейд не подтверждён тестом», после прошедших
+    # тест не пройден: заявил Middle в нужном «Ладога Пэй» стеке, но без теста в подборку и поиск не попадает
     k = persona(gx, "K-2077", None, 0.0, 0.0, [], 0, claimed=["Python", "PostgreSQL", "Kafka", "Docker"], min_salary=240000,
                 formats=["Гибрид", "Удалённо"], city="Москва")
     k.truth["skills_true"] = k.skills_claimed
@@ -746,7 +746,8 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
     st, ago, ttl = DEMO_OPEN[("Ладога Пэй", "J-4410")]
     add(invitation(ladoga, P["J-4410"], lad_need, st, NOW - DAY * ago, role=pay, frm=230000, to=290000, synthetic=False, ttl=ttl))
 
-    pool_bp = [c for c in by_spec["Backend"] if c.track == "Python" and c.status == "open"]
+    # без теста приглашений и откликов не бывает: работодатель такого кандидата не видит, отклик — только после теста
+    pool_bp = [c for c in by_spec["Backend"] if c.track == "Python" and c.status == "open" and id(c) not in untested]
     # история «Ладога Пэй»: принято 7 из 12 закрытых ≈ 58 %
     hist = ["accepted"] * 6 + ["declined"] * 2 + ["expired"]
     for status, c in zip(hist, g.sample(pool_bp, len(hist))):
@@ -770,7 +771,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
                            frm=260000, to=330000, fmt="Удалённо"))
 
     # история синтетики: закрытые приглашения + немного открытых; почти у всех нагрузка 0–2, у ~15 — на потолке
-    open_c = [c for c in cands if c.status == "open"]
+    open_c = [c for c in cands if c.status == "open" and id(c) not in untested]
     spec_open: dict[str, list[Candidate]] = {}
     for c in open_c:
         spec_open.setdefault(c.spec, []).append(c)
@@ -783,7 +784,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
             reason = "salary" if c.min_salary > nd.salary_to else g.pick(["stack", "format", "not_looking", "company"], p=[.35, .3, .2, .15])
         fb = g.pick([None, "confirmed", "not_confirmed", "hired"], p=[.5, .3, .08, .12]) if st == "accepted" else None
         add(invitation(nd.company, c, nd, st, NOW - DAY * float(r.uniform(8, 150)), reason=reason, feedback=fb))
-    stars = sorted((c for c in open_c if id(c) not in untested), key=lambda c: -c.theta)[:15]
+    stars = sorted(open_c, key=lambda c: -c.theta)[:15]
     for c in stars:
         for _ in range(50):
             if load[id(c)] >= C.CANDIDATE_CAP:
@@ -796,7 +797,7 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
         if load[id(c)] < 2:
             add(invitation(nd.company, c, nd, g.pick(["sent", "seen"], p=[.6, .4]), NOW - DAY * float(r.uniform(0, 6.5))))
 
-    more = extras(db, g, ladoga, kiprey, lad_need, companies, hq, orlov, cands)
+    more = extras(db, g, ladoga, kiprey, lad_need, companies, hq, orlov, [c for c in cands if id(c) not in untested])
     for c in cands:
         if id(c) in untested:
             untest(c)

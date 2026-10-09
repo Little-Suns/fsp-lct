@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError  # noqa: E402
 from app import catalog  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.deps import issue_token  # noqa: E402
-from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession, User  # noqa: E402
+from app.models import AuditLog, Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession, User  # noqa: E402
 from app.routers import candidate, quest  # noqa: E402
 from app.services import irt, matching, profile_pdf  # noqa: E402
 from app.services.items import STORY  # noqa: E402
@@ -151,7 +151,7 @@ def test_quest_flow(env):
     assert client.post("/api/quest/start", json={"target_grade": "Guru"}).status_code == 422
 
     # 1) первое прохождение на заявленный грейд (Middle по умолчанию): кандидат с θ = 1.0
-    first = _run(client, items, lambda it: True)
+    first = _run(client, items, lambda it: rng.random() < irt.prob(1.0, it.a, it.b))
     res = first["result"]
     assert 6 <= first["progress"]["n"] <= irt.MAX_ITEMS + 1 and first["target_grade"] == "Middle"
     assert res["applied"] and res["category"]["spec"] == "Backend" and res["category"]["grade"] in catalog.GRADES
@@ -174,43 +174,56 @@ def test_quest_flow(env):
 
     # 2) пересдача в кулдаун на Senior, всё верно: старт у порога Senior; результат выше — не применяется
     start = client.post("/api/quest/start", json={"story": True, "target_grade": "Senior"}).json()
-    assert start["cooldown"]["active"] and "без смены категории" in start["cooldown"]["note"] and start["target_grade"] == "Senior"
+    assert start["cooldown"]["active"] and "не повысит" in start["cooldown"]["note"] and start["target_grade"] == "Senior"
     with SessionLocal() as db:
         assert db.get(QuestSession, start["session_id"]).prior_mean == catalog.GRADE_TH["Senior"]
     up = _run(client, items, lambda it: True)["result"]
-    assert up["category"]["grade"] == grade1
+    assert not up["applied"] and up["attempt"]["theta"] > theta1 and up["category"]["grade"] == grade1 and up["note"]
+    assert up["target"]["verdict"] in ("confirmed", "above") and up["lower_offer"] is None
 
-    # 3) пересдача в кулдаун, всё неверно: принудительного понижения нет, срок не сдвигается
-    down = _run(client, items, lambda it: False)["result"]
-    assert not down["applied"] and down["attempt"]["theta"] < theta1 and down["target"]["verdict"] == "below"
-    assert down["category"]["grade"] == grade1
+    # 3) пересдача в кулдаун, всё неверно: грейд НЕ понижается принудительно — профиль прежний, кандидату предлагается
+    #    принять нижний грейд самому
+    low = _run(client, items, lambda it: False)["result"]
+    assert not low["applied"] and low["category"]["grade"] == grade1 and low["theta"] == round(theta1, 2)
+    assert low["target"]["verdict"] == "below" and "Грейд не понижен" in low["note"]
+    offer = low["lower_offer"]
+    assert offer["grade"] == "Intern" and offer["theta"] == low["attempt"]["theta"]
+    assert client.get("/api/quest/result").json()["lower_offer"] == offer
     with SessionLocal() as db:
-        assert db.get(Candidate, cand_id).next_upgrade_at == first_upgrade_at
+        c = db.get(Candidate, cand_id)
+        assert (c.grade, c.theta, c.next_upgrade_at) == (grade1, theta1, first_upgrade_at)
 
-    # 4) кулдаун истёк; пересдача без повышения не продлевает его
+    # 4) кулдаун истёк — слабая пересдача всё равно не понижает; срок повышения не сдвигается
     past = datetime.now(UTC) - timedelta(days=1)
     with SessionLocal() as db:
         db.get(Candidate, cand_id).next_upgrade_at = past
         db.commit()
-    same = _run(client, items, lambda it: False, {"target_grade": "Intern", "story": False})["result"]
-    assert same["applied"] and same["category"]["grade"] == "Intern"
+    same = _run(client, items, lambda it: False)["result"]
+    assert not same["applied"] and same["category"]["grade"] == grade1 and same["lower_offer"]["grade"] == "Intern"
+    # добровольное понижение: только последняя попытка, только один раз, с записью в журнал; кулдаун не трогается
+    assert client.post("/api/quest/accept-lower", json={"session_id": offer["session_id"]}).status_code == 409
+    acc = client.post("/api/quest/accept-lower", json={"session_id": same["lower_offer"]["session_id"]})
+    assert acc.status_code == 200, acc.text
+    acc = acc.json()
+    assert acc["applied"] and acc["category"]["grade"] == "Intern" and acc["theta"] == same["attempt"]["theta"] and acc["lower_offer"] is None
+    assert client.post("/api/quest/accept-lower", json={"session_id": same["lower_offer"]["session_id"]}).status_code == 409
     with SessionLocal() as db:
-        assert db.get(Candidate, cand_id).next_upgrade_at > datetime.now(UTC)
-        # Добровольный переход вниз тоже ограничен по частоте; повышение проверяем после срока.
-        db.get(Candidate, cand_id).next_upgrade_at = past
-        db.commit()
+        c = db.get(Candidate, cand_id)
+        assert c.grade == "Intern" and c.next_upgrade_at == past and len(c.competencies) == len(catalog.COMPETENCIES["Backend"])
+        log = db.scalar(select(AuditLog).where(AuditLog.action == "grade_lowered", AuditLog.subject_candidate_id == cand_id))
+        assert log.detail == {"session_id": same["lower_offer"]["session_id"], "from": grade1, "to": "Intern"}
 
     # 5) фактическое повышение запускает новый кулдаун
     up2 = _run(client, items, lambda it: True)["result"]
-    assert catalog.GRADES.index(up2["category"]["grade"]) > catalog.GRADES.index(same["category"]["grade"])
+    assert catalog.GRADES.index(up2["category"]["grade"]) > catalog.GRADES.index("Intern")
     with SessionLocal() as db:
         assert (db.get(Candidate, cand_id).next_upgrade_at - datetime.now(UTC)).days in (89, 90)
 
-    # 6) история: 5 попыток, новые сверху, без ответов и ключей; применённость видна
+    # 6) история: 5 попыток, новые сверху, без ответов и ключей; применённость видна (принятая вручную — применена)
     hist = client.get("/api/quest/history").json()
     _no_leak(hist)
     assert len(hist) == 5 and hist[0]["session_id"] > hist[-1]["session_id"]
-    assert [h["applied"] for h in hist] == [True, True, False, up["applied"], True]
+    assert [h["applied"] for h in hist] == [True, True, False, False, True]
     assert [h["target_grade"] for h in hist][3] == "Senior" and all(h["items"] >= 6 and h["grade"] in catalog.GRADES for h in hist)
     with SessionLocal() as db:
         rows = db.scalars(select(QuestSession).where(QuestSession.candidate_id == cand_id).order_by(QuestSession.id.desc())).all()
@@ -218,144 +231,86 @@ def test_quest_flow(env):
         assert rows[0].grade == up2["category"]["grade"]
 
 
-def test_failed_initial_attempt_and_voluntary_lower_level(env):
-    """Неудачная первая попытка не создаёт нижнюю категорию; новый тест на нижний уровень — явный выбор."""
+def test_decide_grade_never_lowers():
+    """Принудительного понижения нет ни в кулдаун, ни после; повышение — по θ − SE и только без кулдауна."""
+    assert irt.decide_grade("Senior", -1.5, 0.1, upgrade_allowed=False) == "Senior"
+    assert irt.decide_grade("Senior", -1.5, 0.1) == "Senior"
+    assert irt.decide_grade(None, -1.5, 0.1) == catalog.grade_from_theta(-1.5, 0.1)
+    assert irt.decide_grade("Junior", 3.0, 0.2) == catalog.grade_from_theta(3.0, 0.2) != "Junior"
+    assert irt.decide_grade("Junior", 3.0, 0.2, upgrade_allowed=False) == "Junior"
+
+
+def test_spec_change_resets_test(env):
+    """Смена специализации: результат теста не переносится — грейд, θ, компетенции, подтверждённые навыки сбрасываются,
+    кандидат скрыт до нового теста, событие в журнале. Первый тест по новой специализации применяется, но в кулдаун грейд
+    не выше прежнего: сменой специализации туда и обратно кулдаун не обойти."""
+    tag = secrets.token_hex(3)
     with SessionLocal() as db:
-        user = User(email=f"lower-{secrets.token_hex(4)}@example.ru", role="candidate")
-        db.add(user)
+        u = User(email=f"spec-{tag}@example.ru", role="candidate")
+        db.add(u)
         db.flush()
-        cand = Candidate(public_id=f"D-{secrets.token_hex(4)}", user_id=user.id, name="Д", email=user.email, **MK)
-        db.add(cand)
+        c = Candidate(public_id=f"P-{tag}", user_id=u.id, name="Смена", email=u.email, consent_152=True, consent_version=catalog.CONSENT_VERSION,
+                      consent_publish=True, consent_publish_version=catalog.CONSENT_VERSION, status="open",
+                      grade="Senior", theta=1.9, se=0.2, percentile=90, competencies=[{"n": "Алгоритмы", "t": 1.9, "se": 0.2}],
+                      skills_confirmed=["Python"], tested_at=datetime.now(UTC), next_upgrade_at=datetime.now(UTC) + timedelta(days=60),
+                      review_passed=True, employer_confirmed=2, **{**MK, "formats": ["Удалённо"]})
+        db.add(c)
         db.commit()
-        cid, uid, client = cand.id, user.id, _client(issue_token(db, user))
-    try:
-        failed = _run(client, env["items"], lambda it: False, {"target_grade": "Senior"})["result"]
-        assert not failed["applied"] and not failed["assigned"] and failed["category"]["grade"] is None
-        assert failed["target"]["verdict"] == "below"
-        assert client.get("/api/quest/result").json()["assigned"] is False
-        with SessionLocal() as db:
-            c = db.get(Candidate, cid)
-            assert c.grade is None and c.theta is None and c.next_upgrade_at is None
-            assert not matching.visible(c)
-        lower = _run(client, env["items"], lambda it: False, {"target_grade": "Intern"})["result"]
-        assert lower["applied"] and lower["assigned"] and lower["category"]["grade"] == "Intern"
-        higher = _run(client, env["items"], lambda it: True, {"target_grade": "Junior"})["result"]
-        assert not higher["applied"] and higher["category"]["grade"] == "Intern"
-        hist = client.get("/api/quest/history").json()
-        assert [h["applied"] for h in hist] == [False, True, False]
-        with SessionLocal() as db:
-            c = db.get(Candidate, cid)
-            c.consent_152 = c.consent_publish = True
-            c.consent_version = c.consent_publish_version = catalog.CONSENT_VERSION
-            db.commit()
-        # Детерминированное конкурентное чередование: /start уже прочитал кандидата, профиль меняется до его записи.
-        with SessionLocal() as stale_db:
-            stale_cand = stale_db.get(Candidate, cid)
-            old_until = stale_cand.next_upgrade_at
-            saved = client.post("/api/candidate/profile", json={**MK, "name": "Д", "track": "Go", "formats": ["Удалённо"]})
-            assert saved.status_code == 200, saved.text
-            started = quest.start(quest.StartIn(mode="express", target_grade="Intern"), stale_cand, stale_db)
-            attempt = stale_db.get(QuestSession, started["session_id"])
-            assert (attempt.spec, attempt.track) == ("Backend", "Go")
-        # смена трека в интервал: категория в новой — сразу, но не выше прежнего грейда и без продления интервала
-        with SessionLocal() as db:
-            assert db.get(Candidate, cid).grade_cap == "Intern"
-        express = _run(client, env["items"], lambda it: True, {"mode": "express", "target_grade": "Intern"})["result"]
-        assert express["applied"] and express["assigned"] and express["category"] == {"spec": "Backend", "track": "Go", "grade": "Intern"}
-        full = _run(client, env["items"], lambda it: True, {"target_grade": "Intern"})["result"]
-        assert full["applied"] and not full["express"] and full["category"]["grade"] == "Intern"
-        assert "не выше прежнего грейда Intern" in full["note"]  # все ответы верны: без потолка грейд был бы выше
-        with SessionLocal() as db:
-            c = db.get(Candidate, cid)
-            assert c.grade == "Intern" and c.grade_cap is None and c.next_upgrade_at == old_until
-        # прежняя категория в новом треке присвоена: дальше обычное правило — повышение только после интервала
-        again = _run(client, env["items"], lambda it: True, {"target_grade": "Junior"})["result"]
-        assert not again["applied"] and again["category"]["grade"] == "Intern" and "Смена грейда" in again["note"]
-    finally:
-        with SessionLocal() as db:
-            db.execute(delete(Candidate).where(Candidate.id == cid))
-            db.execute(delete(User).where(User.id == uid))
-            db.commit()
-
-
-def test_category_change_cap(env):
-    """Смена трека в интервал: категория в новой — сразу, не выше прежнего грейда; A→B→A не повышает; после срока — обычное правило."""
-    future = datetime.now(UTC) + timedelta(days=30)
+        cid, token = c.id, issue_token(db, u)
+        assert matching.visible(c)
+    client = _client(token)
+    me = client.get("/api/candidate/me").json()
+    body = {k: me[k] for k in ("name", "tg", "spec", "track", "grade_claimed", "formats", "city", "skills_claimed")} | {"min_salary": me["min"]}
+    # незаконченная попытка по старой специализации
+    assert client.post("/api/quest/start", json={"story": False}).status_code == 200
+    # смена трека в той же специализации тест не сбрасывает
+    same = client.post("/api/candidate/profile", json={**body, "track": "Go"}).json()
+    assert same["grade"] == "Senior" and same["test_reset"] is False and same["visible"]
+    r = client.post("/api/candidate/profile", json={**body, "spec": "Frontend", "track": "React", "grade_claimed": "Senior"}).json()
+    assert r["test_reset"] is True and r["spec"] == "Frontend" and r["grade"] is None and r["theta"] is None and not r["visible"]
+    assert r["skills_confirmed"] == [] and r["competencies"] == [] and r["next_upgrade_at"] and not r["review_passed"]
+    assert client.get("/api/quest/result").status_code == 404
     with SessionLocal() as db:
-        user = User(email=f"cap-{secrets.token_hex(4)}@example.ru", role="candidate")
-        db.add(user)
-        db.flush()
-        cand = Candidate(public_id=f"C-{secrets.token_hex(4)}", user_id=user.id, name="К", email=user.email, **MK)
-        cand.grade, cand.theta, cand.se, cand.tested_at, cand.next_upgrade_at = "Junior", 0.0, 0.3, datetime.now(UTC), future
-        cand.consent_152 = cand.consent_publish = True
-        cand.consent_version = cand.consent_publish_version = catalog.CONSENT_VERSION
-        db.add(cand)
-        db.commit()
-        cid, uid, client = cand.id, user.id, _client(issue_token(db, user))
-    profile = lambda track: client.post("/api/candidate/profile", json={**MK, "name": "К", "track": track, "formats": ["Удалённо"]})  # noqa: E731
-    try:
-        for track in ("Go", "Python"):  # A→B→A: потолок переносится, повышения нет
-            assert profile(track).status_code == 200
-            r = _run(client, env["items"], lambda it: True, {"target_grade": "Junior"})["result"]
-            assert r["applied"] and r["category"] == {"spec": "Backend", "track": track, "grade": "Junior"}
-            assert r["capped"] and r["target"]["verdict"] == "above" and "не выше прежнего грейда Junior" in r["note"]
-            again = client.get("/api/quest/result").json()
-            assert again["capped"] and again["target"]["verdict"] == "above"
-            with SessionLocal() as db:
-                c = db.get(Candidate, cid)
-                assert c.grade == "Junior" and c.grade_cap is None and c.next_upgrade_at == future
-        with SessionLocal() as db:
-            db.get(Candidate, cid).next_upgrade_at = datetime.now(UTC) - timedelta(days=1)
-            db.commit()
-        up = _run(client, env["items"], lambda it: True, {"target_grade": "Middle"})["result"]
-        assert up["applied"] and not up["capped"] and catalog.GRADES.index(up["category"]["grade"]) > catalog.GRADES.index("Junior")
-        with SessionLocal() as db:
-            assert db.get(Candidate, cid).next_upgrade_at > datetime.now(UTC) + timedelta(days=80)
-    finally:
-        with SessionLocal() as db:
-            db.execute(delete(Candidate).where(Candidate.id == cid))
-            db.execute(delete(User).where(User.id == uid))
-            db.commit()
-
-
-def test_attempt_started_before_category_snapshot(env):
-    """Попытка, начатая до 0011_quest_category (spec/track — NULL), после завершения видна в /result текущей категории."""
+        c = db.get(Candidate, cid)
+        assert not matching.visible(c) and c.employer_confirmed == 0 and not c.grade_express
+        assert not db.scalar(select(QuestSession).where(QuestSession.candidate_id == cid, QuestSession.finished_at.is_(None)))
+        log = db.scalar(select(AuditLog).where(AuditLog.action == "test_reset", AuditLog.subject_candidate_id == cid))
+        assert log.detail == {"reason": "spec_changed", "from_spec": "Backend", "to_spec": "Frontend", "grade": "Senior"}
+        fe = {it.id: it for it in db.scalars(select(Item).where(Item.spec == "Frontend"))}
+        until = c.next_upgrade_at
+    # первый тест по новой специализации применяется (кандидат снова виден), но кулдаун идёт: грейд не выше прежнего Senior
+    start = client.post("/api/quest/start", json={"story": False}).json()
+    assert start["cooldown"]["active"] and "по первому тесту после смены специализации не выше прежнего" in start["cooldown"]["note"]
+    res = _run(client, fe, lambda it: True)["result"]
+    assert res["applied"] and res["category"]["spec"] == "Frontend" and res["category"]["grade"] == "Senior" and "не выше прежнего Senior" in res["note"]
+    # вердикт попытки — по измеренному грейду, не по потолку
+    assert res["target"]["result_grade"] == catalog.grade_from_theta(res["attempt"]["theta"], res["attempt"]["se"])
     with SessionLocal() as db:
-        user = User(email=f"legacy-{secrets.token_hex(4)}@example.ru", role="candidate")
-        db.add(user)
-        db.flush()
-        cand = Candidate(public_id=f"L-{secrets.token_hex(4)}", user_id=user.id, name="Л", email=user.email, **MK)
-        db.add(cand)
-        db.commit()
-        cid, uid, client = cand.id, user.id, _client(issue_token(db, user))
-    try:
-        sid = client.post("/api/quest/start", json={"story": False, "target_grade": "Senior"}).json()["session_id"]
-        with SessionLocal() as db:
-            db.get(QuestSession, sid).spec = db.get(QuestSession, sid).track = None
-            db.commit()
-        failed = _run(client, env["items"], lambda it: False)["result"]
-        assert not failed["applied"] and not failed["assigned"]
-        res = client.get("/api/quest/result")
-        assert res.status_code == 200 and res.json()["assigned"] is False
-        with SessionLocal() as db:
-            assert (db.get(QuestSession, sid).spec, db.get(QuestSession, sid).track) == ("Backend", "Python")
-    finally:
-        with SessionLocal() as db:
-            db.execute(delete(Candidate).where(Candidate.id == cid))
-            db.execute(delete(User).where(User.id == uid))
-            db.commit()
-
-
-def test_voluntary_lower_level_respects_cooldown(env):
+        c = db.get(Candidate, cid)
+        assert c.next_upgrade_at == until and matching.visible(c)  # кулдаун не продлён и не снят
+    # обратно в Backend — снова сброс и снова потолок Senior
+    back = client.post("/api/candidate/profile", json=body).json()
+    assert back["test_reset"] and back["grade"] is None
+    res = _run(client, env["items"], lambda it: True)["result"]
+    assert res["applied"] and res["category"]["grade"] == "Senior"
+    # экспресс после сброса — тоже под потолком (иначе Senior+ экспрессом, а сброс обратно записал бы его в потолок)
+    client.post("/api/candidate/profile", json={**body, "spec": "Frontend", "track": "React"})
+    res = _run(client, fe, lambda it: True, {"story": False, "mode": "express"})["result"]
+    assert res["applied"] and res["express"] and catalog.GRADES.index(res["category"]["grade"]) <= catalog.GRADES.index("Senior")
+    # слабый первый тест после сброса применяется как есть (первое присвоение, не понижение)
+    client.post("/api/candidate/profile", json=body)
+    client.post("/api/candidate/profile", json={**body, "spec": "Frontend", "track": "React"})
+    res = _run(client, fe, lambda it: False)["result"]
+    assert res["applied"] and res["category"]["grade"] == "Intern" and res["lower_offer"] is None
+    # потолок не «отмывается»: сброс из Intern в кулдаун пишет Intern, экспресс всё верно — не выше Intern
+    client.post("/api/candidate/profile", json=body)
+    res = _run(client, env["items"], lambda it: True, {"story": False, "mode": "express"})["result"]
+    assert res["applied"] and res["category"]["grade"] == "Intern"
     with SessionLocal() as db:
-        c = db.get(Candidate, env["cand_id"])
-        c.grade, c.theta, c.se = "Senior", 1.8, 0.2
-        c.tested_at = datetime.now(UTC)
-        c.next_upgrade_at = datetime.now(UTC) + timedelta(days=30)
+        c = db.get(Candidate, cid)
+        db.delete(c)
+        db.delete(db.get(User, c.user_id))
         db.commit()
-    r = _run(env["client"], env["items"], lambda it: False, {"target_grade": "Intern"})["result"]
-    assert not r["applied"] and r["category"]["grade"] == "Senior" and r["target"]["result_grade"] == "Intern"
-    assert "Смена грейда" in r["note"]
 
 
 def test_percentile_scope(env):  # env — схема набора, если тест запущен один
@@ -430,7 +385,7 @@ def test_express_mode(env):
         assert again["attempt"]["theta"] > res["theta"]
 
         # полный тест после экспресса — первое присвоение: без кулдауна и гистерезиса от экспресса, пометка снимается
-        full = _run(client, items, lambda it: rng.random() < irt.prob(0.8, it.a, it.b), {"target_grade": "Intern"})["result"]
+        full = _run(client, items, lambda it: rng.random() < irt.prob(0.8, it.a, it.b))["result"]
         assert full["applied"] and not full["express"] and full["mode"] == "full" and full["assessment_label"] is None
         assert full["se"] < express_se and full["category"]["grade"] == catalog.grade_from_theta(full["theta"], full["se"])
         with SessionLocal() as db:

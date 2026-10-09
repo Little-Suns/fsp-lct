@@ -65,27 +65,6 @@ def test_baseline_tables():
     assert set(inspect(engine).get_table_names()) == BASELINE_TABLES | {"alembic_version"}
 
 
-def test_0011_preserves_attempts_without_inventing_category():
-    with engine.begin() as c:
-        command.upgrade(_cfg(c), "0010_vacancy_expires")
-        cand = Table("candidates", MetaData(), autoload_with=c)
-        filler = {String: "x", Integer: 0, Float: 0.0, Boolean: False, JSON: [], DateTime: datetime.now(UTC)}
-        row = {col.name: next(v for t, v in filler.items() if isinstance(col.type, t)) for col in cand.columns
-               if not col.nullable and col.server_default is None and not col.primary_key}
-        row.update(spec="Backend", track="Python", public_id="M-0011")
-        cid = c.execute(cand.insert().values(**row).returning(cand.c.id)).scalar()
-        quest = Table("quest_sessions", MetaData(), autoload_with=c)
-        attempt = {col.name: next(v for t, v in filler.items() if isinstance(col.type, t)) for col in quest.columns
-                   if not col.nullable and col.server_default is None and not col.primary_key}
-        attempt.update(candidate_id=cid, theta=0.5, se=0.3, grade="Middle", finished_at=datetime.now(UTC))
-        sid = c.execute(quest.insert().values(**attempt).returning(quest.c.id)).scalar()
-    migrate()
-    with engine.connect() as c:
-        got = c.execute(text("SELECT spec, track, grade, theta, se FROM quest_sessions WHERE id = :sid"), {"sid": sid}).one()
-    assert tuple(got) == (None, None, "Middle", 0.5, 0.3)
-    assert _diff() == []
-
-
 def test_upgrade_from_empty_matches_models():
     migrate()
     assert _versions() == set(SCRIPT.get_heads())

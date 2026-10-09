@@ -509,22 +509,23 @@ test('Ладога: поиск по банку — фасеты, флаги, т�
   await expect(page.getByRole('heading', { name: /^Кандидат [A-Z]-\d+$/ })).toBeVisible();
 });
 
-test('Ладога: без теста нет выдачи и доступа к карточке; заявленный и подтверждённый грейды различаются', async ({ page }) => {
+test('Ладога: без теста кандидата не видно нигде; тест ниже заявленного — оба грейда видны', async ({ page }) => {
   await demo(page, 'e');
   await page.locator('.brand').click();
-  await expect(page.getByText('В подборку входят только кандидаты с категорией, присвоенной по тесту.')).toBeVisible();
-  // подборка и поиск: кандидатов без теста нет
+  await expect(page.getByText('В подборке только прошедшие тест: категория — по его результату')).toBeVisible();
+  // K-2077 заявил Middle в нужном стеке, но тест не прошёл: ни в подборке, ни в поиске, ни по прямой ссылке
   const P = await page.evaluate(() => api('GET', `/api/employer/needs/${S.needId}/picks?limit=500`));
-  expect(P.items.every(c => c.grade_tested)).toBe(true);
+  expect(P.items.length).toBeGreaterThan(0);
+  expect(P.items.every(c => c.grade && c.pct != null && c.theta)).toBe(true);
   expect(P.items.find(c => c.id === 'K-2077')).toBeUndefined();
   const R = await page.evaluate(() => api('GET', '/api/employer/search?spec=Backend&track=Python&grade=Middle&limit=100'));
-  expect(R.items.every(c => c.grade_tested)).toBe(true);
-
-  // карточка без теста: пометка, заявленные навыки, без компетенций; ожидания «на руки»
+  expect(R.items.find(c => c.id === 'K-2077')).toBeUndefined();
+  expect(R.items.every(c => c.grade === 'Middle')).toBe(true);
+  await open(page, '/employer/search');
+  await expect(page.getByText(/сортировка по силе подтверждённого профиля, только прошедшие тест/)).toBeVisible();
   await open(page, '/employer/candidates/K-2077');
   await expect(page.getByText('Кандидат не найден или скрыл профиль.')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Компетенции' })).toHaveCount(0);
-  await expect(page.getByText(/грейд подтверждён/)).toHaveCount(0);
+  await expect(page.getByText(/грейд не подтверждён тестом/)).toHaveCount(0);
   // тест показал Middle при заявленном Senior: категория по тесту, заявленный — рядом
   await open(page, '/employer/candidates/L-3141');
   await expect(page.locator('.chip', { hasText: 'заявлен Senior, тест — Middle' })).toBeVisible();

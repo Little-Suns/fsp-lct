@@ -216,3 +216,9 @@ def test_drawn_card_hidden_after_consent_revoked(env):
     assert cards[0] == {"pseudonym": d["drawn"][0]["pseudonym"], "hidden": True}
     assert all("public_id" in c and not c.get("hidden") for c in cards[1:])
     assert first.public_id not in str(cards)
+    # второй сбросил тест сменой специализации после жребия — тоже скрыт
+    second = next(c for c in good if c.public_id == d["drawn"][1]["public_id"])
+    second.grade = second.theta = None
+    db.flush()
+    cards = client.get(f"/api/lottery/{r['id']}").json()["drawn"]
+    assert cards[1] == {"pseudonym": d["drawn"][1]["pseudonym"], "hidden": True} and second.public_id not in str(cards)

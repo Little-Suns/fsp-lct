@@ -113,7 +113,7 @@ def fit(c: Candidate, v: Vacancy) -> float | None:
     Без LLM и эмбеддингов — список считается на лету для каждой вакансии.
     # ponytail: приватный matching._relevance; вынести в публичную функцию, если подбор начнут менять
     """
-    if c.theta is None or c.spec != v.spec:
+    if not matching.tested(c) or c.spec != v.spec:
         return None
     r = matching._relevance(c, v)
     acc = matching.accept_prob(v.salary_to, c.min_salary, matching.format_ok(c.formats, c.city, v.format, v.city), r["stack"])
@@ -488,7 +488,7 @@ def apply(vacancy_id: int, body: ApplyIn, c: Candidate = Depends(current_candida
     c = _lock(db, Candidate, c.id)
     if not matching.consent_ok(c, "processing"):
         raise HTTPException(403, "Нужно согласие на обработку персональных данных: контакты откроются работодателю, если он примет отклик")
-    if c.theta is None:
+    if not matching.tested(c):
         raise HTTPException(403, "Откликаться можно после теста: работодатель видит категорию и результат")
     if v.status != "open" or v.company.blocked_at:
         raise HTTPException(409, "Вакансия закрыта")

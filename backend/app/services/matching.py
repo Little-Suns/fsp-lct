@@ -2,13 +2,13 @@
 
 Конвейер (исследование, §1 и §5):
 1. фильтр по категории: специализация; грейд потребности или на один ниже (со штрафом); статус «открыт»;
-   профиль не скрыт от компании. Грейд категории — только по тесту (category_grade, tested);
+   профиль не скрыт от компании; тест пройден (полный или экспресс). Грейд категории — только по тесту (category_grade):
+   без теста кандидат работодателю не виден — ни в подборке, ни в поиске, ни в лотерее, ни для приглашения;
 2. отбор: косинус эмбеддингов, если они есть у потребности и у всех кандидатов пула, иначе — вектор
    навыков по catalog.SKILLS; топ-RETRIEVE_K;
 3. соответствие = W_THETA·θ(с поправкой на SE) + W_COVER·покрытие must/nice + W_ACH·достижения;
    × штрафы за соседний трек / грейд ниже; LLM-реранк топ-30 подмешивается, только если модель доступна;
-4. взаимный интерес: итог = соответствие × (0,5 + 0,5·вероятность принятия) × поправка на нагрузку;
-5. кандидаты без пройденного теста не входят в выдачу.
+4. взаимный интерес: итог = соответствие × (0,5 + 0,5·вероятность принятия) × поправка на нагрузку.
 
 Персональные данные (ФИО, почта, Telegram, резюме целиком) в ранжировании не участвуют.
 Варианты для валидации: "embed" — только отбор; "rerank" — + соответствие и LLM; "full" — + взаимный интерес.
@@ -78,23 +78,23 @@ def _now() -> datetime:
 
 
 def tested(c: Candidate) -> bool:
-    """Грейд подтверждён тестом: категория — по θ."""
+    """Тест пройден (полный или экспресс — предварительная категория): категория — по θ."""
     return c.theta is not None and c.grade is not None
 
 
 def category_grade(c: Candidate) -> str | None:
-    """Категория присваивается только по тесту; самоописание не даёт доступа к выдаче."""
+    """Грейд категории — только по тесту; без теста категории нет (заявленный грейд — лишь цель теста)."""
     return c.grade if tested(c) else None
 
 
 def category_grade_sql():
-    """SQL-выражение к category_grade()."""
+    """SQL-выражение к category_grade(): без теста — NULL, в фильтры категории не попадает."""
     return case((and_(Candidate.theta.is_not(None), Candidate.grade.is_not(None)), Candidate.grade), else_=None)
 
 
 def order_key(r: "Ranked") -> tuple:
-    """Порядок допущенных к выдаче кандидатов — по итогу; ничьи разбиваются публичным кодом."""
-    return (not tested(r.candidate), -r.score, r.candidate.public_id)
+    """Порядок выдачи: по итогу, при равенстве — по public_id (детерминированно)."""
+    return (-r.score, r.candidate.public_id)
 
 
 def candidate_loads(db: Session, candidate_ids: list[int]) -> dict[int, int]:
@@ -262,10 +262,7 @@ def gaps(c: Candidate, need: Need | None) -> list[str]:
 
 
 def _theta_score(c: Candidate, grade: str) -> float:
-    """θ − 0,5·SE относительно порога грейда потребности, через сигмоиду: на пороге 0,5, +0,5θ → 0,73.
-    Без теста — 0: заявленный грейд не даёт вклада θ."""
-    if not tested(c):
-        return 0.0
+    """θ − 0,5·SE относительно порога грейда потребности, через сигмоиду: на пороге 0,5, +0,5θ → 0,73."""
     th = max(catalog.GRADE_TH[grade], -1.5)
     return 1 / (1 + math.exp(-((c.theta or 0) - 0.5 * (c.se or 0) - th) / 0.5))
 
@@ -288,8 +285,7 @@ def _relevance(c: Candidate, need: Need) -> dict:
 
 _LLM_SYSTEM = (
     "Ты технический рекрутер. Оцени соответствие каждого анонимного кандидата потребности по шкале 0..1. "
-    "Учитывай только навыки, грейд и результаты теста (theta). Подтверждённые тестом навыки важнее заявленных; "
-    "grade_tested=false — грейд заявлен кандидатом и тестом не подтверждён. "
+    "Учитывай только навыки, грейд и результаты теста (theta). Подтверждённые тестом навыки важнее заявленных. "
     'Ответ — JSON: {"scores": [{"id": "A-1042", "score": 0.83}, ...]} для всех кандидатов.'
 )
 _llm_cache: dict[tuple, dict[str, float] | None] = {}
@@ -301,9 +297,8 @@ def _llm_scores(need: Need, cands: list[Candidate]) -> dict[str, float] | None:
         {
             "id": c.public_id,
             "grade": category_grade(c),
-            "grade_tested": tested(c),  # False — грейд со слов кандидата
             "track": c.track,
-            "theta": round(c.theta, 2) if tested(c) else None,
+            "theta": round(c.theta, 2),
             "confirmed": c.skills_confirmed or [],
             "claimed_only": [s for s in c.skills_claimed or [] if s not in (c.skills_confirmed or [])],
         }
@@ -346,28 +341,27 @@ def _effective_min(db: Session, cands: list[Candidate]) -> dict[int, int]:
 
 
 def _why(c: Candidate, matched: list[str]) -> str:
-    parts = [] if tested(c) else [f"грейд {c.grade_claimed} заявлен кандидатом, тестом не подтверждён"]
+    parts = []
     if matched:
         parts.append("совпадение стека " + ", ".join(matched))
-    if tested(c) and c.competencies:  # без теста ни θ, ни перцентиля нет
+    if c.competencies:
         top = max(c.competencies, key=lambda x: x.get("t", 0))
         parts.append(f"{top['n'].lower()} — {norm_pct(top['t'])}-й перцентиль")
-    elif tested(c) and c.percentile is not None:
+    elif c.percentile is not None:
         parts.append(f"{c.percentile}-й перцентиль в категории")
     s = "; ".join(parts)
     return s[:1].upper() + s[1:]
 
 
 def score_candidates(db: Session, need: Need, cands: list[Candidate], *, variant: str = "full", limit: int = 50) -> list[Ranked]:
-    """Оценка готового пула (без фильтра категории). rank() = фильтр + эта функция; карточка кандидата зовёт напрямую."""
+    """Оценка готового пула (без фильтра категории). rank() = фильтр + эта функция; карточка кандидата зовёт напрямую.
+    Пул — только прошедшие тест (eligible / visible)."""
     if variant not in ("embed", "rerank", "full"):
         raise ValueError(f"variant: embed | rerank | full, а не {variant}")
     if not cands:
         return []
     sims, mode = _retrieval(need, cands)
-    # ярус «тест пройден» — уже при отборе: иначе в большой категории не подтверждённые заняли бы слоты RETRIEVE_K
-    # по сходству заявленного стека и вытеснили прошедших тест; и вариант «embed» тоже соблюдает порядок ярусов
-    order = sorted(range(len(cands)), key=lambda i: (not tested(cands[i]), -sims[i], cands[i].public_id))
+    order = sorted(range(len(cands)), key=lambda i: (-sims[i], cands[i].public_id))
     loads = candidate_loads(db, [c.id for c in cands])
     if variant == "embed":
         return [
@@ -408,8 +402,7 @@ def score_candidates(db: Session, need: Need, cands: list[Candidate], *, variant
             "retrieval": mode,
             "sim": round(sim_of[c.id], 3),
             "confirmed": matched,
-            "pct": c.percentile if tested(c) else None,
-            "tested": tested(c),
+            "pct": c.percentile,
             "gaps": gaps(c, need),
             "fsp": fsp_title(c),
             "cf": cf.rating if cf else None,
@@ -453,9 +446,11 @@ def published():
 
 
 def visible(c: Candidate, company: Company | None = None) -> bool:
-    """Кандидат виден после теста, с действующими согласиями и открытым статусом."""
+    """Кандидат виден работодателям: открыт, тест пройден (грейд категории — по тесту; экспресс — предварительная
+    категория), действующие согласия на обработку и публикацию, не скрыт от компании. Без теста — не виден нигде."""
     return (
         c.status == "open"
+        and tested(c)
         and category_grade(c) in catalog.GRADES
         and consent_ok(c, "publish")  # включает действующее согласие на обработку
         and not (company and company.inn in (c.hidden_from or []))
@@ -478,8 +473,7 @@ def eligible(db: Session, need: Need, company: Company | None = None) -> list[Ca
 
 
 def strength(c: Candidate, skills: list[str] | None = None) -> float:
-    """Сила подтверждённого профиля для поиска по банку: θ − 0,5·SE + 0,5·достижения (+ покрытие навыков, если заданы).
-    Без теста θ не вкладывается (в поиск такие кандидаты не входят — visible)."""
+    """Сила подтверждённого профиля для поиска по банку: θ − 0,5·SE + 0,5·достижения (+ покрытие навыков, если заданы)."""
     s = (c.theta or 0) - 0.5 * (c.se or 0) + 0.5 * achievement_signal(c)
     if skills:
         confirmed, claimed = set(c.skills_confirmed or []), set(c.skills_claimed or [])
@@ -488,8 +482,8 @@ def strength(c: Candidate, skills: list[str] | None = None) -> float:
 
 
 def search_key(c: Candidate, skills: list[str] | None = None) -> tuple:
-    """Порядок поиска по банку: по силе профиля, ничьи — по публичному коду."""
-    return (not tested(c), -strength(c, skills), c.public_id)
+    """Порядок поиска по банку: по силе профиля, при равенстве — по public_id."""
+    return (-strength(c, skills), c.public_id)
 
 
 def rank(db: Session, need: Need, *, variant: str = "full", limit: int = 50, company: Company | None = None) -> list[Ranked]:
@@ -517,8 +511,8 @@ def card(c: Candidate, *, ranked: Ranked | None = None, need: Need | None = None
         "public_id": c.public_id,
         "spec": c.spec,
         "track": c.track,
-        "grade": category_grade(c),  # только по тесту
-        "grade_tested": ok,  # False — «грейд не подтверждён тестом»: ни θ, ни перцентиля, ни компетенций
+        # по тесту; None — только у отклика кандидата, сбросившего тест сменой специализации (в выдачу такие не попадают)
+        "grade": category_grade(c),
         "grade_claimed": c.grade_claimed,  # заявленный: виден, если тест показал другой грейд
         "pct": c.percentile if ok else None,
         "theta": f"{c.theta:.2f} ± {c.se:.2f}" if ok and c.se is not None else None,

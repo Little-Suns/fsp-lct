@@ -154,16 +154,14 @@ def cf_prior(rating: float | None) -> float:
     return 0.5 * cf_theta(rating) if rating is not None else 0.0
 
 
-def decide_grade(prev: str | None, theta: float, se: float, upgrade_allowed: bool = True, *, lower_allowed: bool = False) -> str:
-    """Грейд с гистерезисом. Повышение — если θ − SE выше порога нового грейда (и не идёт кулдаун).
-    Понижение — только при явном выборе нижнего уровня и разрешённой смене категории."""
+def decide_grade(prev: str | None, theta: float, se: float, upgrade_allowed: bool = True) -> str:
+    """Грейд после попытки. Первое присвоение — по θ − SE. Дальше только вверх: повышение — если θ − SE выше порога
+    нового грейда (и не идёт кулдаун). Принудительно грейд не понижается никогда: попытка ниже текущего грейда в профиль
+    не идёт, кандидат может сам принять нижний грейд (quest.accept_lower)."""
     up = catalog.grade_from_theta(theta, se)
     if prev not in catalog.GRADES:
         return up
-    gi = catalog.GRADES.index
-    if gi(up) > gi(prev):
-        return up if upgrade_allowed else prev
-    return up if lower_allowed and upgrade_allowed and gi(up) < gi(prev) else prev
+    return up if upgrade_allowed and catalog.GRADES.index(up) > catalog.GRADES.index(prev) else prev
 
 
 def simulate_session(bank, true_theta: float, rng: random.Random, prior_mean: float = 0.0, express: bool = False) -> tuple[float, float, int]:
@@ -211,7 +209,7 @@ if __name__ == "__main__":
     cheat_resp = [[(it.a, it.b, int(it.b > 1)) for it in rng.sample([x for x in bank if x.b > 1 or x.b < 0], 12)] for _ in range(200)]
     caught = np.mean([lz(eap(r)[0], r) < LZ_CUT for r in cheat_resp])
     print(f"корреляция θ: {corr:.3f}; средняя SE: {ses.mean():.3f}; заданий в среднем: {np.mean([s[2] for s in s1]):.1f}")
-    print(f"совпадение грейда при пересдаче: без гистерезиса {raw:.0%}, с гистерезисом {hyst:.0%}")
+    print(f"совпадение грейда при пересдаче: сырая оценка {raw:.0%}, в профиле (без понижения) {hyst:.0%}")
     print(f"флаг inconsistent: ложные срабатывания {fp:.0%}, пойманы «читеры» {caught:.0%}")
     assert corr > 0.85, corr
     assert ses.mean() < 0.35, ses.mean()

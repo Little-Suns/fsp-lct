@@ -19,7 +19,7 @@ def test_employer_response_contracts():
             assert responses[code]["description"]
             assert responses[code]["content"]["application/json"]["schema"]
     card = schema["components"]["schemas"]["CandidateCard"]
-    assert {"id", "spec", "grade", "grade_tested", "skills"} <= set(card["required"])
+    assert {"id", "spec", "grade", "skills"} <= set(card["required"])
     assert {"name", "email", "tg", "truth"}.isdisjoint(card["properties"])
 
 

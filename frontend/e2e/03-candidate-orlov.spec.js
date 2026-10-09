@@ -42,7 +42,7 @@ test('приглашения: открыть → просмотрено, отк�
   await expect(page.getByText('Тест по приглашению: выбор заданий смещён')).toBeVisible();
   // срок повышения — из профиля (кулдаун 90 дн. от теста); после этой даты строки нет — проверка не завязана на сегодняшний день
   const until = await page.evaluate(() => ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? DATE(ME.next_upgrade_at) : null);
-  if (until) await expect(page.getByText('Смена возможна с ' + until)).toBeVisible();
+  if (until) await expect(page.getByText('Повышение возможно с ' + until)).toBeVisible();
   await page.locator('.brand').click();
   await expect(lad).toContainText('просмотрено');
 
@@ -174,15 +174,6 @@ test('профиль и результат теста демо-кандидат�
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Ментор' })).toHaveClass(/on/);
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Работа в команде' })).toHaveClass(/on/);
   await expect(card.locator('.chip', { hasText: 'Капитан команды' })).toBeVisible();
-  // смена трека сбрасывает категорию: предупреждение до сохранения, возврат трека его убирает
-  const reset = page.getByText(/Смена специализации или трека сбросит категорию/);
-  await expect(reset).toHaveCount(0);
-  const track = await page.locator('#p-track').inputValue();
-  const other = await page.locator('#p-track option').evaluateAll((os, cur) => os.map(o => o.value).find(v => v !== cur), track);
-  await page.locator('#p-track').selectOption(other);
-  await expect(reset).toBeVisible();
-  await page.locator('#p-track').selectOption(track);
-  await expect(reset).toHaveCount(0);
   // «Опыт» PDF-профиля: ровно распознанное из резюме, с пометкой; исключение сохраняется сразу, без сохранения профиля
   const exp = page.locator('.field', { hasText: 'Опыт в PDF-профиле' });
   await expect(exp).toContainText('2023 — н. в. · Финтех «Волна Пэй», бэкенд-разработчик платёжного шлюза');

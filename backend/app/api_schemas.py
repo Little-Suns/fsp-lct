@@ -32,7 +32,6 @@ class CandidateCard(BaseModel):
     spec: str
     track: str | None
     grade: str
-    grade_tested: bool
     grade_claimed: str | None
     pct: int | None
     theta: str | None

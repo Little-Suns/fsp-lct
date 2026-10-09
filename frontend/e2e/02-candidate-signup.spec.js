@@ -135,30 +135,6 @@ test('без согласия на обработку ПДн профиль не
   await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
 });
 
-test('неподтверждённый целевой уровень: без категории после перезагрузки, можно выбрать нижний', async ({ page }) => {
-  test.setTimeout(180_000);
-  await signup(page, `failed-target-${uniq()}@example.ru`, { publish: true });
-  await fillProfile(page);
-  await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
-  await page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Lead' }).click();
-  await page.getByRole('button', { name: 'Полный тест (~40 мин)', exact: true }).click();
-  await answerAll(page);
-  const finished = api(page, 'POST', '/api/quest/finish');
-  await page.getByRole('button', { name: 'Посмотреть категорию' }).click();
-  expect(await (await finished).json()).toMatchObject({ assigned: false, applied: false });
-  await expect(page.getByText('Категория ещё не присвоена', { exact: true })).toBeVisible();
-  await page.reload();
-  await expect(page.getByText('Категория ещё не присвоена', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Выбрать уровень и пройти тест' }).click();
-  await page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Intern' }).click();
-  await page.getByRole('button', { name: 'Полный тест (~40 мин)', exact: true }).click();
-  await answerAll(page);
-  const retest = api(page, 'POST', '/api/quest/finish');
-  await page.getByRole('button', { name: 'Посмотреть категорию' }).click();
-  expect(await (await retest).json()).toMatchObject({ assigned: true, applied: true });
-  await expect(page.getByText('Категория ещё не присвоена', { exact: true })).toHaveCount(0);
-});
-
 test('кандидат: регистрация → профиль и PDF → тест на грейд → вердикт и история → настройки → выгрузка → удаление', async ({ page }) => {
   test.setTimeout(180_000);
   const email = `eva-${uniq()}@example.ru`;
@@ -268,10 +244,9 @@ test('кандидат: регистрация → профиль и PDF → т�
   // полный тест сразу после экспресса: кулдаун не запущен, повторный экспресс предварительную категорию не изменит
   await page.getByRole('button', { name: 'Пройти тест ещё раз' }).click();
   await expect(page.getByRole('group', { name: 'Режим теста' })).toContainText('Предварительная категория уже есть');
-  await page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Intern', exact: true }).click();
   const start = api(page, 'POST', '/api/quest/start');
   await page.getByRole('button', { name: 'Полный тест (~40 мин)' }).click();
-  expect((await start).request().postDataJSON()).toMatchObject({ story: true, target_grade: 'Intern', mode: 'full' });
+  expect((await start).request().postDataJSON()).toMatchObject({ story: true, target_grade: 'Middle', mode: 'full' });
 
   const answered = await answerAll(page, true);
   expect(answered).toBeGreaterThan(3);
@@ -279,7 +254,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   const fin = api(page, 'POST', '/api/quest/finish');
   await page.getByRole('button', { name: 'Посмотреть категорию' }).click();
   const res = await (await fin).json();
-  expect(res.target.grade).toBe('Intern');
+  expect(res.target.grade).toBe('Middle');
   await expect(page.getByText('Ваша категория')).toBeVisible();
   // повторный finish (двойной клик, гонка) — сервер отвечает 409: тост и экран результата без падения
   await page.route('**/api/quest/finish', r => r.fulfill({ status: 409, json: { detail: 'Тест уже завершён: начните новый' } }));
@@ -290,12 +265,12 @@ test('кандидат: регистрация → профиль и PDF → т�
   // результат: категория, вердикт по заявленному грейду, история
   await expect(page.getByText('Ваша категория')).toBeVisible();
   await expect(page.locator('.cat').first()).toContainText('Backend');
-  await expect(page.getByText(`Тест на Intern, результат попытки — ${res.target.result_grade}.`)).toBeVisible();
+  await expect(page.getByText(`Тест на Middle, результат попытки — ${res.target.result_grade}.`)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Компетенции' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'История тестов' })).toBeVisible();
   await expect(page.getByText('Экспресс-оценка.')).toHaveCount(0);  // полный тест снял пометку
   await expect(page.locator('table.tbl tbody tr')).toHaveCount(2);
-  await expect(page.locator('table.tbl tbody tr').first()).toContainText('Intern');
+  await expect(page.locator('table.tbl tbody tr').first()).toContainText('Middle');
   // PDF-профиль: файл с авторизацией, имя по анонимному коду
   const pdf = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PDF-профиль' }).click();
