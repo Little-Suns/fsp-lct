@@ -808,6 +808,9 @@ def build(db, n_cand: int, n_needs: int, seed: int, today: date | None = None) -
             a.verify_attempts = 0
     db.add_all([ladoga, kiprey, *companies, lad_need, kip_need, *needs, *personas.values(), *cands, *invs, *more["all"]])
     db.flush()  # ConsentEvent.candidate_id без FK/relationship — нужны id
+    # приглашение Орлову от «Ладоги» приложило задание потребности (текст L1["task"]) — ссылка из приглашения на стенде
+    lad_task = next(t for t in more["tasks"] if t.company is ladoga and t.title == NEED_TASKS[0][0])
+    next(i for i in invs if i.company is ladoga and i.candidate is orlov).task_id = lad_task.id
     events = []
     for c in [*personas.values(), *cands]:
         at, v = c.consent_152_at, C.CONSENT_VERSION

@@ -191,7 +191,7 @@ test('новая компания: вход по коду → проверка �
   const sent = api(page, 'POST', '/api/employer/invites');
   await page.getByRole('button', { name: 'Отправить приглашение' }).click();
   const req = (await sent).request().postDataJSON();
-  expect(req).toMatchObject({ candidate_id: des.id, need_id: null, lottery_id: null, salary_from: from, task: 'Макет экрана оплаты, ~1 час' });
+  expect(req).toMatchObject({ candidate_id: des.id, need_id: null, lottery_id: null, salary_from: from, task: 'Макет экрана оплаты, ~1 час', task_id: null });
   expect(req.role).not.toMatch(/Backend/);
   await expect(toast(page)).toContainText('Приглашение отправлено');
   await expect(page.getByRole('row', { name: new RegExp(des.id) })).toContainText('отправлено');
@@ -319,7 +319,7 @@ test('Ладога: подборка и фильтры, карточка с об
   await send.click();
   const body = (await inv).request().postDataJSON();
   expect(body).toMatchObject({ candidate_id: fresh.id, need_id: ladNeed, salary_from: +f0, salary_to: +t0, format: 'Удалённо', role: 'Backend (Python), платежи — e2e',
-    task: `${mine[mine.length - 1].title}: ~${mine[mine.length - 1].minutes} мин, заменяет первый созвон` });
+    task: `${mine[mine.length - 1].title}: ~${mine[mine.length - 1].minutes} мин, заменяет первый созвон`, task_id: mine[mine.length - 1].id });
   await expect(toast(page)).toContainText('Приглашение отправлено');
   await expect(toast(page)).toContainText('Кандидат увидит его в кабинете');  // без SMTP письмо не обещаем
   await expect(toast(page)).not.toContainText('Telegram');

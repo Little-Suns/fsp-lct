@@ -16,20 +16,24 @@ test('приглашения: открыть → просмотрено, отк�
   // «Ладога Пэй»: контакт рекрутера виден до принятия, открытие помечает «просмотрено»
   const seen = api(page, 'GET', '/api/candidate/invites/' + (await lad.getAttribute('data-go')).split('/').pop());
   await lad.click();
-  expect((await (await seen).json()).status).toBe('seen');
+  const detail = await (await seen).json();
+  expect(detail.status).toBe('seen');
   await expect(page.getByRole('heading', { name: /Backend-разработчик \(Python\), команда платежей/ })).toBeVisible();
   await expect(page.getByText('240 000 ₽ — 300 000 ₽')).toBeVisible();
   await expect(page.locator('aside')).toContainText('Мария Ковалёва');
   await expect(page.locator('aside')).toContainText('Только анонимную карточку A-1042');
   await expect(page.locator('.chip.ok', { hasText: 'почта на домене подтверждена' })).toBeVisible();
-  // задания по приглашению: решение уходит с invitation_id
+  // приложенная задача (#68): «Открыть задачу» ведёт на экран этого задания по приглашению, решение уходит с invitation_id;
+  // плашка теста под вакансию не выдаёт себя за задачу компании
   const invId = page.url().split('/').pop();
   const tasks = page.locator('.panel', { has: page.getByRole('heading', { name: 'Задания по приглашению' }) });
   await expect(tasks).toBeVisible();
-  const first = tasks.locator('button[data-go^="/c/task/"]').first();
-  const taskTitle = await first.textContent();
-  await first.click();
-  await expect(page.getByRole('heading', { name: taskTitle })).toBeVisible();
+  const taskRow = page.locator('dd', { hasText: 'Разбор инцидента с дублями платежей: ~45 минут' });
+  await expect(page.getByText('Это не задача компании, а адаптивный тест платформы под эту вакансию')).toBeVisible();
+  expect(detail.task_id).toBeTruthy();
+  await taskRow.getByRole('button', { name: 'Открыть задачу' }).click();
+  await expect(page).toHaveURL(new RegExp(`/candidate/tasks/${detail.task_id}/${invId}$`));
+  await expect(page.getByRole('heading', { name: 'Разбор инцидента с дублями платежей' })).toBeVisible();
   await expect(page.getByText('Задание из приглашения.')).toBeVisible();
   await page.locator('#tk-answer').fill('Разбор: дубли из-за ретрая без ключа идемпотентности; ключ + уникальный индекс.');
   const sub = api(page, 'POST', /^\/api\/tasks\/\d+\/submit$/);
@@ -38,6 +42,11 @@ test('приглашения: открыть → просмотрено, отк�
   await expect(page.getByRole('heading', { name: 'Ваше решение' })).toBeVisible();
   await page.getByRole('button', { name: 'К приглашению' }).click();
   await expect(tasks.getByText('ждёт оценки').first()).toBeVisible();
+  // решение отправлено — в строке задачи статус вместо призыва
+  await expect(taskRow).toContainText('решение отправлено');
+  await expect(taskRow).toContainText('ждёт оценки');
+  await expect(page.getByRole('button', { name: 'Открыть задачу' })).toHaveCount(0);
+  await expect(taskRow.getByRole('button', { name: 'Ваше решение' })).toHaveAttribute('data-go', `/c/task/${detail.task_id}/${invId}`);
   await page.getByRole('button', { name: 'Пройти тест по приглашению' }).click();
   await expect(page.getByText('Тест по приглашению: выбор заданий смещён')).toBeVisible();
   // срок повышения — из профиля (кулдаун 90 дн. от теста); после этой даты строки нет — проверка не завязана на сегодняшний день

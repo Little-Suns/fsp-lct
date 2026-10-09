@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select
 
 from app import catalog, config
 from app.db import SessionLocal, engine
-from app.models import Application, Candidate, Company, Invitation, Item, Message, Need, User
+from app.models import Application, Candidate, Company, Invitation, Item, Message, Need, Task, User
 from app.routers.employer import inn_valid
 from app.services import matching, validation as V
 from app.services.chat import may_talk, peers_linked
@@ -149,6 +149,9 @@ def test_refresh_demo(seeded):
 
     lad, kip, j = pair("Ладога Пэй", "A-1042"), pair("Кипрей Логистик", "A-1042"), pair("Ладога Пэй", "J-4410")
     assert (lad.status, kip.status, j.status) == ("sent", "sent", "seen")
+    # задача из приглашения «Ладоги» — ссылка на задание той же потребности, а не только текст
+    t = db.get(Task, lad.task_id)
+    assert t.company_id == lad.company_id and t.need_id == lad.need_id and lad.task.startswith(t.title) and kip.task_id is None
     # засеяно 2026-10-05, стенд стартует через 10 дней: Ладога истекла лениво (статус sent), J-4410 — уже expired, Кипрей принят
     later = generate.anchor(generate.DEMO_TODAY + timedelta(days=10))
     j.status, kip.status, kip.responded_at = "expired", "accepted", later

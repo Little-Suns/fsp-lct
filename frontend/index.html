@@ -1592,6 +1592,9 @@ function inviteView() {
   const id = inv.id;
   const reasons = Object.entries((META && META.decline_reasons) || {});
   const r = inv.recruiter || {};
+  const live = inv.status !== 'declined' && inv.status !== 'expired';
+  // приложенное задание (task_id) — среди заданий приглашения; нет там (компания заблокирована, задание удалено) — только текст
+  const linked = live && inv.task_id != null ? (D.invTasks || []).find(t => t.id === inv.task_id) : null;
   let actions = '';
   if (inv.status === 'accepted') {
     const me = inv.company_sees || {};
@@ -1631,11 +1634,14 @@ function inviteView() {
         <dl class="kv">
           <dt>Формат</dt><dd>${esc(inv.format)}</dd>
           <dt>О работе</dt><dd class="prose pre" style="font-size:14px">${esc(inv.desc) || '<span class="muted">—</span>'}</dd>
-          <dt>Задача</dt><dd>${inv.task ? esc(inv.task) : '<span class="muted">не приложена</span>'}</dd>
+          <dt>Задача</dt><dd>${inv.task ? esc(inv.task) : '<span class="muted">не приложена</span>'}${!linked ? '' : `<div class="row small" style="gap:6px;margin-top:6px">${linked.submitted
+            ? `<span class="status s-ok">решение отправлено</span>${resultChips(linked)}<button class="btn ghost small" data-go="/c/task/${linked.id}/${id}">Ваше решение</button>`
+            : `<button class="btn primary small" data-go="/c/task/${linked.id}/${id}">Открыть задачу</button>`}</div>`}</dd>
           ${isOpen(inv) ? `<dt>Срок ответа</dt><dd>${inv.due} дн. из ${(META && META.invite_ttl_days) || 7}</dd>` : ''}
           <dt>Почему вы</dt><dd>${esc(inv.why) || '<span class="muted">—</span>'}</dd>
         </dl>
-        ${inv.task && inv.status !== 'declined' && inv.status !== 'expired' ? `<div class="alert info"><span>→</span><span>Можно пройти тест под эту вакансию: задания сместятся к нужным компетенциям, грейд считается как обычно. <button class="btn ghost small" data-act="quest-invite" data-id="${id}">Пройти тест по приглашению</button></span></div>` : ''}
+        ${inv.task && live ? `<div class="alert info"><span>→</span><span>${linked ? 'Это не задача компании, а адаптивный тест платформы под эту вакансию, по желанию: задания сместятся к нужным компетенциям, грейд считается как обычно. Задача компании — кнопка «Открыть задачу» выше.'
+          : 'Можно пройти тест под эту вакансию: задания сместятся к нужным компетенциям, грейд считается как обычно.'} <button class="btn ghost small" data-act="quest-invite" data-id="${id}">Пройти тест по приглашению</button></span></div>` : ''}
       </div>
       ${(D.invTasks || []).length ? `<div class="panel stack-s">
         <h3>Задания по приглашению</h3>
@@ -3711,7 +3717,7 @@ document.addEventListener('submit', async e => {
       candidate_id: f.cid, need_id: n ? n.id : null, role: f.role, salary_from: f.from, salary_to: f.to,
       lottery_id: n && S.lot && S.lot.needId === n.id && S.lot.drawn && S.lot.drawn.drawn.some(d => d.public_id === f.cid) ? S.lot.created.id : null,
       format: f.format + (f.format !== 'Удалённо' && n && n.city ? ', ' + n.city : ''), description: f.desc,
-      task: !f.task ? null : t ? `${t.title}: ~${t.minutes} мин, заменяет первый созвон` : f.taskText.trim(),
+      task: !f.task ? null : t ? `${t.title}: ~${t.minutes} мин, заменяет первый созвон` : f.taskText.trim(), task_id: t ? t.id : null,
     });
     S.inviteForm = null;
     toast(r.warnings.length ? 'Приглашение отправлено. ' + r.warnings[0] : 'Приглашение отправлено. Кандидат увидит его в кабинете' + (META && META.mail ? ' и получит письмо, если не отключил уведомления' : ''));

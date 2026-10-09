@@ -408,6 +408,7 @@ def _brief(db: Session, inv: Invitation, c: Candidate) -> dict:
         "to": inv.salary_to,
         "format": inv.format,
         "task": inv.task,
+        "task_id": inv.task_id,  # приложенное задание: открывается из приглашения (/api/tasks/for-invitation)
         "desc": inv.description,
         "due": _days_left(inv) if inv.status in matching.OPEN else None,
         "status": _STATUS[inv.status],

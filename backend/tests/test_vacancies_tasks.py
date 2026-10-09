@@ -1,4 +1,4 @@
-"""Вакансии и отклики, регулярные задания. Своя БД (fsp_vac), LLM выключена."""
+"""Вакансии и отклики, регулярные задания, задание в приглашении. Своя БД (fsp_vac), LLM выключена."""
 
 import os
 from datetime import UTC, datetime, timedelta
@@ -10,13 +10,13 @@ os.environ.setdefault("DEMO", "1")
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
-from app.models import Application, AuditLog, Candidate, Company, Invitation, Need, User, Vacancy
-from app.routers import candidate, tasks, vacancies
+from app.models import Application, AuditLog, Candidate, Company, Invitation, Need, Task, User, Vacancy
+from app.routers import candidate, employer, tasks, vacancies
 
 config.LLM_BASE_URL = ""
 NOW = datetime.now(UTC)
@@ -79,7 +79,7 @@ def client():
         for k, u in users.items():
             H[k] = {"Authorization": f"Bearer {issue_token(db, u)}"}
     app = FastAPI()
-    for r in (deps, vacancies, tasks, candidate):
+    for r in (deps, vacancies, tasks, candidate, employer):
         app.include_router(r.router)
     yield TestClient(app)
 
@@ -513,3 +513,66 @@ def test_reference_tasks_autocheck(client):
     with SessionLocal() as db:
         sig = tasks.task_signal(db, IDS["cand"])
     assert sig["source"] == "employer" and sig["review"] == "ok" and sig["auto_ok"] is False
+
+
+def test_invite_task_link(client):
+    """Задание в приглашении (#68): только своё и доступное кандидату; кандидату — task_id и задание среди заданий приглашения,
+    решение по ссылке — с invitation_id; удалили задание — приглашение живо, текст задачи остаётся."""
+    with SessionLocal() as db:
+        need, other = (Need(company_id=IDS["co"], text=x, spec="Backend", grade="Middle") for x in ("Платежи", "Антифрод"))
+        db.add_all([need, other])
+        db.commit()
+        nid, oid = need.id, other.id
+
+    def mk(**kw):
+        return client.post("/api/tasks", json={**TASK, **kw}, headers=H["emp"]).json()["id"]
+
+    pub, closed = mk(title="Публичное под приглашение"), mk(title="Задание потребности", public=False, need_id=nid)
+    stray, foreign_need = mk(title="Закрытое без потребности", public=False), mk(title="Другая потребность", public=False, need_id=oid)
+    ml, alien = mk(title="Задание ML", spec="ML / DS", competency=None), client.post("/api/tasks", json=TASK, headers=H["emp2"]).json()["id"]
+
+    def invite(pid, **kw):
+        body = {"candidate_id": pid, "role": "Backend-разработчик", "salary_from": 250000, "salary_to": 300000, "format": "Гибрид", **kw}
+        return client.post("/api/employer/invites", json=body, headers=H["emp"])
+
+    # чужое, несуществующее и такое, которое кандидат не откроет (закрытое без потребности, другая специализация, другая потребность) — 422
+    for tid, kw in [(alien, {}), (10**9, {}), (stray, {}), (ml, {}), (closed, {}), (foreign_need, {"need_id": nid})]:
+        r = invite("A-1042", task_id=tid, **kw)
+        assert r.status_code == 422 and "кандидат не сможет его открыть" in r.json()["detail"]["errors"][0], (tid, r.text)
+    r = invite("A-1042", task_id=pub)  # без текста — текст задачи из задания
+    assert r.status_code == 200, r.text
+    iid = r.json()["invite"]["id"]
+    r = invite("B-0001", need_id=nid, task_id=closed, task="Задание потребности: ~30 мин, заменяет первый созвон")
+    assert r.status_code == 200, r.text
+    bid = r.json()["invite"]["id"]
+    with SessionLocal() as db:
+        inv = db.get(Invitation, iid)
+        assert (inv.task_id, inv.task) == (pub, "Публичное под приглашение: ~30 мин") and db.get(Invitation, bid).task_id == closed
+
+    # кандидату — task_id в карточке и списке; приложенное задание — среди заданий приглашения даже без потребности
+    assert client.get(f"/api/candidate/invites/{iid}", headers=H["cand"]).json()["task_id"] == pub
+    assert next(i for i in client.get("/api/candidate/invites", headers=H["cand"]).json()["items"] if i["id"] == iid)["task_id"] == pub
+    assert [t["id"] for t in client.get(f"/api/tasks/for-invitation/{iid}", headers=H["cand"]).json()] == [pub]
+    r = client.post(f"/api/tasks/{pub}/submit", json={"answer": "Подход по ссылке из приглашения", "invitation_id": iid}, headers=H["cand"])
+    assert r.status_code == 200 and r.json()["invitation_id"] == iid
+
+    # явная связь точнее потребности: задание перенесли к другой потребности — по приглашению оно всё равно открывается
+    with SessionLocal() as db:
+        db.get(Task, closed).need_id = oid
+        db.commit()
+    assert client.get(f"/api/tasks/{closed}", headers=H["busy"]).status_code == 200
+    assert closed in [t["id"] for t in client.get(f"/api/tasks/for-invitation/{bid}", headers=H["busy"]).json()]
+    assert client.get(f"/api/tasks/{foreign_need}", headers=H["busy"]).status_code == 404  # прочие задания другой потребности — нет
+    r = client.post(f"/api/tasks/{closed}/submit", json={"answer": "Решение по приглашению", "invitation_id": bid}, headers=H["busy"])
+    assert r.status_code == 200 and r.json()["invitation_id"] == bid
+    assert client.get(f"/api/tasks/{closed}", headers=H["cand"]).status_code == 404  # чужое приглашение доступа не даёт
+
+    # удалили задание — приглашение живо: task_id → NULL, текст задачи остаётся
+    with SessionLocal() as db:
+        db.execute(delete(Task).where(Task.id == pub))
+        db.commit()
+        inv = db.get(Invitation, iid)
+        assert inv.task_id is None and inv.status in ("sent", "seen") and inv.task == "Публичное под приглашение: ~30 мин"
+    me = client.get(f"/api/candidate/invites/{iid}", headers=H["cand"]).json()
+    assert me["task_id"] is None and me["task"] == "Публичное под приглашение: ~30 мин"
+    assert client.get(f"/api/tasks/for-invitation/{iid}", headers=H["cand"]).json() == []
