@@ -191,7 +191,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   // таймер на нуле: плашка про льготные секунды, после них — «не засчитается» (минуту не ждём: остаток подменён при продолжении сессии)
   await page.route('**/api/quest/start', async r => {
     const res = await r.fetch();
-    await r.fulfill({ response: res, json: { ...(await res.json()), remaining_s: 1, deadline_s: 3 } });
+    await r.fulfill({ response: res, json: { ...(await res.json()), remaining_s: 1, deadline_s: 5 } });
   }, { times: 1 });
   await page.getByRole('switch', { name: 'сюжет' }).click();
   await expect(page.locator('#tmo.warn')).toContainText(/Время вышло\. Ответ засчитается, если отправить его в ближайшие [12] с\./);

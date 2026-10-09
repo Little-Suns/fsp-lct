@@ -472,6 +472,7 @@ button.chip { cursor: pointer; }
   .quest .q { font-size: 16px; }
   .quest-foot { position: sticky; bottom: 0; z-index: 5; background: var(--dark); flex-wrap: nowrap; gap: 12px;
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); font-size: 11px; line-height: 1.4; box-shadow: 0 -10px 18px rgba(0,0,0,.35); }
+  .quest-foot:has(> #tmo:not([hidden])) { flex-wrap: wrap; }  /* плашка таймера — отдельной строкой над подсказкой и «Дальше» */
   .quest-foot .row { flex: none; }
   /* у задачи на код подсказка длинная, а отправка — осознанный последний шаг: низ не прилипает */
   .quest-foot.qf-code { position: static; flex-wrap: wrap; box-shadow: none; }
@@ -1321,7 +1322,8 @@ function sceneView() {
   const canNext = isCode ? true : isMark ? !!S.codeMark : S.qAns != null;
   const ago = Math.round((Date.now() - (S.qAt || Date.now())) / 1000);
   const sec = q.remaining_s != null ? Math.max(0, q.remaining_s - ago) : it.time_limit_s;
-  const dl = q.deadline_s != null ? Math.max(0, q.deadline_s - ago) : sec;  // после нуля таймера ответ ещё засчитывается до dl
+  // после нуля таймера ответ ещё засчитывается до dl; 2 с — запас на сеть и округление, чтобы не обещать лишнего
+  const dl = q.deadline_s != null ? Math.max(0, q.deadline_s - ago - 2) : sec;
   return `
   ${crumbs([['Тест-квест', '/c/quest'], [(S.story ? 'Сцена ' : 'Задание ') + n]])}
   <div class="quest fade">
@@ -1330,7 +1332,7 @@ function sceneView() {
       <div class="pr" aria-label="Прогресс">${Array.from({ length: total }, (_, i) => `<i class="${i + 1 < n ? 'on' : i + 1 === n ? 'cur' : ''}"></i>`).join('')}</div>
       <span class="qt-comp" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> сюжет</button>
-      <span class="timer" id="timer" data-sec="${sec}" data-dl="${dl}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
+      <span class="timer" id="timer" data-sec="${sec}" data-dl="${dl}" data-sub="${q.submitted ? 1 : ''}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
     </div>
     <div class="quest-body">
       <div class="stack">
@@ -3011,10 +3013,11 @@ function startTimer() {
   const el = document.getElementById('timer'), tmo = document.getElementById('tmo');
   if (!el) return;
   let s = +el.dataset.sec, dl = +el.dataset.dl;
+  const sub = !!el.dataset.sub;  // решение уже отправлено вовремя (песочница была занята): время ответа зафиксировано
   const tick = () => {
     el.querySelector('span').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     el.classList.toggle('low', s < 60);
-    tmo.hidden = s > 0;
+    tmo.hidden = s > 0 || sub;
     tmo.className = 'alert ' + (dl ? 'warn' : 'bad');
     tmo.lastChild.textContent = dl ? `Время вышло. Ответ засчитается, если отправить его в ближайшие ${dl} с.`
       : 'Время вышло, ответ не засчитается — переходите к следующему.';

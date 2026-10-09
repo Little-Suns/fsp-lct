@@ -284,6 +284,19 @@ test.describe('телефон: вход и тест', () => {
       await page.evaluate(y => scrollTo(0, y), Math.round(quest.top));
       await expect.poll(async () => Math.round((await box(page.locator('.quest-top'))).top)).toBe(56);
     }
+    // таймер на нуле: плашка — отдельной строкой во всю ширину нижней панели, «Дальше» на месте (остаток подменён)
+    await page.route('**/api/quest/start', async r => {
+      const res = await r.fetch();
+      await r.fulfill({ response: res, json: { ...(await res.json()), remaining_s: 1, deadline_s: 30 } });
+    }, { times: 1 });
+    await page.getByRole('switch', { name: 'сюжет' }).click();
+    await expect(page.locator('#tmo.warn')).toBeVisible();
+    const foot = await box(page.locator('.quest-foot')), tmo = await box(page.locator('#tmo'));
+    expect(tmo.right - tmo.left).toBeGreaterThan(foot.right - foot.left - 40);
+    expect((await box(page.getByRole('button', { name: 'Дальше' }))).top).toBeGreaterThanOrEqual(tmo.bottom);
+    await noHScroll(page, 'плашка таймера');
+    await page.getByRole('switch', { name: 'сюжет' }).click();
+    await expect(page.locator('#tmo')).toBeHidden();
     // ответ и переход к следующему заданию с нижней панели
     const opts = page.locator('.opt');
     if (await opts.count()) await opts.first().click(); else await page.locator('.code button[data-act=mark]').nth(1).click();
