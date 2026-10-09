@@ -28,8 +28,9 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
   await expect(page.getByLabel('О компании, 1–2 предложения')).toHaveValue(`Edtech, MVP ${XSS}`);
   expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 
-  // приглашение A-1042: вилка от 25-го перцентиля рынка его грейда
-  await open(page, '/e/invite/A-1042');
+  // приглашение A-1042 по потребности (адрес с ?need=): вилка от 25-го перцентиля рынка его грейда
+  const needId = (await (await page.request.get('/api/employer/needs', { headers: await auth(page) })).json())[0].id;
+  await open(page, `/e/invite/A-1042?need=${needId}`);
   await expect(page.getByRole('heading', { name: 'Приглашение для A-1042' })).toBeVisible();
   await expect(banner).toBeVisible();
   await expect(page.locator('#f-msgs .alert.bad')).toContainText('ниже 25-го перцентиля');  // вилка потребности джуна

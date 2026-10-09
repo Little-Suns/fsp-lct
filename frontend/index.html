@@ -699,7 +699,7 @@ const S = {
   pf: null, cv: null,
   declineFor: null, declineReason: null,
   need: { text: '', parsed: null },
-  needId: null, needObj: null,
+  needId: null, needObj: null, needs: [],
   filters: new Set(),
   lot: null,
   inviteForm: null,
@@ -739,7 +739,7 @@ function fail(e) { toast(e && e.message ? e.message : 'Ошибка'); }
 function clearSide(role) {
   setTok(role, null);
   if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
-  else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
+  else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, needs: [], lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
 }
 // демо-персонажи (только при DEMO=1 на сервере): c — Орлов, e — «Ладога Пэй», newco — неподтверждённый «Новый Стартап»
 async function demoLogin(who) {
@@ -843,6 +843,7 @@ function toast(msg) {
 }
 const go = p => { location.hash = '#' + p; };
 const route = () => (location.hash.slice(1) || '/');
+const routeQ = k => new URLSearchParams(route().split('?')[1] || '').get(k);  // параметр адреса: #/e/cand/A-1042?need=5
 
 const trace = (cls, w, h, d, dots) => `<svg class="trace ${cls}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}"/>${dots.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.5"/>`).join('')}</svg>`;
 
@@ -2060,7 +2061,7 @@ function lotteryPanel(n) {
             <div class="chips">${(d.skills_confirmed || []).map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}</div>
             <span class="small muted num">перцентиль ${d.percentile ?? '—'} · θ ${d.theta != null ? d.theta.toFixed(2) + ' ± ' + (d.se || 0).toFixed(2) : '—'} · нагрузка ${d.load} / ${CAP}</span>
           </div>
-          <div><button class="btn primary small" data-go="/e/invite/${esc(d.public_id)}">Пригласить</button></div>
+          <div><button class="btn primary small" data-go="/e/invite/${esc(d.public_id)}?need=${n.id}">Пригласить</button></div>
         </div>`).join('')}
       <div class="row"><button class="btn ghost small" data-act="lot-verify">Проверить жеребьёвку</button><button class="btn ghost small" data-act="lot-reset">Новый розыгрыш</button></div>
       ${L.verify ? `<div class="alert ${L.verify.ok ? 'ok' : 'bad'}"><span>${L.verify.ok ? '✓' : '!'}</span><span>${L.verify.ok ? 'Проверка пройдена: sha256(зерно) совпал с опубликованным хешем, пул и порог совпали с обязательством, порядок жребия воспроизведён.' : `Проверка не пройдена: хеш ${L.verify.hash_ok ? 'совпал' : 'не совпал'}, обязательство ${L.verify.commitment_ok ? 'совпало' : 'не совпало'}, порядок ${L.verify.draw_ok ? 'совпал' : 'не совпал'}.`}</span></div>` : ''}`}`;
@@ -2088,7 +2089,7 @@ V['/e/picks'] = () => {
   ${coBanners()}
   <div class="row sb fade" style="margin-bottom:16px">
     <div class="stack-s"><h2>${esc(roleTitle(n))}</h2><span class="small muted">${esc(n.must.join(', '))}${n.nice.length ? ' · желательно ' + esc(n.nice.join(', ')) : ''} · ${K(n.from)} — ${K(n.to)} на руки${n.format ? ' · ' + esc([n.format.toLowerCase(), n.city].filter(Boolean).join(', ')) : ''}</span></div>
-    <div class="row"><button class="btn ghost small" data-go="/e/need">Изменить потребность</button><button class="btn ghost small" data-go="/e/pipeline">Приглашения</button></div>
+    <div class="row"><button class="btn ghost small" data-go="/e/need">Новая потребность</button><button class="btn ghost small" data-go="/e/pipeline">Приглашения</button></div>
   </div>
   <div class="grid side-l">
     <aside class="stack">
@@ -2101,8 +2102,13 @@ V['/e/picks'] = () => {
       </div>
       <div class="panel tight stack-s">
         <span class="label">Рекомендованные категории</span>
-        ${cats.map(c => `<button class="chip ${c.current ? 'on' : ''}" style="justify-content:space-between;width:100%" ${c.current ? '' : `data-act="noop" data-msg="${esc(c.note || 'Соседняя категория')}"`}>${esc([c.spec, c.track, c.grade].filter(Boolean).join(' · '))} <b class="num">${c.count}</b></button>`).join('')}
+        ${cats.map((c, i) => `<button class="chip ${c.current ? 'on' : ''}" style="justify-content:space-between;width:100%" ${c.current ? 'aria-current="true"' : `data-act="need-cat-new" data-i="${i}" title="${esc(c.note || 'Соседняя категория')}"`}>${esc([c.spec, c.track, c.grade].filter(Boolean).join(' · '))} <b class="num">${c.count}</b></button>`).join('')}
         ${warnCat ? `<span class="hint">${esc(warnCat.note)}</span>` : ''}
+        <span class="hint">Другая категория — новая потребность с теми же навыками и вилкой</span>
+      </div>
+      <div class="panel tight stack-s" id="needs">
+        <span class="label">Потребности · ${S.needs.length}</span>
+        ${S.needs.map(x => `<button class="chip ${x.id === n.id ? 'on' : ''}" style="justify-content:space-between;width:100%" ${x.id === n.id ? 'aria-current="true"' : `data-act="need-pick" data-id="${x.id}"`}>${esc(roleTitle(x))} · ${esc(x.grade)} <span class="small muted">${DAYMON(x.created_at)}</span></button>`).join('')}
       </div>
       <div class="panel tight stack-s m-before">
         <span class="label">Фильтры</span>
@@ -2117,7 +2123,7 @@ V['/e/picks'] = () => {
     <div class="stack">
       ${lotteryPanel(n)}
       <div class="row sb small muted"><span>${list.length} в топе из ${P.total} · сортировка по итоговой оценке</span><span>Без ФИО, пола, возраста, вуза и фото</span></div>
-      ${list.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
+      ${list.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}?need=${n.id}">
           <div class="stack-s" style="min-width:0">
             <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${expressChip(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
             <div class="chips">${c.skills.map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${claimedChips(c)}${badgeChips(c)}</div>
@@ -2303,14 +2309,18 @@ async function chatMore() {
   box.scrollTop = box.scrollHeight - h;
 }
 
+// откуда пришли к кандидату: из подборки потребности (?need=) или из поиска по банку
+const candFrom = n => n ? ['Подборка', '/e/picks'] : ['Поиск', '/e/search'];
+const needQ = n => n ? '?need=' + n.id : '';
+
 function candView() {
-  const c = D.cand;
-  if (!c) return `${crumbs([['Подборка', '/e/picks'], ['Кандидат']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
-  const n = S.needObj, e = c.explanation, b = c.breakdown;
+  const c = D.cand, n = D.candNeed;
+  if (!c) return `${crumbs([candFrom(n), ['Кандидат']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
+  const e = c.explanation, b = c.breakdown;
   const must = e ? e.confirmed.filter(s => n && n.must.includes(s)) : [];
   const ach = [...(c.badges || []).map(badgeTitle), c.sport_rank ? 'спортивный разряд: ' + c.sport_rank : '', c.cf ? 'Codeforces ' + Math.round(c.cf) : ''].filter(Boolean);
   return `
-  ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id)]])}
+  ${crumbs([candFrom(n), ['Кандидат ' + esc(c.id)]])}
   ${coBanners()}
   <div class="grid side fade">
     <div class="stack">
@@ -2326,10 +2336,10 @@ function candView() {
         ${c.grade_tested === false ? `<div class="alert warn"><span>!</span><span>Тест не пройден: грейд ${esc(c.grade)} заявлен кандидатом. Перцентиля, θ и компетенций нет; в подборке и поиске такие кандидаты идут после прошедших тест, в лотерею не попадают. Навыки — со слов кандидата: ${esc((c.claimed || []).join(', ')) || '—'}.</span></div>` : ''}
       </div>
       <div class="panel stack">
-        <h3>Почему в подборке</h3>
+        <h3>${n ? 'Почему в подборке' : 'О кандидате'}</h3>
         <div class="stack-s">
           ${e && e.why ? `<div class="alert info"><span>→</span><span>${esc(e.why)}</span></div>` : ''}
-          ${c.grade_tested === false ? '<div class="alert warn"><span>!</span><span>Навыки не подтверждены: тест не пройден</span></div>' : `<div class="alert ok"><span>✓</span><span>Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}</span></div>`}
+          ${c.grade_tested === false ? '<div class="alert warn"><span>!</span><span>Навыки не подтверждены: тест не пройден</span></div>' : `<div class="alert ok"><span>✓</span><span>${n ? `Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}` : `Навыки подтверждены тестом: ${esc(c.skills.join(', ')) || '—'}`}</span></div>`}
           ${c.gaps.map(g => `<div class="alert warn"><span>!</span><span>${esc(g)}</span></div>`).join('')}
           ${c.inFork != null ? `<div class="alert ${c.inFork ? 'ok' : 'warn'}"><span>${c.inFork ? '✓' : '!'}</span><span>Ожидания от ${RUB(c.salary)} на руки ${c.inFork ? '— внутри вашей вилки' : '— выше вашей вилки: вероятность принятия ниже'}</span></div>` : ''}
           <div class="alert ${c.fmtOk === false ? 'warn' : 'ok'}"><span>${c.fmtOk === false ? '!' : '✓'}</span><span>Формат: ${esc(c.format)}</span></div>
@@ -2365,7 +2375,7 @@ function candView() {
         <p class="small num">${c.load} из ${c.cap} открытых приглашений${c.busy ? '. Ответ может задержаться.' : ''}</p>
       </div>
       ${chatBtn('e', c.chat_peer, 'btn ghost block')}
-      ${c.invited ? '<button class="btn ghost block" data-go="/e/pipeline">Уже приглашён — к статусам</button>' : `<button class="btn primary block" data-act="invite" data-id="${esc(c.id)}">Пригласить</button>`}
+      ${c.invited ? '<button class="btn ghost block" data-go="/e/pipeline">Уже приглашён — к статусам</button>' : `<button class="btn primary block" data-go="/e/invite/${esc(c.id)}${needQ(n)}">Пригласить</button>`}
       <span class="hint">ФИО и контакты откроются, когда кандидат примет приглашение</span>
     </aside>
   </div>`;
@@ -2376,13 +2386,17 @@ const acceptProb = (to, min) => { const r = Math.max(-.5, Math.min(.5, (to - min
 
 function inviteFormView() {
   const c = D.cand;
-  if (!c) return `${crumbs([['Подборка', '/e/picks'], ['Приглашение']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
-  const n = S.needObj;
-  if (!S.inviteForm || S.inviteForm.cid !== c.id) S.inviteForm = {
-    cid: c.id, role: n ? roleTitle(n) : '', from: n && n.from, to: n && n.to, format: (n && n.format) || 'Гибрид',
-    desc: n ? n.text : '', task: true, server: null,
+  const n = D.candNeed;
+  if (!c) return `${crumbs([candFrom(n), ['Приглашение']])}<div class="panel">Кандидат не найден или скрыл профиль.</div>`;
+  // без потребности (из поиска) — роль по категории кандидата, вилку компания указывает сама
+  if (!S.inviteForm || S.inviteForm.cid !== c.id || S.inviteForm.needId !== (n ? n.id : null)) S.inviteForm = {
+    cid: c.id, needId: n ? n.id : null, role: roleTitle(n || c), from: n && n.from, to: n && n.to, format: (n && n.format) || 'Гибрид',
+    desc: n ? n.text : '', task: false, taskId: null, taskText: '', server: null,
   };
   const f = S.inviteForm, mk = c.market, maxW = (META && META.fork_max_width) || .4;
+  // задача вместо созвона — из заданий компании по специализации кандидата; заданий нет — своим текстом
+  const tasks = (D.mytasks || []).filter(t => t.spec === c.spec);
+  if (f.task && tasks.length && !tasks.some(t => t.id === f.taskId)) f.taskId = tasks[0].id;
   const errs = [], warns = [];
   if (!f.from || !f.to) errs.push('Укажите обе границы вилки.');
   else {
@@ -2391,11 +2405,12 @@ function inviteFormView() {
     if ((f.to - f.from) / f.from > maxW) errs.push(`Вилка слишком широкая: верхняя граница не больше нижней + ${Math.round(maxW * 100)} %.`);
     if (f.to < c.salary) warns.push(`Верхняя граница ниже минимума кандидата (${RUB(c.salary)} на руки). Вероятность принятия упадёт примерно до ${DEC(acceptProb(f.to, c.salary))}.`);
   }
+  if (f.task && !tasks.length && !f.taskText.trim()) errs.push('Опишите задачу или снимите галочку.');
   if (f.server) { errs.push(...f.server.errors.filter(x => !errs.includes(x))); warns.push(...f.server.warnings.filter(x => !warns.includes(x))); }
   const q = D.quota || { used: 0, max: 1 };
   const ok = !errs.length && q.used < q.max;
   return `
-  ${crumbs([['Подборка', '/e/picks'], ['Кандидат ' + esc(c.id), '/e/cand/' + esc(c.id)], ['Приглашение']])}
+  ${crumbs([candFrom(n), ['Кандидат ' + esc(c.id), '/e/cand/' + esc(c.id) + needQ(n)], ['Приглашение']])}
   ${coBanners()}
   <div class="grid side fade">
     <form class="panel stack" id="inv-form" novalidate>
@@ -2410,10 +2425,12 @@ function inviteFormView() {
       </div>
       <div class="field"><span>Формат</span><div class="seg" role="group">${((META && META.formats) || ['Офис', 'Гибрид', 'Удалённо']).map(x => `<button type="button" data-act="fmt" data-v="${x}" aria-pressed="${f.format === x}">${x}</button>`).join('')}</div></div>
       <label class="field"><span>О работе</span><textarea class="input" id="f-desc" style="min-height:80px">${esc(f.desc)}</textarea></label>
-      <label class="check"><input type="checkbox" id="f-task" ${f.task ? 'checked' : ''}> Приложить задачу вместо первого созвона: «Разбор инцидента с дублями платежей», ~45 мин</label>
+      <label class="check"><input type="checkbox" id="f-task" ${f.task ? 'checked' : ''}> Приложить задачу вместо первого созвона</label>
+      ${!f.task ? '' : tasks.length ? `<label class="field"><span>Задача</span><select class="input" id="f-task-id">${tasks.map(t => `<option value="${t.id}" ${t.id === f.taskId ? 'selected' : ''}>${esc(t.title)}, ~${t.minutes} мин</option>`).join('')}</select></label>`
+        : `<label class="field"><span>Задача</span><input class="input" id="f-task-text" maxlength="500" placeholder="Что сделать и сколько времени займёт" value="${esc(f.taskText)}"><span class="hint">Своих заданий по ${esc(c.spec)} нет — их можно завести в разделе «Задания»</span></label>`}
       <div class="row small muted">Срок ответа — ${(META && META.invite_ttl_days) || 7} дней. Изменить нельзя.</div>
       ${q.used >= q.max ? '<div class="alert bad">Квота на неделю исчерпана. Обновится в понедельник.</div>' : ''}
-      <div class="row"><button class="btn primary" type="submit" ${ok ? '' : 'disabled'}>Отправить приглашение</button><button class="btn ghost" type="button" data-go="/e/cand/${esc(c.id)}">Отмена</button></div>
+      <div class="row"><button class="btn primary" type="submit" ${ok ? '' : 'disabled'}>Отправить приглашение</button><button class="btn ghost" type="button" data-go="/e/cand/${esc(c.id)}${needQ(n)}">Отмена</button></div>
     </form>
     <aside class="stack">
       <div class="panel tight stack-s">
@@ -2455,7 +2472,7 @@ V['/e/pipeline'] = () => {
     <div class="tbl-wrap"><table class="tbl stack">
       <thead><tr><th>Кандидат</th><th>Роль</th><th class="num">Вилка на руки</th><th>Отправлено</th><th>Статус</th><th>Контакты</th><th>После собеседования</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
-        <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}">${esc(r.cid)}</button> ${chatBtn('e', r.chat_peer)}${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
+        <td style="white-space:nowrap"><button class="btn ghost small" data-go="/e/cand/${esc(r.cid)}${r.need_id ? '?need=' + r.need_id : ''}">${esc(r.cid)}</button> ${chatBtn('e', r.chat_peer)}${r.lottery_id ? '<div class="small muted">по жребию</div>' : ''}</td>
         <td data-l="Роль">${esc(r.role)}</td>
         <td class="num" data-l="Вилка на руки">${K(r.from)} — ${K(r.to)}</td>
         <td class="muted" data-l="Отправлено">${esc(r.when)}</td>
@@ -2870,12 +2887,15 @@ async function ensureCo() {
   D.coName = D.co.name;
 }
 
-// текущая потребность работодателя: выбранная в этой сессии или последняя созданная
+// все потребности компании; текущая — выбранная в этой сессии или последняя созданная
 async function ensureNeed() {
-  if (S.needId && S.needObj && S.needObj.id === S.needId) return;
-  const needs = await api('GET', '/api/employer/needs');
-  const n = needs.find(x => x.id === S.needId) || needs[0] || null;
+  S.needs = await api('GET', '/api/employer/needs');
+  const n = S.needs.find(x => x.id === S.needId) || S.needs[0] || null;
   S.needId = n && n.id; S.needObj = n;
+}
+// сделать потребность текущей: лотерея, фильтры и черновик приглашения — от прежней, сбрасываются
+function pickNeed(n) {
+  S.needId = n.id; S.needObj = n; S.lot = null; S.filters.clear(); S.inviteForm = null;
 }
 
 async function loadPicks() {
@@ -2893,7 +2913,7 @@ async function load(r) {
     CAP = META.cap;
     GRADE_TH = Object.entries(META.grade_th).filter(([g]) => g !== 'Intern').map(([g, t]) => ({ g, t }));
   }
-  const [, side, page, arg] = r.split('/');
+  const [, side, page, arg] = r.split('?')[0].split('/');
   if ((side === 'c' || side === 'e') && page !== 'signup' && page !== 'chat' && TOK[side]) UNREAD = await api('GET', '/api/chat/unread').then(x => x.unread_count, e => { if (e.status === 401) throw e; return 0; });  // бейдж не критичен: ошибка сети его не роняет, протухший вход — обычный путь
   if (side === 'c' && page !== 'signup') {
     await loadMe();
@@ -2932,8 +2952,11 @@ async function load(r) {
     else if (page === 'picks') await loadPicks();
     else if (page === 'search') await loadSearch();
     else if (page === 'cand' || page === 'invite') {
-      D.cand = await or404(api('GET', `/api/employer/candidates/${encodeURIComponent(arg)}${S.needId ? '?need_id=' + S.needId : ''}`));
-      if (page === 'invite') D.quota = await api('GET', '/api/employer/quota');
+      // потребность — только явно из адреса (пришли из подборки или лотереи); из поиска и статусов — без неё
+      const nid = +routeQ('need') || null;
+      D.candNeed = nid ? S.needs.find(x => x.id === nid) || null : null;
+      D.cand = await or404(api('GET', `/api/employer/candidates/${encodeURIComponent(arg)}${nid ? '?need_id=' + nid : ''}`));
+      if (page === 'invite') [D.quota, D.mytasks] = await Promise.all([api('GET', '/api/employer/quota'), api('GET', '/api/tasks/mine')]);
     }
     else if (page === 'pipeline') D.pipe = await api('GET', '/api/employer/pipeline');
     else if (page === 'vacancies') D.myvac = await api('GET', '/api/vacancies/mine');
@@ -3360,8 +3383,19 @@ const ACT = {
       text: S.need.text, spec: p.spec, track: p.track, grade: p.grade, must: p.must, nice: p.nice,
       salary_from: p.from, salary_to: p.to, format: p.format, city: p.city, parsed_by: p.parsed_by,
     });
-    S.needId = n.id; S.needObj = n; S.needCat = null; S.lot = null; S.filters.clear(); S.inviteForm = null; S.need.parsed = null; S.plan = null;
+    pickNeed(n); S.needCat = null; S.need.parsed = null; S.plan = null;
     go('/e/picks');
+  },
+  // раздел «Потребности» в подборке: переключить текущую
+  'need-pick': (a, d) => { pickNeed(S.needs.find(x => x.id === +d.id)); show(); },
+  // рекомендованная категория → новая потребность с той же структурой, но другой категорией
+  async 'need-cat-new'(a, d) {
+    const n = D.picks.need, c = D.picks.categories[+d.i];
+    const m = await api('POST', '/api/employer/needs', {
+      text: n.text, spec: c.spec, track: c.track, grade: c.grade, must: n.must, nice: n.nice,
+      salary_from: n.from, salary_to: n.to, format: n.format, city: n.city, parsed_by: n.parsed_by,
+    });
+    pickNeed(m); toast('Новая потребность: ' + [c.spec, c.track, c.grade].filter(Boolean).join(' · ')); show();
   },
   async filter(a, d) { S.filters.has(d.k) ? S.filters.delete(d.k) : S.filters.add(d.k); await loadPicks(); rerender(); },
   'lot-skill': (a, d) => { const m = S.lot.must; m.includes(d.v) ? m.splice(m.indexOf(d.v), 1) : m.push(d.v); rerender(); },
@@ -3378,7 +3412,6 @@ const ACT = {
   async 'lot-draw'() { S.lot.drawn = await api('POST', `/api/lottery/${S.lot.created.id}/draw`); rerender(); },
   async 'lot-verify'() { S.lot.verify = await api('GET', `/api/lottery/${S.lot.created.id}/verify`); rerender(); },
   'lot-reset': () => { Object.assign(S.lot, { created: null, drawn: null, verify: null }); rerender(); },
-  invite: (a, d) => go('/e/invite/' + d.id),
   fmt: (a, d) => { S.inviteForm.format = d.v; S.inviteForm.server = null; rerender(); },
   async fb(a, d) {
     await api('POST', `/api/employer/invites/${d.id}/feedback`, { value: d.v });
@@ -3502,6 +3535,14 @@ document.addEventListener('change', async e => {
   }
 });
 
+// перерисовываем только сообщения и кнопку формы приглашения, чтобы не терять фокус
+function invMsgs() {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = inviteFormView();
+  document.getElementById('f-msgs').innerHTML = tmp.querySelector('#f-msgs').innerHTML;
+  document.querySelector('#inv-form [type=submit]').disabled = tmp.querySelector('#inv-form [type=submit]').disabled;
+}
+
 document.addEventListener('input', e => {
   if (e.target.id === 'ap-note') { const el = document.getElementById('ap-left'); if (el) el.textContent = (300 - e.target.value.length) + ' символов'; }
   if (!S.inviteForm || !document.getElementById('inv-form')) return;
@@ -3510,28 +3551,27 @@ document.addEventListener('input', e => {
     const v = parseInt(e.target.value.replace(/\D/g, ''), 10) || 0;
     S.inviteForm[id === 'f-from' ? 'from' : 'to'] = v;
     S.inviteForm.server = null;
-    // перерисовываем только сообщения и кнопку, чтобы не терять фокус
-    const tmp = document.createElement('div');
-    tmp.innerHTML = inviteFormView();
-    document.getElementById('f-msgs').innerHTML = tmp.querySelector('#f-msgs').innerHTML;
-    document.querySelector('#inv-form [type=submit]').disabled = tmp.querySelector('#inv-form [type=submit]').disabled;
+    invMsgs();
   }
   if (id === 'f-role') S.inviteForm.role = e.target.value;
   if (id === 'f-desc') S.inviteForm.desc = e.target.value;
-  if (id === 'f-task') S.inviteForm.task = e.target.checked;
+  if (id === 'f-task') { S.inviteForm.task = e.target.checked; S.inviteForm.server = null; rerender(); }
+  if (id === 'f-task-id') S.inviteForm.taskId = +e.target.value;
+  if (id === 'f-task-text') { S.inviteForm.taskText = e.target.value; invMsgs(); }
 });
 
 document.addEventListener('submit', async e => {
   if (e.target.id !== 'inv-form') return;
   e.preventDefault();
-  const f = S.inviteForm, n = S.needObj, btn = e.target.querySelector('[type=submit]');
+  const f = S.inviteForm, n = D.candNeed, btn = e.target.querySelector('[type=submit]');
+  const t = f.task && (D.mytasks || []).find(x => x.id === f.taskId);
   btn.disabled = true;
   try {
     const r = await api('POST', '/api/employer/invites', {
       candidate_id: f.cid, need_id: n ? n.id : null, role: f.role, salary_from: f.from, salary_to: f.to,
-      lottery_id: S.lot && S.lot.drawn && S.lot.drawn.drawn.some(d => d.public_id === f.cid) ? S.lot.created.id : null,
+      lottery_id: n && S.lot && S.lot.needId === n.id && S.lot.drawn && S.lot.drawn.drawn.some(d => d.public_id === f.cid) ? S.lot.created.id : null,
       format: f.format + (f.format !== 'Удалённо' && n && n.city ? ', ' + n.city : ''), description: f.desc,
-      task: f.task ? 'Разбор инцидента с дублями платежей: ~45 минут, заменяет первый созвон' : null,
+      task: !f.task ? null : t ? `${t.title}: ~${t.minutes} мин, заменяет первый созвон` : f.taskText.trim(),
     });
     S.inviteForm = null;
     toast(r.warnings.length ? 'Приглашение отправлено. ' + r.warnings[0] : 'Приглашение отправлено. Кандидат получит письмо и сообщение в Telegram');

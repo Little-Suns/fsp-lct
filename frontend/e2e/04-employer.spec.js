@@ -113,10 +113,78 @@ test('новая компания: вход по коду → проверка �
   await expect(page.locator('#app button.cand').first()).toBeVisible();
 
   // план теста уже сохранённой потребности — по need_id
-  await page.getByRole('button', { name: 'Изменить потребность' }).click();
+  await page.getByRole('button', { name: 'Новая потребность' }).click();
   const plan = api(page, 'POST', '/api/quest/plan');
   await page.getByRole('button', { name: 'Показать план теста' }).click();
   expect((await plan).request().postDataJSON()).toEqual({ need_id: need.id });
+
+  // раздел «Потребности»: все потребности компании; рекомендованная категория — новая потребность с той же структурой
+  await open(page, '/e/picks');
+  const needs = page.locator('#needs button.chip');
+  await expect(needs).toHaveCount(1);
+  await expect(page.locator('#needs')).toContainText('Потребности · 1');
+  const created = api(page, 'POST', '/api/employer/needs');
+  await page.locator('aside button.chip[data-act=need-cat-new]').first().click();
+  const other = await (await created).json();
+  expect(other).toMatchObject({ spec: need.spec, must: need.must, nice: need.nice, from: need.from, to: need.to });
+  expect([other.track, other.grade]).not.toEqual([need.track, need.grade]);
+  await expect(toast(page)).toContainText('Новая потребность: ' + [other.spec, other.track, other.grade].filter(Boolean).join(' · '));
+  await expect(needs).toHaveCount(2);
+  await expect(page.locator('#needs button.chip.on')).toContainText(other.grade);
+  await expect(page.locator('aside button.chip[aria-current]').first()).toContainText([other.spec, other.track, other.grade].filter(Boolean).join(' · '));
+  // переключение обратно на первую: подборка по ней
+  const back = api(page, 'GET', `/api/employer/needs/${need.id}/picks`);
+  await page.locator(`#needs button.chip[data-id="${need.id}"]`).click();
+  expect((await back).ok()).toBe(true);
+  await expect(page.locator('#needs button.chip.on')).toContainText(need.grade);
+  await expect(page.locator(`#needs button.chip[data-id="${other.id}"]`)).toBeVisible();
+  // карточка из подборки — относительно этой потребности, она в адресе
+  await page.locator('#app button.cand').first().click();
+  await expect(page).toHaveURL(new RegExp(`#/e/cand/[^?]+\\?need=${need.id}$`));
+  await expect(page.locator('#app .crumbs')).toContainText('Подборка');
+  await expect(page.getByRole('heading', { name: 'Почему в подборке' })).toBeVisible();
+
+  // поиск → приглашение: без потребности, роль по категории кандидата, вилку компания указывает сама (#49)
+  await open(page, '/e/search');
+  const found = api(page, 'GET', '/api/employer/search');
+  await page.locator('button.chip[data-k=spec][data-v="Design"]').click();
+  const des = (await (await found).json()).items.find(c => !c.invited && !c.busy);
+  await page.locator(`#app button.cand[data-go="/e/cand/${des.id}"]`).click();
+  await expect(page.getByRole('heading', { name: 'Кандидат ' + des.id })).toBeVisible();
+  await expect(page.locator('#app .crumbs')).toContainText('Поиск');
+  await expect(page.getByRole('heading', { name: 'Почему в подборке' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'О кандидате' })).toBeVisible();
+  await page.getByRole('button', { name: 'Пригласить', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`#/e/invite/${des.id}$`));
+  await expect(page.getByRole('heading', { name: 'Приглашение для ' + des.id })).toBeVisible();
+  await expect(page.locator('#app .crumbs')).toContainText('Поиск');
+  await expect(page.getByRole('textbox', { name: 'Роль' })).not.toHaveValue(/Backend/);
+  await expect(page.getByRole('textbox', { name: 'Роль' })).not.toHaveValue('');
+  await expect(page.getByLabel('от', { exact: true })).toHaveValue('');
+  await expect(page.locator('#f-msgs')).toContainText('Укажите обе границы вилки.');
+  await expect(page.getByText('Рынок · Design')).toBeVisible();
+  const p25 = +(await page.locator('dt', { hasText: '25-й перцентиль' }).locator('xpath=following-sibling::dd[1]').textContent()).replace(/\D/g, '');
+  const min = +(await page.locator('.panel', { hasText: 'Кандидат ожидает' }).locator('b').textContent()).replace(/\D/g, '');
+  const from = Math.max(p25, Math.round(min / 1.3));
+  await page.getByLabel('от', { exact: true }).fill(String(from));
+  await page.getByLabel('до', { exact: true }).fill(String(Math.round(from * 1.3)));
+  await expect(page.locator('#f-msgs .alert.bad')).toHaveCount(0);
+  // задача вместо созвона: по умолчанию выключена; у новой компании заданий нет — своим текстом (#50)
+  const taskBox = page.getByLabel('Приложить задачу вместо первого созвона');
+  await expect(taskBox).not.toBeChecked();
+  await expect(page.getByText(/дубл/)).toHaveCount(0);
+  await taskBox.check();
+  await expect(page.locator('#f-msgs')).toContainText('Опишите задачу или снимите галочку.');
+  await expect(page.getByRole('button', { name: 'Отправить приглашение' })).toBeDisabled();
+  await page.locator('#f-task-text').fill('Макет экрана оплаты, ~1 час');
+  await expect(page.locator('#f-msgs .alert.bad')).toHaveCount(0);
+  const sent = api(page, 'POST', '/api/employer/invites');
+  await page.getByRole('button', { name: 'Отправить приглашение' }).click();
+  const req = (await sent).request().postDataJSON();
+  expect(req).toMatchObject({ candidate_id: des.id, need_id: null, lottery_id: null, salary_from: from, task: 'Макет экрана оплаты, ~1 час' });
+  expect(req.role).not.toMatch(/Backend/);
+  await expect(toast(page)).toContainText('Приглашение отправлено');
+  await expect(page.getByRole('row', { name: new RegExp(des.id) })).toContainText('отправлено');
 
   // выход с экрана компании возвращает на вход
   await open(page, '/e/signup');
@@ -146,6 +214,7 @@ test('Ладога: подборка и фильтры, карточка с об
   const f = api(page, 'GET', /^\/api\/employer\/needs\/\d+\/picks$/);
   await page.getByRole('button', { name: 'Формат совпадает' }).click();
   expect((await f).url()).toContain('filters=fmt');
+  const ladNeed = +(await f).url().match(/needs\/(\d+)\/picks/)[1];
   await expect(page.getByRole('button', { name: 'Формат совпадает' })).toHaveClass(/on/);
   await expect(page.locator('#app button.cand').first()).toBeVisible();
   const after = await ids(page);
@@ -161,11 +230,10 @@ test('Ладога: подборка и фильтры, карточка с об
   await page.getByRole('button', { name: 'Без перегрузки' }).click();
   await expect(page.getByRole('button', { name: 'Без перегрузки' })).not.toHaveClass(/on/);
   await expect.poll(() => ids(page)).toEqual(before);
-  const adj = page.locator('aside button.chip[data-act=noop]').first();
-  if (await adj.count()) { await adj.click(); await expect(toast(page)).toBeVisible(); }
+  await expect(page.locator('#needs button.chip.on')).toContainText('Backend-разработчик (Python)');
 
-  // карточка демо-кандидата: объяснение, подтверждённые навыки, сигнал решённой задачи
-  await open(page, '/e/cand/A-1042');
+  // карточка демо-кандидата по потребности: объяснение, подтверждённые навыки, сигнал решённой задачи
+  await open(page, `/e/cand/A-1042?need=${ladNeed}`);
   await expect(page.getByRole('heading', { name: 'Кандидат A-1042' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Почему в подборке' })).toBeVisible();
   await expect(page.getByText(/Обязательные навыки подтверждены тестом: .*Python/)).toBeVisible();
@@ -194,7 +262,7 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(page.getByText(/^экспресс-оценка \d+ мес\. назад/)).toBeVisible();
   await page.unroute(candUrl);
   // повторное приглашение — блокирующая ошибка от сервера прямо в форме
-  await open(page, '/e/invite/A-1042');
+  await open(page, `/e/invite/A-1042?need=${ladNeed}`);
   await expect(page.getByRole('heading', { name: 'Приглашение для A-1042' })).toBeVisible();
   await page.getByRole('button', { name: 'Отправить приглашение' }).click();
   await expect(page.locator('#f-msgs .alert.bad', { hasText: 'Кандидат уже приглашён' })).toBeVisible();
@@ -204,7 +272,7 @@ test('Ладога: подборка и фильтры, карточка с об
   const picks = api(page, 'GET', /^\/api\/employer\/needs\/\d+\/picks$/);
   await page.getByRole('button', { name: 'Формат совпадает' }).click();
   const fresh = (await (await picks).json()).items.find(c => !c.invited && !c.busy && c.inFork);
-  await page.locator(`#app button.cand[data-go="/e/cand/${fresh.id}"]`).click();
+  await page.locator(`#app button.cand[data-go="/e/cand/${fresh.id}?need=${ladNeed}"]`).click();
   await expect(page.getByRole('heading', { name: 'Кандидат ' + fresh.id })).toBeVisible();
   await page.getByRole('button', { name: 'Пригласить', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Приглашение для ' + fresh.id })).toBeVisible();
@@ -228,11 +296,20 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(page.getByRole('button', { name: 'Удалённо' })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('textbox', { name: 'Роль' }).fill('Backend (Python), платежи — e2e');
   await page.getByLabel('О работе').fill('Платёжный шлюз, Python 3.12.');
-  await page.getByLabel(/Приложить задачу/).uncheck();
+  // задача вместо созвона: по умолчанию выключена, текст — из заданий компании по специализации кандидата
+  const taskBox = page.getByLabel('Приложить задачу вместо первого созвона');
+  await expect(taskBox).not.toBeChecked();
+  await expect(page.getByText(/дубл/)).toHaveCount(0);
+  await taskBox.check();
+  const mine = (await page.evaluate(() => api('GET', '/api/tasks/mine'))).filter(t => t.spec === 'Backend');
+  const pick = page.locator('#f-task-id');
+  await expect(pick.locator('option')).toHaveCount(mine.length);
+  await pick.selectOption(String(mine[mine.length - 1].id));
   const inv = api(page, 'POST', '/api/employer/invites');
   await send.click();
   const body = (await inv).request().postDataJSON();
-  expect(body).toMatchObject({ candidate_id: fresh.id, salary_from: +f0, salary_to: +t0, format: 'Удалённо', task: null, role: 'Backend (Python), платежи — e2e' });
+  expect(body).toMatchObject({ candidate_id: fresh.id, need_id: ladNeed, salary_from: +f0, salary_to: +t0, format: 'Удалённо', role: 'Backend (Python), платежи — e2e',
+    task: `${mine[mine.length - 1].title}: ~${mine[mine.length - 1].minutes} мин, заменяет первый созвон` });
   await expect(toast(page)).toContainText('Приглашение отправлено');
   await expect(page).toHaveURL(/#\/e\/pipeline$/);
   const row = page.getByRole('row', { name: new RegExp(fresh.id) });
@@ -376,7 +453,7 @@ test('Ладога: без теста — в выдаче с пометкой и
   expect(sOk).toBe(true);
 
   // карточка без теста: пометка, заявленные навыки, без компетенций; ожидания «на руки»
-  await open(page, '/e/cand/K-2077');
+  await open(page, `/e/cand/K-2077?need=${await page.evaluate(() => S.needId)}`);
   await expect(page.getByRole('heading', { name: 'Кандидат K-2077' })).toBeVisible();
   await expect(page.locator('.chip', { hasText: 'грейд не подтверждён тестом' })).toBeVisible();
   await expect(page.getByText('Тест не пройден: грейд Middle заявлен кандидатом')).toBeVisible();
