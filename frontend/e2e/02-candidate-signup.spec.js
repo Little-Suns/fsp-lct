@@ -12,7 +12,6 @@ async function signup(page, email, { c152 = true, publish = false } = {}) {
   await page.getByLabel('Почта').fill(email);
   if (c152) await page.getByLabel(/обработку персональных данных по 152-ФЗ/).check();
   if (publish) await page.getByLabel(/Показывать мою обезличенную карточку/).check();
-  await page.getByLabel('Присылать приглашения в Telegram').uncheck();
   await page.getByRole('button', { name: 'Получить код на почту' }).click();
   await expect(toast(page)).toHaveText('Код отправлен на ' + email);
   await expect(page.getByLabel('Код из письма')).toHaveValue(/^\d{6}$/);
@@ -221,6 +220,18 @@ test('кандидат: регистрация → профиль и PDF → т�
   expect(await (await exStart).json()).toMatchObject({ mode: 'express', time_limit_s: 60, progress: { total: 5 } });
   await expect(page.locator('.quest-top')).toContainText('экспресс · ');
   await expect(page.locator('#timer span')).toHaveText(/^(1:00|0:5\d)$/);
+  await expect(page.locator('#tmo')).toBeHidden();
+  // таймер на нуле: плашка про льготные секунды, после них — «не засчитается» (минуту не ждём: остаток подменён при продолжении сессии)
+  await page.route('**/api/quest/start', async r => {
+    const res = await r.fetch();
+    await r.fulfill({ response: res, json: { ...(await res.json()), remaining_s: 1, deadline_s: 5 } });
+  }, { times: 1 });
+  await page.getByRole('switch', { name: 'сюжет' }).click();
+  await expect(page.locator('#tmo.warn')).toContainText(/Время вышло\. Ответ засчитается, если отправить его в ближайшие [12] с\./);
+  await expect(page.locator('#timer span')).toHaveText('0:00');
+  await expect(page.locator('#tmo.bad')).toContainText('Время вышло, ответ не засчитается — переходите к следующему.', { timeout: 5000 });
+  await page.getByRole('switch', { name: 'сюжет' }).click();  // настоящий остаток: плашки нет
+  await expect(page.locator('#tmo')).toBeHidden();
   expect(await answerAll(page)).toBe(5);
   await expect(page.getByText('Экспресс-тест · Все задания пройдены · 5 из 5')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Смена сдана' })).toBeVisible();  // финал сюжета Backend (items.STORY)
@@ -275,14 +286,17 @@ test('кандидат: регистрация → профиль и PDF → т�
   // кабинет: карточка не опубликована → предупреждение; статус и уведомления
   await page.locator('.brand').click();  // логотип в кабинете — его дом
   await expect(page.getByText('Карточка не опубликована')).toBeVisible();
-  await expect(page.getByText('Приглашений пока нет')).toBeVisible();
+  await expect(page.getByText('Приглашений пока нет.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Не ищу' }).click();
   await expect(page.getByText('Профиль скрыт из подборок')).toBeVisible();
   await page.getByRole('button', { name: 'Открыт к предложениям' }).click();
-  await expect(page.getByText('Ничего делать не нужно')).toBeVisible();
-  await expect(page.getByRole('switch', { name: 'Telegram' })).toHaveAttribute('aria-checked', 'false');
-  await page.getByRole('switch', { name: 'Telegram' }).click();
-  await expect(page.getByRole('switch', { name: 'Telegram' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('Ничего делать не нужно. Новые приглашения появятся в этом кабинете.')).toBeVisible();
+  // письма о приглашениях: без SMTP стенд честно говорит, что не шлёт; Telegram-уведомлений нет
+  await expect(page.getByText('На этом стенде письма не отправляются (почтовый сервер не настроен): приглашения — только в кабинете.')).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Telegram' })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: 'Почта' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('switch', { name: 'Почта' }).click();
+  await expect(page.getByRole('switch', { name: 'Почта' })).toHaveAttribute('aria-checked', 'false');
 
   // достижения: согласие на внешние профили, Codeforces и CTFtime (живые API подменены)
   await open(page, '/candidate/profile');
@@ -333,8 +347,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await page.getByRole('button', { name: 'Подключить' }).first().click();
   await expect(toast(page)).toHaveText('Команда CTFtime привязана');
   await expect(page.getByText('CTFtime · E2E Crew, рейтинг 33,5 · web')).toBeVisible();
-  await page.getByRole('button', { name: 'Подключить' }).click();  // Kaggle — ещё не подключается
-  await expect(toast(page)).toHaveText('Kaggle — для ML/DS треков');
+  await expect(page.getByText('Kaggle')).toHaveCount(0);  // не подключается — строки-заглушки нет
   await page.unrouteAll();
 
   // настройки: публикация карточки, отзыв и возврат согласий, скрытие от компаний
@@ -380,7 +393,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.getByRole('button', { name: 'Изменить список' })).toBeDisabled();
   await open(page, '/candidate');
   await expect(banner).toBeVisible();
-  await expect(page.getByRole('switch', { name: 'Telegram' })).toBeDisabled();
+  await expect(page.getByRole('switch', { name: 'Почта' })).toBeDisabled();
   await open(page, '/candidate/profile');
   await expect(banner).toBeVisible();
   await expect(page.getByLabel('Имя и фамилия')).toBeDisabled();

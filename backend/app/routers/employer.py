@@ -5,15 +5,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import AfterValidator, BaseModel, Field
 from pydantic_core import PydanticCustomError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, defer, selectinload
 
-from app import catalog
+from app import catalog, config, mail
 from app.db import get_db
-from app.deps import active_company, current_company, current_user
+from app.deps import DEMO_PERSONAS, active_company, current_company, current_user
 from app.models import Candidate, Company, Invitation, Lottery, Need, Task, User, Vacancy
 from app.services import lottery as lottery_svc
 from app.services import matching, reputation
@@ -104,7 +104,7 @@ def _accepted_share(db: Session, company_id: int, before: datetime | None = None
 def quota(db: Session, co: Company) -> dict:
     """Недельная квота (сброс в понедельник 00:00 МСК). Лимит растёт до QUOTA_BONUS, если в прошлые недели
     принято ≥ 50 % закрытых приглашений. Неподтверждённая компания — UNVERIFIED_QUOTA без бонуса. Много плохих отзывов
-    кандидатов за окно — FEEDBACK_PENALTY_QUOTA без бонуса, блок — 0 (services/reputation.py). Оплата — только за принятые."""
+    кандидатов за окно — FEEDBACK_PENALTY_QUOTA без бонуса, блок — 0 (services/reputation.py)."""
     start = _week_start(datetime.now(UTC))
     used = db.scalar(select(func.count()).select_from(Invitation).where(Invitation.company_id == co.id, Invitation.sent_at >= start))
     bonus = lambda share: max(co.quota_max, catalog.QUOTA_BONUS) if share is not None and share >= catalog.QUOTA_BONUS_AT else co.quota_max
@@ -625,7 +625,7 @@ def repeat_block(db: Session, company_id: int, candidate_id: int, need_id: int |
 
 
 @router.post("/invites")
-def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
+def send_invite(body: InviteIn, bg: BackgroundTasks, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     cid = db.scalar(select(Candidate.id).where(Candidate.public_id == body.candidate_id))
     if not cid:
         raise HTTPException(404, "Кандидат не найден")
@@ -683,7 +683,13 @@ def send_invite(body: InviteIn, co: Company = Depends(active_company), db: Sessi
     )
     db.add(inv)
     db.commit()
-    # ponytail: уведомления (почта/Telegram) не отправляются; очередь + бот, когда появятся ключи
+    # адрес входа (код, ФСП ID или IdP брокера с Trust Email), а не почта из анкеты: её кандидат вписывает сам — письмо ушло бы постороннему.
+    # Без аккаунта (синтетика) и демо-персонажу на стенде письма нет: адреса не настоящие
+    to = db.scalar(select(User.email).where(User.id == c.user_id)) if c.user_id else None
+    if config.SMTP_HOST and to and (c.notif or {}).get("mail", True) and not (config.DEMO and to in DEMO_PERSONAS.values()):
+        # ponytail: фоном в том же процессе, без очереди и повторов — упавшее письмо теряется (приглашение видно в кабинете);
+        # расширять — outbox-таблица и воркер с повтором. Telegram-бота нет (table.md)
+        bg.add_task(mail.invite_notice, to)
     return {"invite": _row(inv), "warnings": warnings, "quota": quota(db, co)}
 
 

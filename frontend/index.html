@@ -465,6 +465,7 @@ a.chip.on { color: var(--blue-ink); }
   .quest .q { font-size: 16px; }
   .quest-foot { position: sticky; bottom: 0; z-index: 5; background: var(--dark); flex-wrap: nowrap; gap: 12px;
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); font-size: 11px; line-height: 1.4; box-shadow: 0 -10px 18px rgba(0,0,0,.35); }
+  .quest-foot:has(> #tmo:not([hidden])) { flex-wrap: wrap; }  /* плашка таймера — отдельной строкой над подсказкой и «Дальше» */
   .quest-foot .row { flex: none; }
   /* у задачи на код подсказка длинная, а отправка — осознанный последний шаг: низ не прилипает */
   .quest-foot.qf-code { position: static; flex-wrap: wrap; box-shadow: none; }
@@ -529,11 +530,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .tbl.heat caption { position: sticky; left: 0; }
 }
 
-.tg { background: #E7EBF0; border-radius: 16px; padding: 14px; max-width: 360px; font-family: var(--sans); }
-.tg .bubble { background: #fff; border-radius: 12px 12px 12px 4px; padding: 10px 12px; font-size: 13px; line-height: 1.45; color: #111; }
-.tg .bubble b { font-weight: 600; }
-.tg .kb { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; }
-.tg .kb span { background: rgba(255,255,255,.7); border-radius: 8px; text-align: center; padding: 7px; font-size: 13px; color: #2D6BB5; font-weight: 500; }
 
 .bars { display: flex; flex-direction: column; gap: 10px; }
 .bar { display: grid; grid-template-columns: minmax(130px, 200px) minmax(0, 1fr) 52px; gap: 12px; align-items: center; font-size: 13px; }
@@ -659,7 +655,7 @@ const S = {
   story: true,
   quest: null, qAns: null, codeMark: null, qComment: '', qItem: null, qShownAt: 0, finish: null,
   qLang: 'python', qCode: {}, qRun: null, qPasted: 0, edEsc: false,   // задача на код: язык, черновики по языкам, запуск на примерах, вставлено символов
-  signup: { email: '', otp: '', sent: false, c152: false, publish: false, tg: true },
+  signup: { email: '', otp: '', sent: false, c152: false, publish: false },
   esignup: { email: '', otp: '', sent: false },
   confirm: null,                     // ключ открытого инлайн-подтверждения (удаление аккаунта, отзыв согласий)
   target: null,                      // грейд, на который проходится тест
@@ -788,7 +784,7 @@ function afterLogin(side, hasProfile, next) {
 async function fspStart(mode, role = 'c', idp = '') {
   const side = mode === 'link' ? 'c' : role;
   const r = await api('POST', '/api/auth/fsp/start', { mode, role: side === 'e' ? 'employer' : 'candidate', ...(idp ? { idp } : {}) }, side);
-  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, mode, next: nextPath(side), c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
+  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, mode, next: nextPath(side), c152: S.signup.c152, publish: S.signup.publish })); } catch { /* приватный режим */ }
   location.assign(r.url);
 }
 // кнопки входа через Keycloak: кандидату — «ФСП ID» (подтянем достижения), компании — SSO; плюс сторонние провайдеры брокера (META.fsp_idps)
@@ -1053,7 +1049,7 @@ V['/'] = () => `
   <div class="steps" style="margin-top:24px">
     <div><span class="n">Шаг 1 · 40–60 мин</span><h3>Тест-квест</h3><p class="prose small">Смена дежурного или неделя до релиза. Каждая сцена — отдельное откалиброванное задание, сложность подстраивается.</p></div>
     <div><span class="n">Шаг 2 · сразу</span><h3>Категория и перцентиль</h3><p class="prose small">Например, «Backend · Python · Middle», 78-й перцентиль. Компетенции с доверительным интервалом, а не одна цифра.</p></div>
-    <div><span class="n">Шаг 3 · без действий</span><h3>Приглашения с вилкой</h3><p class="prose small">Письмо и Telegram с кнопками «Интересно» и «Нет: причина». Не нужно заходить каждый день.</p></div>
+    <div><span class="n">Шаг 3 · без действий</span><h3>Приглашения с вилкой</h3><p class="prose small">Компания сама находит вас и присылает приглашение с вилкой, ответ — «Интересно» или «Нет: причина».${META && META.mail ? ' О новом приглашении сообщим письмом — заходить каждый день не нужно.' : ''}</p></div>
   </div>
 
   <div class="grid g3" style="margin-top:24px">
@@ -1117,8 +1113,7 @@ V['/c/signup'] = () => `
       <h1>Создайте профиль</h1>
       <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений. Уже есть профиль — <a ${href('/c/login')}>войдите</a>.</p>
       ${loggedIn('c')}
-      ${codeForm('c', `${consentChecks('su')}
-      <label class="check"><input type="checkbox" id="su-tg" ${S.signup.tg ? 'checked' : ''}> Присылать приглашения в Telegram</label>`)}
+      ${codeForm('c', `${consentChecks('su')}`)}
     </div>
     ${candAside()}
   </div>`;
@@ -1197,7 +1192,6 @@ function achPanel() {
         ${A.hackathons.map(achRow).join('')}<span class="muted small">Протоколы загружают организаторы</span></div></div>
       <div><span class="dot ${cf && cf.verified ? 'on' : ''}"></span><div>${cfBlock}</div></div>
       <div><span class="dot ${ct ? 'on' : ''}"></span><div>${ctBlock}</div></div>
-      <div><span class="dot"></span><div><b>Kaggle</b> · <button class="btn ghost small" data-act="noop" data-msg="Kaggle — для ML/DS треков">Подключить</button></div></div>
     </div>
     <button class="switch" role="switch" aria-checked="${ok}" data-act="consent-ext"><i></i> Согласие на обработку данных внешних профилей (Codeforces, CTFtime)</button>
     ${confirmBox('revokeExt', 'Отозвать согласие? Привязки Codeforces и CTFtime и полученные из них достижения будут удалены.', 'Отозвать')}
@@ -1371,7 +1365,10 @@ function sceneView() {
        </div>`
     : `<div class="stack"><p class="q">${esc(it.prompt)}</p><div class="opts">${it.options.map((o, i) => `<button class="opt" data-act="ans" data-i="${i}" aria-pressed="${S.qAns === i}"><span class="k">${'ABCDEFGH'[i]}</span><span>${esc(o)}</span></button>`).join('')}</div></div>`;
   const canNext = isCode ? true : isMark ? !!S.codeMark : S.qAns != null;
-  const sec = q.remaining_s != null ? Math.max(0, q.remaining_s - Math.round((Date.now() - (S.qAt || Date.now())) / 1000)) : it.time_limit_s;
+  const ago = Math.round((Date.now() - (S.qAt || Date.now())) / 1000);
+  const sec = q.remaining_s != null ? Math.max(0, q.remaining_s - ago) : it.time_limit_s;
+  // после нуля таймера ответ ещё засчитывается до dl; 2 с — запас на сеть и округление, чтобы не обещать лишнего
+  const dl = q.deadline_s != null ? Math.max(0, q.deadline_s - ago - 2) : sec;
   return `
   ${crumbs([['Тест-квест', '/c/quest'], [(S.story ? 'Сцена ' : 'Задание ') + n]])}
   <div class="quest fade">
@@ -1380,7 +1377,7 @@ function sceneView() {
       <div class="pr" aria-label="Прогресс">${Array.from({ length: total }, (_, i) => `<i class="${i + 1 < n ? 'on' : i + 1 === n ? 'cur' : ''}"></i>`).join('')}</div>
       <span class="qt-comp" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> сюжет</button>
-      <span class="timer" id="timer" data-sec="${sec}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
+      <span class="timer" id="timer" data-sec="${sec}" data-dl="${dl}" data-sub="${q.submitted ? 1 : ''}">⏱ <span>${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}</span></span>
     </div>
     <div class="quest-body">
       <div class="stack">
@@ -1390,6 +1387,7 @@ function sceneView() {
       <div>${right}</div>
     </div>
     <div class="quest-foot${isCode ? ' qf-code' : ''}">
+      <div class="alert" id="tmo" style="flex-basis:100%" hidden><span>!</span><span></span></div>
       <span>${isCode ? 'Решение проверяется на скрытых тестах после отправки, исправить его потом нельзя. Правильность не показываем до конца теста.' : 'Ответ сохраняется сразу. Правильность не показываем до конца теста.'}</span>
       <div class="row">
         <button class="btn primary small" ${canNext ? '' : 'disabled'} data-act="qnext">${isCode ? 'Отправить решение' : 'Дальше'}</button>
@@ -1511,7 +1509,7 @@ V['/c/home'] = () => {
   const list = (D.invites && D.invites.items) || [];
   const open = D.invites ? D.invites.open : 0;
   const invErr = !D.invites;
-  const tg = list.find(isOpen) || list[0];
+  const mailOn = !!(META && META.mail) && (ME.notif || {}).mail !== false;  // письмо уходит, только если SMTP настроен и кандидат не выключил
   return `
   ${crumbs([['Главная', '/'], ['Кабинет кандидата']])}
   ${subnav('c')}
@@ -1532,7 +1530,7 @@ V['/c/home'] = () => {
         ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: ${ME.visible ? 'пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля.' : 'без него грейд — только с ваших слов.'} <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
         ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
-          ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`
+          ? `<p class="prose small">Ничего делать не нужно. ${mailOn ? 'О новых приглашениях сообщим письмом на почту.' : 'Новые приглашения появятся в этом кабинете.'} Активность на сайте не влияет на позицию в выдаче.</p>`
           : `<div class="alert warn">Профиль скрыт из подборок. Уже отправленные приглашения остаются в силе до срока ответа.</div>`}
       </div>
 
@@ -1546,20 +1544,13 @@ V['/c/home'] = () => {
             <span class="row small" style="gap:8px"><span class="money">${K(inv.from)} — ${K(inv.to)} на руки</span>${inv.below_min ? '<span class="chip warn">ниже вашего минимума</span>' : '<span class="chip ok">в ваших ожиданиях</span>'}${inv.task ? '<span class="chip">есть задача</span>' : ''}${domainOk(inv) ? '' : '<span class="chip warn">почта на домене не подтверждена</span>'}</span>
           </span>
           <span class="stack-s inv-st">${INV_ST[inv.status] || ''}<span class="small muted">${isOpen(inv) ? 'ответить за ' + inv.due + ' дн.' : ''}</span></span>
-        </button>`).join('') || (invErr ? '' : '<div class="panel small muted">Приглашений пока нет. Они придут на почту и в Telegram.</div>')}
+        </button>`).join('') || (invErr ? '' : `<div class="panel small muted">Приглашений пока нет.${mailOn ? ' О новом придёт письмо на почту.' : ''}</div>`)}
     </div>
     <aside class="stack">
-      ${tg ? `<div class="panel tight stack">
-        <span class="label">Так приглашение выглядит в Telegram</span>
-        <div class="tg">
-          <div class="bubble"><b>ФСП Карьера</b><br>Новое приглашение: <b>${esc(tg.role)}</b><br>${esc(tg.company)} · ${esc(tg.format[0].toLowerCase() + tg.format.slice(1))}<br>${Math.round(tg.from / 1000)}–${Math.round(tg.to / 1000)} тыс. ₽ на руки<br>Ответить до ${DAYMON(tg.expires_at)}</div>
-          <div class="kb"><span>Интересно</span><span>Нет: причина</span></div>
-        </div>
-      </div>` : ''}
       <div class="panel tight stack-s">
         <span class="label">Уведомления</span>
-        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.mail)}" data-act="notif" data-k="mail" ${withdrawn() ? 'disabled' : ''}><i></i> Почта</button>
-        <button class="switch" role="switch" aria-checked="${!!(ME.notif && ME.notif.tg)}" data-act="notif" data-k="tg" ${withdrawn() ? 'disabled' : ''}><i></i> Telegram</button>
+        <button class="switch" role="switch" aria-checked="${(ME.notif || {}).mail !== false}" data-act="notif" data-k="mail" ${withdrawn() ? 'disabled' : ''}><i></i> Почта</button>
+        <span class="hint">${META && META.mail ? 'Письмо о каждом новом приглашении, без названия компании — подробности в кабинете.' : 'На этом стенде письма не отправляются (почтовый сервер не настроен): приглашения — только в кабинете.'}</span>
       </div>
       <div class="panel tight stack-s">
         <span class="label">Витрина задач</span>
@@ -1937,9 +1928,6 @@ const coAside = () => `<aside class="stack">
       <div class="panel tight stack-s">
         <span class="label">Проверка компании</span>
         <p class="small">ИНН — контрольные цифры, рабочая почта — на домене сайта компании. Неподтверждённая компания работает с квотой 3 приглашения в неделю, кандидаты видят плашку.</p>
-        <div class="divider"></div>
-        <span class="label">Оплата</span>
-        <p class="small">Только за принятые приглашения.</p>
       </div>
       <p class="small muted">Ищете работу? <a ${href('/c/login')}>Вход для кандидатов</a></p>
     </aside>`;
@@ -1990,10 +1978,7 @@ V['/e/company'] = () => {
     <aside class="panel tight stack-s">
       <span class="label">Квота приглашений</span>
       <p class="small">Старт — 10 приглашений в неделю, у неподтверждённой компании — 3. Лимит растёт, если кандидаты принимают больше половины приглашений.</p>
-      ${q ? `<p class="small num">Сейчас: <b>${q.used} / ${q.max}</b>, обновится ${DAYMON(q.resets_at)}</p>` : ''}
-      <div class="divider"></div>
-      <span class="label">Оплата</span>
-      <p class="small">Только за принятые приглашения.${q ? ` Принято: <b class="num">${q.paid_accepts}</b>.` : ''}</p>
+      ${q ? `<p class="small num">Сейчас: <b>${q.used} / ${q.max}</b>, обновится ${DAYMON(q.resets_at)}. Принято приглашений: <b>${q.paid_accepts}</b></p>` : ''}
     </aside>
   </div>`;
 };
@@ -2148,9 +2133,12 @@ V['/e/picks'] = () => {
       </div>
       <div class="panel tight stack-s">
         <span class="label">Рекомендованные категории</span>
-        ${cats.map((c, i) => `<button class="chip ${c.current ? 'on' : ''}" style="justify-content:space-between;width:100%" ${c.current ? 'aria-current="true"' : `data-act="need-cat-new" data-i="${i}" title="${esc(c.note || 'Соседняя категория')}"`}>${esc([c.spec, c.track, c.grade].filter(Boolean).join(' · '))} <b class="num">${c.count}</b></button>`).join('')}
+        ${cats.map((c, i) => { const lbl = [c.spec, c.track, c.grade].filter(Boolean).join(' · ');
+          return c.current ? `<button class="chip on" style="justify-content:space-between;width:100%" aria-current="true">${esc(lbl)} <b class="num">${c.count}</b></button>`
+            : `<div class="row" style="gap:6px;flex-wrap:nowrap"><button class="chip" style="justify-content:space-between;flex:1;min-width:0;white-space:normal;text-align:left" data-act="need-cat-new" data-i="${i}" title="${esc(c.note || 'Соседняя категория')}">${esc(lbl)} <b class="num">${c.count}</b></button>`
+              + `<button class="btn ghost small" style="flex:none" data-act="cat-search" data-spec="${esc(c.spec)}" data-track="${esc(c.track || '')}" data-grade="${esc(c.grade)}" data-msg="${esc(c.note || '')}" aria-label="Искать в банке: ${esc(lbl)}">Поиск</button></div>`; }).join('')}
         ${warnCat ? `<span class="hint">${esc(warnCat.note)}</span>` : ''}
-        <span class="hint">Другая категория — новая потребность с теми же навыками и вилкой</span>
+        <span class="hint">Категория — новая потребность с теми же навыками и вилкой; «Поиск» — кандидаты этой категории в банке</span>
       </div>
       <div class="panel tight stack-s" id="needs">
         <span class="label">Потребности · ${S.needs.length}</span>
@@ -3132,17 +3120,26 @@ async function show(keep) {
 }
 const refresh = () => show(true);
 
+// таймер задания; на нуле — плашка: сервер ещё принимает ответ льготные секунды (quest.TIMEOUT_GRACE_S), потом засчитывает неверным
 function startTimer() {
   clearInterval(timerId);
-  const el = document.getElementById('timer');
+  const el = document.getElementById('timer'), tmo = document.getElementById('tmo');
   if (!el) return;
-  let s = +el.dataset.sec;
-  el.classList.toggle('low', s < 60);
-  timerId = setInterval(() => {
-    s = Math.max(0, s - 1);
+  let s = +el.dataset.sec, dl = +el.dataset.dl;
+  const sub = !!el.dataset.sub;  // решение уже отправлено вовремя (песочница была занята): время ответа зафиксировано
+  const tick = () => {
     el.querySelector('span').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     el.classList.toggle('low', s < 60);
-    if (!s) clearInterval(timerId);
+    tmo.hidden = s > 0 || sub;
+    tmo.className = 'alert ' + (dl ? 'warn' : 'bad');
+    tmo.lastChild.textContent = dl ? `Время вышло. Ответ засчитается, если отправить его в ближайшие ${dl} с.`
+      : 'Время вышло, ответ не засчитается — переходите к следующему.';
+  };
+  tick();
+  timerId = setInterval(() => {
+    s = Math.max(0, s - 1); dl = Math.max(0, dl - 1);
+    tick();
+    if (!dl) clearInterval(timerId);
   }, 1000);
 }
 
@@ -3158,7 +3155,6 @@ function capture() {
   if (v('su-mail') != null) S.signup.email = v('su-mail').trim();
   // согласия — на экране регистрации или в шаге «Профиль» (вход без регистрации); на экране входа их нет
   for (const p of ['su', 'p']) if (ck(p + '-152') != null) Object.assign(S.signup, { c152: ck(p + '-152'), publish: ck(p + '-pub') });
-  if (ck('su-tg') != null) S.signup.tg = ck('su-tg');
   if (v('su-otp') != null) S.signup.otp = v('su-otp').trim();
   if (v('es-mail') != null) S.esignup.email = v('es-mail').trim();
   if (v('es-otp') != null) S.esignup.otp = v('es-otp').trim();
@@ -3222,7 +3218,8 @@ const ACT = {
     a.closest('.fold').classList.toggle('open', S.fold[d.k]);
     a.setAttribute('aria-expanded', S.fold[d.k]); a.setAttribute('aria-label', foldLabel(d.k) + ' ' + FOLD[d.k]); a.textContent = foldLabel(d.k);
   },
-  noop: (a, d) => toast(d.msg || 'Пока не реализовано'),
+  // соседняя категория из подборки → поиск по банку с её фильтрами; пояснение категории — тостом
+  'cat-search'(a, d) { S.sf = { spec: d.spec, track: d.track, grade: d.grade, skills: '', q: '', fsp: false, cf: false, hackathon: false, format: '', city: '', page: 1 }; go('/e/search'); if (d.msg) toast(d.msg); },
   reload: () => refresh(),
   ask: (a, d) => { S.confirm = d.k; rerender(); },
   'confirm-no': () => { S.confirm = null; rerender(); },
@@ -3334,7 +3331,6 @@ const ACT = {
       ...(first && S.cv && S.cv.text ? { cv_text: S.cv.text, cv_filename: S.cv.filename } : {}),
     });
     if (!first) { toast('Профиль сохранён'); S.pf = pfFromMe(); return rerender(); }  // раздел «Профиль» кабинета: остаёмся на месте
-    await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
     Object.assign(S.signup, { c152: false, publish: false });  // согласия уже на сервере (журнал ConsentEvent)
     toast('Профиль сохранён'); go('/c/quest');
   },
@@ -3429,7 +3425,7 @@ const ACT = {
 
   // кабинет кандидата
   async status(a, d) { await api('PATCH', '/api/candidate/status', { status: d.v }); ME.status = d.v; rerender(); },
-  async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: !(ME.notif && ME.notif[d.k]) })).notif; rerender(); },
+  async notif(a, d) { ME.notif = (await api('PATCH', '/api/candidate/notif', { [d.k]: (ME.notif || {})[d.k] === false })).notif; rerender(); },
   async accept(a, d) { D.inv = await api('POST', `/api/candidate/invites/${d.id}/accept`); toast('Приглашение принято. Компания получила ваши контакты'); rerender(); },
   'co-fb': (a, d) => { S.coFb = d.v; rerender(); },
   async 'co-fb-send'(a, d) {
@@ -3708,7 +3704,7 @@ document.addEventListener('submit', async e => {
       task: !f.task ? null : t ? `${t.title}: ~${t.minutes} мин, заменяет первый созвон` : f.taskText.trim(),
     });
     S.inviteForm = null;
-    toast(r.warnings.length ? 'Приглашение отправлено. ' + r.warnings[0] : 'Приглашение отправлено. Кандидат получит письмо и сообщение в Telegram');
+    toast(r.warnings.length ? 'Приглашение отправлено. ' + r.warnings[0] : 'Приглашение отправлено. Кандидат увидит его в кабинете' + (META && META.mail ? ' и получит письмо, если не отключил уведомления' : ''));
     go('/e/pipeline');
   } catch (err) {
     if (err.status === 422 && err.detail && err.detail.errors) { f.server = err.detail; rerender(); }

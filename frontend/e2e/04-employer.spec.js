@@ -321,6 +321,8 @@ test('Ладога: подборка и фильтры, карточка с об
   expect(body).toMatchObject({ candidate_id: fresh.id, need_id: ladNeed, salary_from: +f0, salary_to: +t0, format: 'Удалённо', role: 'Backend (Python), платежи — e2e',
     task: `${mine[mine.length - 1].title}: ~${mine[mine.length - 1].minutes} мин, заменяет первый созвон` });
   await expect(toast(page)).toContainText('Приглашение отправлено');
+  await expect(toast(page)).toContainText('Кандидат увидит его в кабинете');  // без SMTP письмо не обещаем
+  await expect(toast(page)).not.toContainText('Telegram');
   await expect(page).toHaveURL(/\/employer\/invites$/);
   const row = page.getByRole('row', { name: new RegExp(fresh.id) });
   await expect(row).toContainText('отправлено');
@@ -389,6 +391,31 @@ test('Ладога ↔ кандидат: принятое приглашение
   await expect(page.getByText('A-1042 ещё не ответил.')).toHaveCount(0);
   await orlov.getByRole('button', { name: 'наняли' }).click();
   await expect(orlov.locator('.chip.ok')).toHaveText('наняли');
+});
+
+test('Ладога: соседняя категория в подборке открывает поиск по банку с её фильтрами', async ({ page }) => {
+  // биллинга нет — и обещания оплаты тоже: ни на регистрации, ни в данных компании
+  await open(page, '/employer/signup');
+  await expect(page.getByText('Проверка компании')).toBeVisible();
+  await expect(page.getByText('Оплата')).toHaveCount(0);
+  await demo(page, 'e');
+  await open(page, '/employer/company');
+  await expect(page.getByText(/Принято приглашений: \d+/)).toBeVisible();
+  await expect(page.getByText('Оплата')).toHaveCount(0);
+  await open(page, '/employer');
+  const cat = page.locator('button[data-act=cat-search]').first();
+  await expect(cat).toBeVisible();
+  const { spec, track, grade, msg } = await cat.evaluate(b => ({ ...b.dataset }));
+  const q = api(page, 'GET', '/api/employer/search');
+  await cat.click();
+  const url = new URL((await q).url());
+  expect([url.searchParams.get('spec'), url.searchParams.get('track') || '', url.searchParams.get('grade')]).toEqual([spec, track, grade]);
+  await expect(page.getByText(/^Найдено \d+ · сортировка/)).toBeVisible();
+  await expect(page.getByLabel('Специализация')).toHaveValue(spec);
+  await expect(page.getByLabel('Грейд')).toHaveValue(grade);
+  if (track) await expect(page.getByLabel('Трек')).toHaveValue(track);
+  await expect(page).toHaveURL(/\/employer\/search$/);
+  if (msg) await expect(toast(page)).toHaveText(msg);
 });
 
 test('Ладога: повторное приглашение — после истечения можно, после отказа — пауза с датой', async ({ page }) => {

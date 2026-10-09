@@ -328,12 +328,15 @@ def test_sandbox_busy_keeps_item(env, box, monkeypatch):
     assert r.status_code == 503 and r.json()["detail"] == quest.SANDBOX_BUSY
     pend = _session(cand_id).answers[-1]
     assert pend["item_id"] == it["id"] and pend["response"] is None and pend["submitted_at"] and pend["runs"] == 1
+    assert client.get("/api/quest/current").json()["submitted"] is True  # фронт не пугает «не засчитается» после лимита
     # первая отправка — через 10 с после выдачи; повтор позже лимита не делает ответ опоздавшим
     served = datetime.now(UTC) - timedelta(hours=1)
     with SessionLocal() as db:
         s = db.scalar(select(QuestSession).where(QuestSession.candidate_id == cand_id, QuestSession.finished_at.is_(None)))
         s.answers = [*s.answers[:-1], {**s.answers[-1], "served_at": served.isoformat(), "submitted_at": (served + timedelta(seconds=10)).isoformat()}]
         db.commit()
+    st = client.get("/api/quest/current").json()
+    assert st["submitted"] is True and st["remaining_s"] == st["deadline_s"] == 0  # таймер истёк, но время ответа уже зафиксировано
     assert client.post("/api/quest/answer", json={"item_id": it["id"], "lang": "python", "code": "OK"}).status_code == 200
     rec = next(a for a in _session(cand_id).answers if a["item_id"] == it["id"])
     assert rec["correct"] is True and rec["timeout"] is False and 9_000 <= rec["server_ms"] <= 11_000
