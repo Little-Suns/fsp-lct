@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#FFFFFF">
 <title>ФСП Карьера</title>
-<link rel="icon" href="assets/mark.png">
+<link rel="icon" href="/assets/mark.png">
 <!-- на телефоне стенд добавляется на домашний экран как приложение: манифест и иконка -->
-<link rel="manifest" href="assets/manifest.webmanifest">
-<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="manifest" href="/assets/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-title" content="ФСП Карьера">
 <meta name="color-scheme" content="light dark">
 <script>
@@ -16,10 +16,10 @@
 try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th === "dark") document.documentElement.dataset.theme = th; } catch (e) { /* приватный режим */ }
 </script>
 <style>
-@font-face { font-family: "JetBrains Mono"; src: url(assets/fonts/JetBrainsMono-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
-@font-face { font-family: "JetBrains Mono"; src: url(assets/fonts/JetBrainsMono-Medium.woff2) format("woff2"); font-weight: 500; font-display: swap; }
-@font-face { font-family: "JetBrains Mono"; src: url(assets/fonts/JetBrainsMono-SemiBold.woff2) format("woff2"); font-weight: 600; font-display: swap; }
-@font-face { font-family: "JetBrains Mono"; src: url(assets/fonts/JetBrainsMono-Bold.woff2) format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url(/assets/fonts/JetBrainsMono-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url(/assets/fonts/JetBrainsMono-Medium.woff2) format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url(/assets/fonts/JetBrainsMono-SemiBold.woff2) format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url(/assets/fonts/JetBrainsMono-Bold.woff2) format("woff2"); font-weight: 700; font-display: swap; }
 
 /* Макет: светлое «бумажное» поле с тонкой синей рамкой и линиями-трассами из брендбука ФСП;
    тёмные блоки (#1B1C21) — для атмосферы теста и героя. Красный — только для критичного. */
@@ -61,7 +61,6 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-bg: #1B1C21;
   --toast-fg: #FFFFFF;
   --shadow: rgba(27,28,33,.12);
-  --scrim: rgba(27,28,33,.45);
   --logo-filter: none;
   color-scheme: light;
 
@@ -102,7 +101,6 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-bg: #EDEDF0;
   --toast-fg: #1B1C21;
   --shadow: rgba(0,0,0,.5);
-  --scrim: rgba(0,0,0,.65);
   --logo-filter: invert(1) hue-rotate(180deg);  /* логотип с тёмными буквами */
   color-scheme: dark;
 } }
@@ -136,7 +134,6 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-bg: #EDEDF0;
   --toast-fg: #1B1C21;
   --shadow: rgba(0,0,0,.5);
-  --scrim: rgba(0,0,0,.65);
   --logo-filter: invert(1) hue-rotate(180deg);  /* логотип с тёмными буквами */
   color-scheme: dark;
 }
@@ -144,7 +141,6 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
-html.lock { overflow: hidden; }  /* открыто меню: страница под ним не прокручивается */
 body {
   background: var(--ground);
   color: var(--ink);
@@ -179,26 +175,20 @@ p { margin: 0; }
 .brand img { height: 30px; width: auto; filter: var(--logo-filter); }
 .brand .prod { font-weight: 600; font-size: 13px; padding-left: 12px; border-left: 1px solid var(--line); line-height: 1.2; }
 .brand .prod span { display: block; font-weight: 400; color: var(--ink-3); font-size: 11px; }
-.roles { display: flex; gap: 4px; background: var(--mist); padding: 4px; border-radius: 999px; margin-left: auto; }
-.roles button { border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; color: var(--ink-2); }
-.roles button[aria-current="true"] { background: var(--paper); color: var(--blue-text); font-weight: 600; box-shadow: 0 1px 2px var(--shadow); }
-.mapbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
-@media (hover: hover) { .mapbtn:hover { border-color: var(--blue); color: var(--blue-text); } }
-.on-narrow, .m-only { display: none; }
-/* телефон и планшет: шапка в одну строку — логотип, значок темы и «Меню»; роли и выход — в меню */
+#theme { margin-left: auto; }
+.topbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
+@media (hover: hover) { .topbtn:hover { border-color: var(--blue); color: var(--blue-text); } }
+/* телефон и планшет: шапка в одну строку — логотип, значок темы и «Выйти»; кабинет выбирается на главной (логотип вне кабинета → «Кандидатам» / «Компаниям») */
 @media (max-width: 900px) {
   .top-in { flex-wrap: nowrap; height: 56px; padding-top: 0; padding-bottom: 0; gap: 12px; }
   .brand { min-width: 0; gap: 10px; }
   .brand img { height: 26px; }
   .brand .prod { padding-left: 10px; white-space: nowrap; }
-  .top .roles, .top #logout { display: none; }
-  .mapbtn { min-height: 40px; padding: 8px 14px; }
-  .top #theme { margin-left: auto; padding: 6px 12px; font-size: 17px; line-height: 1; }  /* только значок ☾ / ☀, подпись — в aria-label */
+  .topbtn { min-height: 40px; padding: 8px 14px; }
+  .top #theme { padding: 6px 12px; font-size: 17px; line-height: 1; }  /* только значок ☾ / ☀, подпись — в aria-label */
   .on-wide { display: none; }
-  .on-narrow { display: inline; }
-  .m-only { display: block; }
 }
-@media (max-width: 430px) { .brand .prod span { display: none; } }  /* подпись под названием не помещается рядом с темой и «Меню» */
+@media (max-width: 430px) { .brand .prod span { display: none; } }  /* подпись под названием (кабинет) не помещается рядом с темой и «Выйти»: кабинет видно по крошкам */
 @media (max-width: 360px) { .brand .prod { display: none; } }  /* самый узкий телефон: только логотип ФСП */
 @media (max-height: 480px) and (orientation: landscape) { .top { position: static; } }  /* телефон боком: шапка не съедает и без того низкий экран */
 
@@ -208,7 +198,8 @@ main { padding-left: max(var(--gut), env(safe-area-inset-left)); padding-right: 
 @media (max-width: 560px) { main { padding-top: 16px; } }
 .crumbs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; font-size: 12px; color: var(--ink-3); }
 .crumbs b { color: var(--ink); font-weight: 500; }
-.crumbs button { border: 0; background: none; padding: 0; color: var(--blue-text); cursor: pointer; font-size: 12px; }
+.crumbs a { color: var(--blue-text); text-decoration: none; font-size: 12px; }
+@media (hover: hover) { .crumbs a:hover { text-decoration: underline; } }
 
 .grid { display: grid; gap: 20px; }
 .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -321,8 +312,10 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; font-fam
 .chip.warn { border-color: transparent; background: var(--warn-soft); color: var(--warn); }
 .chip.bad { border-color: transparent; background: var(--red-soft); color: var(--red); }
 .chip.dim { color: var(--ink-3); border-style: dashed; }
-button.chip { cursor: pointer; }
-@media (hover: hover) { button.chip:hover { border-color: var(--blue); } }
+button.chip, a.chip { cursor: pointer; }
+a.chip { color: inherit; text-decoration: none; }
+a.chip.on { color: var(--blue-ink); }
+@media (hover: hover) { button.chip:hover, a.chip:hover { border-color: var(--blue); } }
 .chip .x { opacity: .6; }
 .chip { max-width: 100%; }
 @media (max-width: 400px) { .chip { white-space: normal; } }  /* длинная плашка («почта на домене не подтверждена») переносится, а не вылезает за край */
@@ -561,18 +554,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 .demo-tag { display: inline-flex; gap: 6px; align-items: center; font-size: 11px; color: var(--warn); background: var(--warn-soft); padding: 3px 8px; border-radius: 6px; }
 
-/* ---------- карта экранов, тост ---------- */
-.overlay { position: fixed; inset: 0; background: var(--scrim); z-index: 50; display: flex; justify-content: flex-end; }
-.drawer { background: var(--paper); width: min(440px, 100%); height: 100%; overflow-y: auto; overscroll-behavior: contain; padding: calc(22px + env(safe-area-inset-top, 0px)) calc(22px + env(safe-area-inset-right, 0px)) calc(22px + env(safe-area-inset-bottom, 0px)) 22px; display: flex; flex-direction: column; gap: 18px; animation: slide .2s ease-out; }
-@keyframes slide { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
-.drawer .m-roles { display: flex; }
-@media (max-width: 560px) { .drawer { padding-left: 16px; padding-right: calc(16px + env(safe-area-inset-right, 0px)); } }
-.drawer .grp { display: flex; flex-direction: column; gap: 2px; }
-.drawer .grp button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; display: grid; grid-template-columns: 34px 1fr; font-size: 13px; }
-@media (hover: hover) { .drawer .grp button:hover { background: var(--blue-soft); } }
-.drawer .grp button[aria-current="true"] { background: var(--blue); color: var(--on-accent); }
-.drawer .grp button span:first-child { color: var(--ink-3); }
-.drawer .grp button[aria-current="true"] span:first-child { color: var(--on-blue-2); }
+/* ---------- тост ---------- */
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--toast-bg); color: var(--toast-fg); padding: 12px 18px; border-radius: 10px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
 @media (max-width: 640px) { body:has(.quest-foot:not(.qf-code)) .toast { bottom: calc(88px + env(safe-area-inset-bottom, 0px)); } }  /* над прилипшей «Дальше» */
 
@@ -620,15 +602,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 @media (max-width: 900px) { .chat-box.chat-empty { height: auto; min-height: 0; } }
 @media (pointer: coarse) {
   /* сенсорный экран: зона нажатия не меньше 36 px */
-  .crumbs button { padding: 10px 0; margin: -10px 0; }
-  button.chip, .btn.small, .seg button, .switch { min-height: 36px; }
+  .crumbs a { padding: 10px 0; margin: -10px 0; }
+  button.chip, a.chip, .btn.small, .seg button, .switch { min-height: 36px; }
   .check input { width: 20px; height: 20px; margin-top: 0; flex: none; }
   /* поле меньше 16 px — iOS увеличивает страницу при фокусе */
   .input, select.input, textarea.input, .code-ed { font-size: 16px; }
   button, a, .opt, .cand, .inv { touch-action: manipulation; }
 }
 /* отклик на нажатие: системная подсветка касания выключена, наведение — только с мышью */
-.btn:active, button.chip:active, .seg button:active, .cand:active, .inv:active, .opt:active, .chat-peer:active, .door:active { opacity: .72; }
+.btn:active, button.chip:active, a.chip:active, .seg button:active, .cand:active, .inv:active, .opt:active, .chat-peer:active, .door:active { opacity: .72; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .fade { animation: fade .25s ease-out; }
 .still .fade { animation: none; }  /* перерисовка того же экрана (rerender): без анимации появления */
@@ -639,26 +621,16 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 <header class="top">
   <div class="top-in">
-    <a class="brand" href="#/" data-go="/">
-      <img src="assets/logo.svg" alt="ФСП">
-      <div class="prod">ФСП Карьера<span>обратный найм в ИТ</span></div>
+    <a class="brand" href="/" data-go="/">
+      <img src="/assets/logo.svg" alt="ФСП">
+      <div class="prod">ФСП Карьера<span id="cab">обратный найм в ИТ</span></div>
     </a>
-    <nav class="roles" aria-label="Роль">
-      <button data-go="/c/home" data-role="c">Кандидат</button>
-      <button data-go="/e/picks" data-role="e">Работодатель</button>
-      <button data-go="/v" data-role="v">Валидация</button>
-    </nav>
-    <button class="mapbtn" id="theme" data-act="theme"></button>
-    <button class="mapbtn" data-act="map" aria-haspopup="dialog" aria-expanded="false">
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3h12M1 7h12M1 11h12" stroke="currentColor" stroke-width="1.5"/></svg>
-      <span class="on-wide">Экраны</span><span class="on-narrow">Меню</span>
-    </button>
-    <button class="mapbtn" id="logout" data-act="logout" hidden>Выйти</button>
+    <button class="topbtn" id="theme" data-act="theme"></button>
+    <button class="topbtn" id="logout" data-act="logout" hidden>Выйти</button>
   </div>
 </header>
 
 <main id="app"></main>
-<div id="overlay"></div>
 <div id="toast" class="toast" hidden></div>
 
 <script>
@@ -713,7 +685,53 @@ const LS = {
 };
 const TOK = { c: LS.get('fsp.tok.c'), e: LS.get('fsp.tok.e') };
 const setTok = (role, t) => { TOK[role] = t; LS.set('fsp.tok.' + role, t); };
-const roleOf = p => p.startsWith('/e') ? 'e' : 'c';
+
+/* ===================== маршруты: адрес ↔ экран ===================== */
+// экраны внутри — по ключам ('/c/home', '/e/cand/A-1042'), в адресной строке — настоящие пути кабинетов (History API).
+// Одна таблица в обе стороны; «*» — один сегмент адреса (id, собеседник чата). Сервер отдаёт страницу на /candidate…, /employer… и /v.
+const ROUTES = [
+  ['/', '/'], ['/v', '/v'],
+  ['/c/home', '/candidate'], ['/c/login', '/candidate/login'], ['/c/signup', '/candidate/signup'], ['/c/profile', '/candidate/profile'],
+  ['/c/quest', '/candidate/test'], ['/c/quest/go', '/candidate/test/run'], ['/c/result', '/candidate/test/result'],
+  ['/c/invite/*', '/candidate/invites/*'], ['/c/vacancies', '/candidate/vacancies'], ['/c/vacancy/*', '/candidate/vacancies/*'],
+  ['/c/applications', '/candidate/applications'], ['/c/tasks', '/candidate/tasks'], ['/c/task/*', '/candidate/tasks/*'],
+  ['/c/task/*/*', '/candidate/tasks/*/*'],  // задание из приглашения: /candidate/tasks/<задание>/<приглашение>
+  ['/c/chat', '/candidate/chat'], ['/c/chat/*', '/candidate/chat/*'], ['/c/settings', '/candidate/settings'],
+  ['/e/picks', '/employer'], ['/e/login', '/employer/login'], ['/e/signup', '/employer/signup'], ['/e/company', '/employer/company'],
+  ['/e/need', '/employer/needs/new'], ['/e/search', '/employer/search'],
+  ['/e/cand/*', '/employer/candidates/*'], ['/e/invite/*', '/employer/candidates/*/invite'], ['/e/pipeline', '/employer/invites'],
+  ['/e/vacancies', '/employer/vacancies'], ['/e/vacancy/*', '/employer/vacancies/*'], ['/e/tasks', '/employer/tasks'], ['/e/task/*', '/employer/tasks/*'],
+  ['/e/chat', '/employer/chat'], ['/e/chat/*', '/employer/chat/*'],
+];
+// шаблон from → to по сегментам: одинаковое число сегментов, «*» — любой непустой сегмент
+function conv(from, to, s) {
+  const a = from.split('/'), b = s.split('/'), xs = [];
+  if (a.length !== b.length) return null;
+  for (let i = 0; i < a.length; i++) if (a[i] === '*') { if (!b[i]) return null; xs.push(b[i]); } else if (a[i] !== b[i]) return null;
+  return to.replace(/\*/g, () => xs.shift());
+}
+const keyOf = p => { for (const [k, u] of ROUTES) { const r = conv(u, k, p); if (r) return r; } return null; };
+const pathOf = k => { for (const [k0, u] of ROUTES) { const r = conv(k0, u, k); if (r) return r; } return '/'; };
+// ключ экрана по адресу; неизвестный путь внутри кабинета — экран «Не найдено» этого кабинета
+const route = () => {
+  const p = location.pathname.replace(/\/+$/, '') || '/';
+  return keyOf(p) || (/^\/employer\//.test(p) ? '/e/404' : /^\/candidate\//.test(p) ? '/c/404' : '/');
+};
+// кабинет экрана явно: c | e, вне кабинетов (главная, /v) — ''
+const roleOf = k => k.startsWith('/c/') ? 'c' : k.startsWith('/e/') ? 'e' : '';
+// экраны кабинета, открытые без входа: вход, регистрация, «Не найдено»
+const OPEN = k => /^\/[ce]\/(login|signup|404)$/.test(k);
+// переход: адрес — в историю, экран — после текущего обработчика (как прежде по hashchange); тот же адрес — ничего
+function nav(p, replace) {
+  if (location.pathname + location.search === p) return;
+  history[replace ? 'replaceState' : 'pushState'](null, '', p);
+  setTimeout(show);
+}
+const go = (k, replace, q) => nav(pathOf(k) + (q ? '?' + q : ''), replace);
+// вход с возвратом: ?next= — адрес экрана, с которого увели на вход (только свой кабинет, не вход и не чужой сайт)
+const nextOk = (n, side) => { if (typeof n !== 'string' || !/^\/[^/\\]/.test(n)) return null; const k = keyOf(n.split(/[?#]/)[0]); return k && roleOf(k) === side && !OPEN(k) ? n : null; };
+const nextPath = side => nextOk(new URLSearchParams(location.search).get('next'), side);
+const toLogin = (side, replace) => go(`/${side}/login`, replace, route() === '/' || OPEN(route()) ? '' : 'next=' + encodeURIComponent(location.pathname + location.search));
 
 async function api(method, path, body, role = roleOf(route())) {
   const headers = {};
@@ -726,10 +744,9 @@ async function api(method, path, body, role = roleOf(route())) {
   const det = data && data.detail;
   const msg = typeof det === 'string' ? det : Array.isArray(det) ? det.map(x => x.msg).join('; ') : det && det.errors ? det.errors.join(' ') : `Ошибка ${r.status}`;
   const err = Object.assign(new Error(msg), { status: r.status, detail: det });
-  if (r.status === 401 && !path.startsWith('/api/auth/')) {
+  if (r.status === 401 && role && !path.startsWith('/api/auth/')) {
     clearSide(role);
-    const to = role === 'e' ? '/e/signup' : '/c/signup';
-    if (route() !== to) go(to);
+    if (route() !== `/${role}/login`) toLogin(role);
   }
   throw err;
 }
@@ -738,29 +755,29 @@ function fail(e) { toast(e && e.message ? e.message : 'Ошибка'); }
 // сброс токена и данных одной роли: выход, 401, смена пользователя
 function clearSide(role) {
   setTok(role, null);
-  if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
+  // согласия 152-ФЗ с экрана регистрации — только того, кто входит сейчас: следующий человек во вкладке ставит их сам
+  if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S.signup, { c152: false, publish: false }); Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
   else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
 }
-// демо-персонажи (только при DEMO=1 на сервере): c — Орлов, e — «Ладога Пэй», newco — неподтверждённый «Новый Стартап»
-async function demoLogin(who) {
-  const role = who === 'c' ? 'c' : 'e';
-  clearSide(role);
-  if (who === 'newco') return emailLogin('e', 'newco.hr@gmail.com');
-  const d = await api('POST', '/api/auth/demo/' + (role === 'e' ? 'employer' : 'candidate'), undefined, role);
-  setTok(role, d.token);
-}
-// вход по коду: в демо сервер возвращает код в ответе — подставляем его сами
-async function emailLogin(role, email) {
-  const r = await api('POST', '/api/auth/email', { email, role: role === 'e' ? 'employer' : 'candidate' }, role);
-  if (!r.otp) throw new Error('Код отправлен на почту: введите его в форме входа');
-  await verifyLogin(role, email, r.otp);
-}
+// вход по коду; учётка другой роли — отказ с плашкой «войдите как …» на экране входа (S.roleErr)
 async function verifyLogin(role, email, otp) {
   const r = await api('POST', '/api/auth/verify', { email, otp }, role);
   const want = role === 'e' ? 'employer' : 'candidate';
-  if (r.role !== want) throw new Error(want === 'employer' ? 'Эта почта зарегистрирована как кандидат' : 'Эта почта зарегистрирована как работодатель');
+  if (r.role !== want) {  // почта уже подставлена во вход другой роли
+    S.roleErr = role; (role === 'c' ? S.esignup : S.signup).email = email; rerender();
+    throw new Error(want === 'employer' ? 'Эта почта зарегистрирована как кандидат' : 'Эта почта зарегистрирована как работодатель');
+  }
+  const { c152, publish } = S.signup;  // согласия, отмеченные на регистрации этим же человеком, переживают вход
   clearSide(role);
+  Object.assign(S.signup, { c152, publish });
   setTok(role, r.token);
+  return r;
+}
+// после входа: ?next= своего кабинета, иначе — дом кабинета или первый шаг (профиль кандидата, данные компании)
+function afterLogin(side, hasProfile, next) {
+  if (!hasProfile) return go(side === 'e' ? '/e/company' : '/c/profile');
+  if (next) return nav(next);
+  go(side === 'e' ? '/e/picks' : '/c/home');
 }
 
 // ФСП ID (OIDC): сервер отдаёт адрес провайдера и ставит куку потока; браузер уходит туда целиком
@@ -769,12 +786,12 @@ async function verifyLogin(role, email, otp) {
 async function fspStart(mode, role = 'c', idp = '') {
   const side = mode === 'link' ? 'c' : role;
   const r = await api('POST', '/api/auth/fsp/start', { mode, role: side === 'e' ? 'employer' : 'candidate', ...(idp ? { idp } : {}) }, side);
-  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
+  try { sessionStorage.setItem('fsp.signup', JSON.stringify({ side, mode, next: nextPath(side), c152: S.signup.c152, publish: S.signup.publish, tg: S.signup.tg })); } catch { /* приватный режим */ }
   location.assign(r.url);
 }
 // кнопки входа через Keycloak: кандидату — «ФСП ID» (подтянем достижения), компании — SSO; плюс сторонние провайдеры брокера (META.fsp_idps)
 const fspButtons = side => {
-  const mark = '<img src="assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px">';
+  const mark = '<img src="/assets/mark.png" alt="" style="width:28px;height:28px;border-radius:6px">';
   const main = side === 'e'
     ? `<button class="btn ghost block" data-act="fsp-login" data-side="e" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через SSO (Keycloak)</button>`
     : `<button class="btn ghost block fsp-btn" data-act="fsp-login" data-side="c" style="justify-content:flex-start;padding:14px 16px">${mark} Войти через ФСП ID <span class="muted small fsp-hint">подтянем достижения</span></button>`;
@@ -807,16 +824,20 @@ const fspErr = (code, side) => {
   return Object.hasOwn(t, code) ? t[code] : side === 'e' ? 'Не удалось войти через SSO' : 'Не удалось войти через ФСП ID';
 };
 const fspAch = a => a === 'consent' ? 'Достижения ФСП подтянем после согласия на внешние данные — в настройках' : +a ? `Подтверждено достижений ФСП: ${a}` : 'Новых достижений в ФСП ID нет';
-// возврат из ФСП ID: билет или код ошибки — во фрагменте (не уходит на сервер и в Referer), сразу стираем его из адреса
+// возврат из ФСП ID: билет или код ошибки — во фрагменте (не уходит на сервер и в Referer), сразу стираем его из адреса.
+// Сервер возвращает на вход своей роли (/candidate/login, /employer/login), привязку — в /candidate/settings, неизвестный
+// поток — на «/»: там сторона — подсказка из sessionStorage (только для адреса и текста ошибки; сторону входа определяет r.role)
 async function fspReturn() {
   if (!location.hash.startsWith('#fsp=')) return;
   const p = new URLSearchParams(location.hash.slice(1));
-  const kind = p.get('fsp');  // login | linked | error; ошибка у вошедшего кандидата — это привязка из настроек
-  let side = 'c';  // подсказка стороны из sessionStorage — только для адреса и текста ошибки; сторону входа определяет r.role
-  try { side = (JSON.parse(sessionStorage.getItem('fsp.signup')) || {}).side === 'e' ? 'e' : 'c'; } catch { /* приватный режим */ }
-  history.replaceState(null, '', location.pathname + (side === 'e' ? '#/e/signup' : '#/c/' + (kind === 'linked' || (kind === 'error' && TOK.c) ? 'settings' : 'signup')));
+  const kind = p.get('fsp');  // login | linked | error
+  let form = {};
+  try { form = JSON.parse(sessionStorage.getItem('fsp.signup')) || {}; sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+  let side = roleOf(route()) || (form.side === 'e' ? 'e' : 'c');
+  const link = route() === '/c/settings' || form.mode === 'link';
+  history.replaceState(null, '', pathOf(kind === 'linked' || (kind === 'error' && link) ? '/c/settings' : `/${side}/login`));
   if (kind === 'error') {
-    try { sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
+    if (p.get('e') === 'role') S.roleErr = side;  // учётка другой роли: на экране входа — ссылка на вход другой роли
     return toast(fspErr(p.get('e'), side));
   }
   if (kind === 'linked') return toast('ФСП ID привязан. ' + fspAch(p.get('ach')));
@@ -824,12 +845,11 @@ async function fspReturn() {
   side = r.role === 'employer' ? 'e' : 'c';  // роль выдал сервер: ей же принадлежит токен
   clearSide(side);
   setTok(side, r.token);
-  try { const { side: _, ...form } = JSON.parse(sessionStorage.getItem('fsp.signup')) || {}; Object.assign(S.signup, form); sessionStorage.removeItem('fsp.signup'); } catch { /* приватный режим */ }
-  if (side === 'e') {
-    history.replaceState(null, '', location.pathname + (r.has_profile ? '#/e/picks' : '#/e/signup'));
-    return toast(r.has_profile ? 'Вход через SSO' : 'Вход через SSO: укажите данные компании');
-  }
-  history.replaceState(null, '', location.pathname + (r.has_profile ? '#/c/home' : '#/c/profile'));
+  const { c152, publish, tg } = form;
+  Object.assign(S.signup, { c152: !!c152, publish: !!publish, tg: tg !== false });  // согласия с экрана регистрации пережили уход к провайдеру
+  const next = r.has_profile && nextOk(form.next, side);
+  history.replaceState(null, '', next || pathOf(side === 'e' ? (r.has_profile ? '/e/picks' : '/e/company') : r.has_profile ? '/c/home' : '/c/profile'));
+  if (side === 'e') return toast(r.has_profile ? 'Вход через SSO' : 'Вход через SSO: укажите данные компании');
   toast(r.has_profile ? 'Вход через ФСП ID. ' + fspAch(p.get('ach')) : 'Вход через ФСП ID: заполните профиль');
 }
 
@@ -841,8 +861,6 @@ function toast(msg) {
   t.textContent = msg; t.hidden = false;
   clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2800);
 }
-const go = p => { location.hash = '#' + p; };
-const route = () => (location.hash.slice(1) || '/');
 
 const trace = (cls, w, h, d, dots) => `<svg class="trace ${cls}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}"/>${dots.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.5"/>`).join('')}</svg>`;
 
@@ -862,15 +880,17 @@ const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] 
   + (c.sport_rank ? `<span class="chip ok" title="Спортивный разряд по протоколам ФСП">${esc(c.sport_rank)}</span>` : '')
   + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
 
-// разделы кабинета: одна строка чипов под хлебными крошками
+// разделы кабинета: одна строка чипов под хлебными крошками; ссылки — раздел открывается и в новой вкладке
 const NAV = {
-  c: [['/c/home', 'Кабинет'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Задачи'], ['/c/chat', 'Чат'], ['/c/result', 'Тест'], ['/c/settings', 'Настройки и приватность']],
-  e: [['/e/picks', 'Подборка'], ['/e/search', 'Поиск по банку'], ['/e/vacancies', 'Вакансии'], ['/e/tasks', 'Задания'], ['/e/pipeline', 'Приглашения'], ['/e/chat', 'Чат']],
+  c: [['/c/home', 'Кабинет'], ['/c/result', 'Тест'], ['/c/profile', 'Профиль'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/chat', 'Чат'], ['/c/tasks', 'Задачи'], ['/c/settings', 'Настройки и приватность']],
+  e: [['/e/picks', 'Подборка'], ['/e/search', 'Поиск по банку'], ['/e/pipeline', 'Приглашения'], ['/e/chat', 'Чат'], ['/e/vacancies', 'Вакансии'], ['/e/tasks', 'Задания'], ['/e/company', 'Компания']],
 };
 const NAV_OF = { '/c/invite': '/c/home', '/c/vacancy': '/c/vacancies', '/c/task': '/c/tasks', '/c/quest': '/c/result', '/e/vacancy': '/e/vacancies', '/e/task': '/e/tasks', '/e/need': '/e/picks', '/e/invite': '/e/pipeline' };
+// ссылка на экран: href — настоящий адрес (Ctrl/⌘-клик — новая вкладка), data-go — ключ для перехода без перезагрузки
+const href = k => `href="${esc(pathOf(k))}" data-go="${esc(k)}"`;
 function subnav(side) {
   const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
-  return `<nav class="chips subnav" aria-label="Разделы">${NAV[side].map(([p, l]) => `<button class="chip ${p === cur ? 'on' : ''}" data-go="${p}">${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</button>`).join('')}</nav>`;
+  return `<nav class="chips subnav" aria-label="Разделы">${NAV[side].map(([p, l]) => `<a class="chip ${p === cur ? 'on' : ''}" ${href(p)}${p === cur ? ' aria-current="page"' : ''}>${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</a>`).join('')}</nav>`;
 }
 // перерисовка разделов (бейдж чата) без сброса прокрутки строки на телефоне
 function redrawNav(side) {
@@ -896,7 +916,7 @@ const repBanner = () => {
 };
 const coBanners = () => repBanner() + unverifiedBanner();
 // плашка неподтверждённой компании (квота урезана, кандидаты видят предупреждение)
-const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/signup">Данные компании</button></span></div>` : '';
+const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/company">Данные компании</button></span></div>` : '';
 // инлайн-подтверждение вместо confirm(): показывается, когда S.confirm === key
 const confirmBox = (key, text, ok) => S.confirm === key ? `<div class="panel stack" role="alertdialog" aria-label="Подтверждение" style="border-color:var(--red)">
   <p class="small">${text}</p>
@@ -931,7 +951,7 @@ const foldHead = (k, title, n = 0) => `<div class="row sb"><span class="label">$
 const nOn = o => Object.values(o).filter(v => v !== '' && v !== false && v != null).length;
 
 function crumbs(items) {
-  return `<div class="crumbs">${items.map((it, i) => i === items.length - 1 ? `<b>${it[0]}</b>` : `<button data-go="${it[1]}">${it[0]}</button><span>/</span>`).join('')}</div>`;
+  return `<div class="crumbs">${items.map((it, i) => i === items.length - 1 ? `<b>${it[0]}</b>` : `<a ${href(it[1])}>${it[0]}</a><span>/</span>`).join('')}</div>`;
 }
 
 function compRows(list, showTh = true) {
@@ -1001,19 +1021,32 @@ function codePanel(p, clickable) {
 /* ===================== экраны: общий вход ===================== */
 const V = {};
 
+// вход в кабинет с главной: без входа — регистрация и вход своей роли, с входом — «Продолжить в кабинете»
+const door = (side, title, text, signup) => `<section class="panel stack" aria-labelledby="door-${side}">
+    <h2 id="door-${side}">${title}</h2>
+    <p class="prose small">${text}</p>
+    <div class="row" style="margin-top:auto">${TOK[side]
+      ? `<a class="btn primary" ${href(side === 'c' ? '/c/home' : '/e/picks')}>Продолжить в кабинете ${side === 'c' ? 'кандидата' : 'компании'}</a>`
+      : `<a class="btn primary" ${href(`/${side}/signup`)}>${signup}</a><a class="btn ghost" ${href(`/${side}/login`)}>Войти</a>`}</div>
+  </section>`;
+// стенд жюри (DEMO=1): тестовые входы — те же, что в README; адреса синтетические
+const demoLogins = () => META && META.demo ? `<div class="alert info" style="margin-top:24px"><span>i</span><span><b>Стенд жюри.</b> Тестовые входы по почте, код подставится сам: кандидат <code>d.orlov@example.ru</code> (Дмитрий Орлов), компания <code>m.kovaleva@ladoga-pay.example</code> («Ладога Пэй»), компания без проверки <code>newco.hr@gmail.com</code> («Новый Стартап»); в ФСП ID — демо-провайдер с готовыми аккаунтами. Валидация подбора и теста — <a ${href('/v')}>/v</a>.</span></div>` : '';
+
 V['/'] = () => `
   <section class="hero fade">
     <div class="hero-txt">
       <div class="eyebrow">Федерация спортивного программирования России</div>
       <h1>Один тест — и&nbsp;работодатели <em>сами приходят</em> с&nbsp;вилкой</h1>
       <p class="lead">Пройдите тест-квест один раз и получите категорию: специализация, стек и грейд. Компании ищут в базе и присылают приглашения с зарплатой «от — до». Контакты открываются, только когда вы согласились.</p>
-      <div class="row">
-        <button class="btn primary" data-go="/c/signup">Я разработчик</button>
-        <button class="btn dark" data-go="/e/signup">Я нанимаю</button>
-      </div>
     </div>
-    <div class="hero-img"><img src="assets/face.png" alt=""></div>
+    <div class="hero-img"><img src="/assets/face.png" alt=""></div>
   </section>
+
+  <div class="grid g2" style="margin-top:24px">
+    ${door('c', 'Кандидатам', 'Один раз заполните профиль и пройдите тест — компании сами пришлют приглашения с вилкой. Контакты откроются, только когда вы примете приглашение.', 'Создать профиль')}
+    ${door('e', 'Компаниям', 'Опишите, кого ищете, — подборка из проверенных тестом кандидатов появится сразу. Приглашение — только с вилкой «от — до».', 'Зарегистрировать компанию')}
+  </div>
+  ${demoLogins()}
 
   <div class="steps" style="margin-top:24px">
     <div><span class="n">Шаг 1 · 40–60 мин</span><h3>Тест-квест</h3><p class="prose small">Смена дежурного или неделя до релиза. Каждая сцена — отдельное откалиброванное задание, сложность подстраивается.</p></div>
@@ -1027,36 +1060,26 @@ V['/'] = () => `
     <div class="panel"><span class="label">Защита от завала</span><p class="prose small" style="margin-top:8px">У кандидата не больше ${CAP} открытых приглашений. У работодателя — недельная квота, которая растёт с долей принятых.</p></div>
   </div>
 
-  <div class="row" style="margin-top:24px">
-    <button class="btn ghost small" data-go="/v">Для жюри: дашборд валидации →</button>
-    <span class="muted small">Демо-стенд. Все компании и люди — синтетические.</span>
-  </div>`;
+  <p class="muted small" style="margin-top:24px">Демо-стенд. Все компании и люди — синтетические.</p>`;
 
-/* ===================== кандидат ===================== */
-V['/c/signup'] = () => `
-  ${crumbs([['Главная', '/'], ['Регистрация кандидата']])}
-  <div class="grid side fade">
-    <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
-      <span class="label">Шаг 1 из 3</span>
-      <h1>Создайте профиль</h1>
-      <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений.</p>
-      ${TOK.c ? '<div class="alert ok"><span>✓</span><span>Вы уже вошли. <button class="btn ghost small" data-go="/c/home">В кабинет</button></span></div>' : ''}
-      ${fspButtons('c')}
+// форма входа по коду (почта → код) и кнопки ФСП ID / SSO — одна на вход и регистрацию роли; extra — согласия регистрации кандидата
+function codeForm(side, extra = '') {
+  const c = side === 'c', f = c ? S.signup : S.esignup, id = c ? 'su' : 'es', act = c ? 'otp' : 'eotp';
+  return `${roleErrBox(side)}
+      ${fspButtons(side)}
       <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
-      <label class="field"><span>Почта</span><input class="input" id="su-mail" type="email" autocomplete="email" autocapitalize="off" enterkeyhint="send" placeholder="you@example.ru" value="${esc(S.signup.email)}"></label>
-      <label class="check"><input type="checkbox" id="su-152" ${S.signup.c152 ? 'checked' : ''}> Согласен на обработку персональных данных по 152-ФЗ (обязательно). Работодатели не видят ФИО и контакты, пока я не приму приглашение.</label>
-      <label class="check"><input type="checkbox" id="su-pub" ${S.signup.publish ? 'checked' : ''}> Показывать мою обезличенную карточку работодателям. Без этого согласия компании меня не найдут; включить можно позже в настройках.</label>
-      <label class="check"><input type="checkbox" id="su-tg" ${S.signup.tg ? 'checked' : ''}> Присылать приглашения в Telegram</label>
-      ${S.signup.sent ? `
-      <label class="field"><span>Код из письма</span><input class="input num" id="su-otp" inputmode="numeric" autocomplete="one-time-code" enterkeyhint="go" maxlength="6" value="${esc(S.signup.otp)}" style="max-width:200px"></label>
-      ${S.signup.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
-      <div class="row"><button class="btn primary" data-act="otp-verify">Войти</button><button class="btn ghost" data-act="otp-send">Отправить код ещё раз</button></div>`
-      : '<button class="btn primary" data-act="otp-send">Получить код на почту</button>'}
-      <div class="divider"></div>
-      <button class="btn dark" data-act="demo" data-who="c">Демо: войти как Дмитрий Орлов (A-1042)</button>
-      <span class="hint">Демо-вход работает только на стенде жюри (DEMO=1)</span>
-    </div>
-    <div class="stack">
+      <label class="field"><span>${c ? 'Почта' : 'Рабочая почта'}</span><input class="input" id="${id}-mail" type="email" autocomplete="email" autocapitalize="off" enterkeyhint="send" placeholder="${c ? 'you@example.ru' : 'hr@company.ru'}" value="${esc(f.email)}"></label>
+      ${extra}
+      ${f.sent ? `
+      <label class="field"><span>Код из письма</span><input class="input num" id="${id}-otp" inputmode="numeric" autocomplete="one-time-code" enterkeyhint="go" maxlength="6" value="${esc(f.otp)}" style="max-width:200px"></label>
+      ${f.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
+      <div class="row"><button class="btn primary" data-act="${act}-verify">Войти</button><button class="btn ghost" data-act="${act}-send">Отправить код ещё раз</button></div>`
+      : `<button class="btn primary" data-act="${act}-send">Получить код на почту</button>`}`;
+}
+// учётка другой роли (вход по коду или ФСП ID): отказ и ссылка на вход другой роли
+const roleErrBox = side => S.roleErr === side ? `<div class="alert bad" role="alert"><span>!</span><span>${side === 'c' ? 'Эта учётная запись зарегистрирована как компания.' : 'Эта учётная запись зарегистрирована как кандидат.'} <a ${href(side === 'c' ? '/e/login' : '/c/login')}>${side === 'c' ? 'Войти как компания' : 'Войти как кандидат'}</a></span></div>` : '';
+const loggedIn = side => TOK[side] ? `<div class="alert ok"><span>✓</span><span>Вы уже вошли. <a class="btn ghost small" ${href(side === 'c' ? '/c/home' : '/e/picks')}>В кабинет</a></span></div>` : '';
+const candAside = () => `<div class="stack">
       <div class="panel tight stack-s">
         <span class="label">Что увидят компании</span>
         <p class="small">Анонимную карточку: <b>Кандидат A-1042</b>, категорию, перцентиль, подтверждённые навыки, бейджи ФСП и Codeforces — только если вы согласились на публикацию.</p>
@@ -1065,8 +1088,43 @@ V['/c/signup'] = () => `
         <span class="label">Чего не увидят</span>
         <p class="small">ФИО, фото, возраст, пол, вуз. Эти поля не участвуют в ранжировании.</p>
       </div>
+      <p class="small muted">Нанимаете? <a ${href('/e/login')}>Вход для компаний</a></p>
+    </div>`;
+// согласия 152-ФЗ — раздельные: обработка (обязательно) и публикация карточки; те же галочки — в шаге «Профиль», если вошли без них
+const consentChecks = p => `<label class="check"><input type="checkbox" id="${p}-152" ${S.signup.c152 ? 'checked' : ''}> Согласен на обработку персональных данных по 152-ФЗ (обязательно). Работодатели не видят ФИО и контакты, пока я не приму приглашение.</label>
+      <label class="check"><input type="checkbox" id="${p}-pub" ${S.signup.publish ? 'checked' : ''}> Показывать мою обезличенную карточку работодателям. Без этого согласия компании меня не найдут; включить можно позже в настройках.</label>`;
+
+/* ===================== кандидат ===================== */
+V['/c/login'] = () => `
+  ${crumbs([['Главная', '/'], ['Вход кандидата']])}
+  <div class="grid side fade">
+    <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
+      <h1>Вход для кандидатов</h1>
+      <p class="prose">Войдите по почте или через ФСП ID. Профиля ещё нет — <a ${href('/c/signup')}>создайте его</a>: это один раз.</p>
+      ${loggedIn('c')}
+      ${codeForm('c')}
     </div>
+    ${candAside()}
   </div>`;
+
+V['/c/signup'] = () => `
+  ${crumbs([['Главная', '/'], ['Регистрация кандидата']])}
+  <div class="grid side fade">
+    <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
+      <span class="label">Шаг 1 из 3</span>
+      <h1>Создайте профиль</h1>
+      <p class="prose">Профиль нужен один раз. Потом вы проходите тест и ждёте приглашений. Уже есть профиль — <a ${href('/c/login')}>войдите</a>.</p>
+      ${loggedIn('c')}
+      ${codeForm('c', `${consentChecks('su')}
+      <label class="check"><input type="checkbox" id="su-tg" ${S.signup.tg ? 'checked' : ''}> Присылать приглашения в Telegram</label>`)}
+    </div>
+    ${candAside()}
+  </div>`;
+
+// неизвестный адрес внутри кабинета (опечатка, устаревшая ссылка)
+const notFound = side => `${crumbs([['Главная', '/'], ['Не найдено']])}<div class="panel stack fade"><h2>Страница не найдена</h2><p class="prose small">Такого адреса в ${side === 'c' ? 'кабинете кандидата' : 'кабинете компании'} нет: ссылка устарела или в ней опечатка.</p><div class="row"><a class="btn primary" ${href(side === 'c' ? '/c/home' : '/e/picks')}>В кабинет</a></div></div>`;
+V['/c/404'] = () => notFound('c');
+V['/e/404'] = () => notFound('e');
 
 // резюме: распознанные контакты и места работы (контакты — только для формы самого кандидата)
 function cvDetails(p) {
@@ -1153,13 +1211,14 @@ V['/c/profile'] = () => {
   const claimedOnly = f.skills.filter(s => !confirmed.includes(s));
   const cvName = (S.cv && S.cv.filename) || (ME && ME.cv_filename);
   const parsed = S.cv && S.cv.parsed;
+  // профиля ещё нет — шаг 2 регистрации (с согласиями 152-ФЗ, если их не отметили при входе); есть — раздел кабинета
   return `
-  ${crumbs([['Главная', '/'], ['Регистрация', '/c/signup'], ['Профиль']])}
+  ${ME ? crumbs([['Кабинет', '/c/home'], ['Профиль']]) + subnav('c') : crumbs([['Главная', '/'], ['Регистрация', '/c/signup'], ['Профиль']])}
   ${withdrawnAlert()}
   <div class="grid side fade">
     <fieldset class="stack" ${withdrawn() ? 'disabled' : ''} style="border:0;padding:0;margin:0;min-width:0">
       <div class="panel stack">
-        <div class="row sb"><h2>Профиль</h2><span class="label">Шаг 2 из 3</span></div>
+        <div class="row sb"><h2>Профиль</h2>${ME ? '' : '<span class="label">Шаг 2 из 3</span>'}</div>
         <div class="drop">
           <div class="file-ico">PDF</div>
           <div style="min-width:0;flex:1">
@@ -1207,7 +1266,8 @@ V['/c/profile'] = () => {
       </div>
 
       ${achPanel()}
-      <div class="row"><button class="btn primary" data-act="psave">Сохранить и перейти к тесту</button><button class="btn ghost" data-go="/c/home">Позже</button></div>
+      ${ME ? '' : `<div class="panel stack"><h3>Согласия</h3>${consentChecks('p')}<span class="hint">Согласие на обработку обязательно: без него профиль не сохранить. Введённое выше не потеряется.</span></div>`}
+      <div class="row"><button class="btn primary" data-act="psave">${ME ? 'Сохранить' : 'Сохранить и перейти к тесту'}</button></div>
     </fieldset>
     <aside class="panel tight stack-s">
       <span class="label">Превью карточки для работодателя</span>
@@ -1221,35 +1281,23 @@ V['/c/profile'] = () => {
   </div>`;
 };
 
-// вводная теста по специализации: сюжет (как items.STORY), заголовок, суть; документация — по стеку
-const QUEST_INTRO = {
-  'Backend': ['Смена дежурного', 'Ночь, пейджер, падает приём платежей', 'Вы дежурный инженер в финтех-компании. За смену разберёте инцидент, решите, что делать первым, и проверите фикс от ИИ-ассистента.', 'Python и PostgreSQL'],
-  'Frontend': ['Неделя до релиза', 'Пять дней до релиза, а интерфейс сыпется', 'Вы фронтенд-разработчик продуктовой команды. За неделю разберёте баги вёрстки и состояния, медленные экраны, доступность и чужие PR.', 'MDN и вашего фреймворка'],
-  'Mobile': ['Релиз в сторах', 'Сборка ушла на ревью, а краши растут', 'Вы мобильный разработчик. За день релиза разберёте краши, жизненный цикл, офлайн-режим, производительность и чужие PR.', 'платформы и вашего фреймворка'],
-  'ML / DS': ['Модель деградирует', 'Метрика модели падает третью неделю', 'Вы ML-инженер. Разберёте постановку, валидацию, дрейф, признаки и выкатку модели — по графикам, логам и коду.', 'библиотек ML'],
-  'Data Eng / Analytics': ['Квартальный отчёт', 'Завтра квартальный отчёт, а цифры не сходятся', 'Вы инженер данных или аналитик. Разберёте запросы, модели данных, пайплайны, качество данных и графики для отчёта.', 'SQL и вашего стека данных'],
-  'DevOps / SRE': ['Миграция в облако', 'Ночь переезда в облако', 'Вы SRE. За ночь миграции разберёте инциденты, сети, Kubernetes, CI/CD, мониторинг и план отката.', 'Kubernetes и облака'],
-  'QA': ['Приёмка релиза', 'День приёмки релиза', 'Вы инженер по тестированию. Разберёте тест-дизайн, приёмку, автотесты, API, баг-репорты и регресс.', 'инструментов тестирования'],
-  'Security': ['Ночной инцидент', 'Ночью сработал алерт безопасности', 'Вы инженер по безопасности. Разберёте уязвимости, ревью кода, сетевые атаки, криптографию, реагирование и реверс.', 'по безопасности (OWASP и др.)'],
-  'Analysis': ['Новая интеграция', 'Партнёр подключается через неделю, а требования расходятся', 'Вы системный или бизнес-аналитик. Разберёте требования, процессы, интеграцию и API, данные, спецификации и влияние изменений.', 'по нотациям (BPMN, UML) и API партнёра'],
-  'Management': ['Квартальное планирование', 'План квартала, а ресурсов на всё не хватает', 'Вы проджект- или продакт-менеджер. Разберёте сроки, риски, метрики продукта, приоритеты, стейкхолдеров и процессы команды.', 'по методологиям и вашему трекеру'],
-  'Design': ['Редизайн оформления заказа', 'Конверсия чекаута падает, редизайн — на этой неделе', 'Вы UX/UI- или продуктовый дизайнер. Разберёте исследования, юзабилити, доступность, дизайн-систему, прототипы и эксперименты.', 'по WCAG и вашей дизайн-системе'],
-  'SysAdmin / Support': ['Понедельник в офисе', 'Понедельник, 8 утра, очередь обращений растёт', 'Вы системный администратор или инженер поддержки. Разберёте инциденты, сеть, учётки и доступы, бэкапы, серверы и обращения пользователей.', 'по ОС и вашему оборудованию'],
-};
+// сюжет теста по специализации — из /api/meta (items.STORY): вводная, финал, документация; часы сцен приходят с заданием
+const questStory = () => META.stories[ME && ME.spec] || META.stories.Backend;
 
 V['/c/quest'] = () => {
-  const [plot, head, about, docs] = QUEST_INTRO[ME && ME.spec] || QUEST_INTRO.Backend;
+  if (!ME) return noProfile('Тест-квест');  // без профиля нет специализации — вводная и старт теста бессмысленны
+  const { title: plot, head, about, docs } = questStory();
   return `
   ${crumbs([['Профиль', '/c/profile'], ['Тест-квест']])}
   <div class="quest fade" style="position:relative">
     ${trace('', 300, 180, 'M10 170 V60 a40 40 0 0 1 40 -40 H290', [[10, 170], [290, 20]]).replace('class="trace "', 'class="trace" style="right:24px;bottom:24px;opacity:.6;color:#6A5CFF"')}
     <div style="padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;gap:20px;max-width:760px;position:relative">
-      <span class="label" style="color:var(--on-dark-2)">${esc([ME && ME.spec, ME && ME.track].filter(Boolean).join(' · '))} · сюжет «${plot}»</span>
-      <h1 style="color:#fff">${head}</h1>
-      <p class="prose" style="color:var(--on-dark-2)">${about} Каждая сцена — отдельное задание, сложность подстраивается под ваши ответы.</p>
+      <span class="label" style="color:var(--on-dark-2)">${esc([ME && ME.spec, ME && ME.track].filter(Boolean).join(' · '))} · сюжет «${esc(plot)}»</span>
+      <h1 style="color:#fff">${esc(head)}</h1>
+      <p class="prose" style="color:var(--on-dark-2)">${esc(about)} Каждая сцена — отдельное задание, сложность подстраивается под ваши ответы.</p>
       <dl class="kv" style="color:var(--on-dark)">
         <dt style="color:var(--on-dark-2)">Длительность</dt><dd>40–60 минут, около 12 сцен, таймер на каждой</dd>
-        <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация ${docs}. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
+        <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация ${esc(docs)}. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
         ${META && META.code_tasks ? '<dt style="color:var(--on-dark-2)">Задача на код</dt><dd>Одна за полный тест (в экспресс-тесте её нет), на Python или TypeScript: функция проверяется на скрытых тестах в изолированной песочнице, до отправки можно запустить её на примерах.</dd>' : ''}
         <dt style="color:var(--on-dark-2)">Без игровых очков</dt><dd>Нет жизней и рейтингов. Финал — экран категории.</dd>
         <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Повышение грейда — не чаще раза в 90 дней${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Повышение возможно с ${DATE(ME.next_upgrade_at)}: сейчас пересдача может только понизить результат` : ''}</dd>
@@ -1299,12 +1347,13 @@ function historyPanel() {
 
 // задание теста приходит с сервера: POST /api/quest/start (продолжает незаконченную сессию) → /answer → /finish
 function sceneView() {
+  if (!ME) return noProfile('Тест-квест');
   const q = S.quest;
   if (!q) return `<div class="panel">Не удалось загрузить задание. <button class="btn ghost small" data-go="/c/quest">К вводной</button></div>`;
   if (q.done || !q.item) return `
   <div class="quest fade" style="padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;gap:18px;align-items:flex-start">
     <span class="label" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'Экспресс-тест · ' : ''}Все задания пройдены · ${q.progress.n} из ${q.progress.total}</span>
-    <h2 style="color:#fff">${S.story ? '18:00. Смена закончена' : 'Тест закончен'}</h2>
+    <h2 style="color:#fff">${S.story ? esc(questStory().finale) : 'Тест закончен'}</h2>
     <p class="prose" style="color:var(--on-dark-2)">Траектория была адаптивной: после каждого ответа пересчитывали θ и SE и подбирали следующее задание. Тест останавливается, когда погрешность достаточно мала.</p>
     <button class="btn primary" data-act="finish">Посмотреть категорию</button>
   </div>`;
@@ -1333,7 +1382,7 @@ function sceneView() {
     </div>
     <div class="quest-body">
       <div class="stack">
-        ${S.story && it.story ? `<p class="story">${it.time ? `<span class="t">${esc(it.time)}</span>` : ''}${esc(it.story)}</p>` : ''}
+        ${it.story ? `<p class="story">${S.story && it.time ? `<span class="t">${esc(it.time)}</span>` : ''}${esc(it.story)}</p>` : ''}
         ${left}
       </div>
       <div>${right}</div>
@@ -1882,45 +1931,41 @@ function cTaskView() {
 }
 
 /* ===================== работодатель ===================== */
-V['/e/signup'] = () => {
-  if (!TOK.e) {
-    const f = S.esignup;
-    return `
-  ${crumbs([['Главная', '/'], ['Вход для компаний']])}
+const coAside = () => `<aside class="stack">
+      <div class="panel tight stack-s">
+        <span class="label">Проверка компании</span>
+        <p class="small">ИНН — контрольные цифры, рабочая почта — на домене сайта компании. Неподтверждённая компания работает с квотой 3 приглашения в неделю, кандидаты видят плашку.</p>
+        <div class="divider"></div>
+        <span class="label">Оплата</span>
+        <p class="small">Только за принятые приглашения.</p>
+      </div>
+      <p class="small muted">Ищете работу? <a ${href('/c/login')}>Вход для кандидатов</a></p>
+    </aside>`;
+// вход и регистрация компании — одна форма по коду; новая компания после входа заполняет данные (/e/company)
+const eAuth = (crumb, head, text) => `
+  ${crumbs([['Главная', '/'], [crumb]])}
   <div class="grid side fade">
     <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
-      <h1>Вход для компаний</h1>
-      <p class="prose">Войдите по рабочей почте. Если компании ещё нет — после входа заполните ИНН и данные рекрутера.</p>
-      ${fspButtons('e')}
-      <div class="row muted small"><span style="flex:1;height:1px;background:var(--line-2)"></span>или по почте<span style="flex:1;height:1px;background:var(--line-2)"></span></div>
-      <label class="field"><span>Рабочая почта</span><input class="input" id="es-mail" type="email" autocomplete="email" autocapitalize="off" enterkeyhint="send" placeholder="hr@company.ru" value="${esc(f.email)}"></label>
-      ${f.sent ? `
-      <label class="field"><span>Код из письма</span><input class="input num" id="es-otp" inputmode="numeric" autocomplete="one-time-code" enterkeyhint="go" maxlength="6" value="${esc(f.otp)}" style="max-width:200px"></label>
-      ${f.otp ? '<span class="hint">Демо-режим: письма не отправляются, код подставлен из ответа сервера</span>' : ''}
-      <div class="row"><button class="btn primary" data-act="eotp-verify">Войти</button><button class="btn ghost" data-act="eotp-send">Отправить код ещё раз</button></div>`
-      : '<button class="btn primary" data-act="eotp-send">Получить код на почту</button>'}
-      <div class="divider"></div>
-      <div class="stack-s">
-        <button class="btn dark" data-act="demo" data-who="e">Демо: войти как «Ладога Пэй» (компания подтверждена)</button>
-        <button class="btn ghost" data-act="demo" data-who="newco">Демо: войти как «Новый Стартап» (не прошла проверку, квота 3)</button>
-        <span class="hint">Демо-вход работает только на стенде жюри (DEMO=1)</span>
-      </div>
+      ${head}
+      <p class="prose">${text}</p>
+      ${loggedIn('e')}
+      ${codeForm('e')}
     </div>
-    <aside class="panel tight stack-s">
-      <span class="label">Проверка компании</span>
-      <p class="small">ИНН — контрольные цифры, рабочая почта — на домене сайта компании. Неподтверждённая компания работает с квотой 3 приглашения в неделю, кандидаты видят плашку.</p>
-      <div class="divider"></div>
-      <span class="label">Оплата</span>
-      <p class="small">Только за принятые приглашения.</p>
-    </aside>
+    ${coAside()}
   </div>`;
-  }
+V['/e/login'] = () => eAuth('Вход для компаний', '<h1>Вход для компаний</h1>', `Войдите по рабочей почте. Компании ещё нет — <a ${href('/e/signup')}>зарегистрируйте её</a>.`);
+V['/e/signup'] = () => eAuth('Регистрация компании', '<span class="label">Шаг 1 из 2</span><h1>Регистрация компании</h1>',
+  `Подтвердите рабочую почту кодом, затем укажите ИНН, сайт и рекрутера. Уже зарегистрированы — <a ${href('/e/login')}>войдите</a>.`);
+
+V['/e/company'] = () => {
   const co = D.company || { inn: '', name: '', recruiter_email: '', recruiter_name: '', site_domain: '', about: '' };
   const q = co.quota;
   return `
-  ${crumbs([['Главная', '/'], ['Компания']])}
+  ${crumbs([['Главная', '/'], [D.company ? esc(D.company.name) : 'Компания']])}
+  ${D.company ? subnav('e') : ''}
   <div class="grid side fade">
     <div class="panel frame stack" style="padding:clamp(22px,4vw,40px)">
+      ${D.company ? '' : '<span class="label">Шаг 2 из 2</span>'}
       <h1>Компания</h1>
       <p class="prose">Проверяем компанию до первого приглашения. Так кандидаты защищены от фиктивных работодателей.</p>
       ${D.company && !D.company.verified ? '<div class="alert warn"><span>!</span><span><b>Компания не прошла проверку.</b> Работает с квотой 3 приглашения в неделю. Чтобы пройти, укажите корректный ИНН и входите с рабочей почты на домене сайта.</span></div>' : ''}
@@ -1938,7 +1983,7 @@ V['/e/signup'] = () => {
         ${co.checks ? co.checks.map(c => `<div class="alert ${c.ok === true ? 'ok' : c.ok === false ? 'bad' : 'info'}">${esc(c.text)}.</div>`).join('') : '<div class="alert info">Проверки ИНН и домена почты появятся после сохранения.</div>'}
       </div>
       <label class="field"><span>О компании, 1–2 предложения</span><textarea class="input" id="co-about" style="min-height:70px">${esc(co.about)}</textarea></label>
-      <div class="row"><button class="btn primary" data-act="co-save">${D.company ? 'Сохранить и перейти к поиску' : 'Зарегистрировать и перейти к поиску'}</button><button class="btn ghost" data-act="logout">Выйти</button></div>
+      <div class="row"><button class="btn primary" data-act="co-save">${D.company ? 'Сохранить' : 'Зарегистрировать и описать, кого ищете'}</button><button class="btn ghost" data-act="logout">Выйти</button></div>
     </div>
     <aside class="panel tight stack-s">
       <span class="label">Квота приглашений</span>
@@ -2076,14 +2121,14 @@ function lotteryPanel(n) {
 
 V['/e/picks'] = () => {
   const P = D.picks;
-  if (!P) return `${crumbs([['Компания', '/e/signup'], ['Подборка']])}${subnav('e')}${coBanners()}<div class="panel stack"><h2>Потребностей пока нет</h2><p class="prose small">Опишите, кого ищете, — подборка появится сразу.</p><div class="row"><button class="btn primary" data-go="/e/need">Новая потребность</button></div></div>`;
+  if (!P) return `${crumbs([['Компания', '/e/company'], ['Подборка']])}${subnav('e')}${coBanners()}<div class="panel stack"><h2>Потребностей пока нет</h2><p class="prose small">Опишите, кого ищете, — подборка появится сразу.</p><div class="row"><button class="btn primary" data-go="/e/need">Новая потребность</button></div></div>`;
   const n = P.need, list = P.items, q = P.quota;
   const fl = [['fmt', 'Формат совпадает'], ['free', 'Без перегрузки'], ['fsp', 'Есть ФСП'], ['cf', 'Есть Codeforces']];
   const cats = P.categories, warnCat = cats.find(c => !c.current && !c.fork_ok && c.note);
   const cities = {}; list.forEach(c => { cities[c.city || '—'] = (cities[c.city || '—'] || 0) + 1; });
   const msk = list.length ? Math.round((cities['Москва'] || 0) / list.length * 100) : 0;
   return `
-  ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Подборка']])}
+  ${crumbs([[esc(D.coName || 'Компания'), '/e/company'], ['Подборка']])}
   ${subnav('e')}
   ${coBanners()}
   <div class="row sb fade" style="margin-bottom:16px">
@@ -2110,7 +2155,7 @@ V['/e/picks'] = () => {
         <span class="hint">Фильтр сужает список, порядок сохраняется</span>
       </div>
       <div class="panel tight">
-        <img src="assets/map.png" alt="Карта России: регионы кандидатов" style="opacity:.9">
+        <img src="/assets/map.png" alt="Карта России: регионы кандидатов" style="opacity:.9">
         <p class="small muted" style="margin-top:6px">В топе — кандидаты из ${Object.keys(cities).length} городов. ${msk} % — Москва.</p>
       </div>
     </aside>
@@ -2165,7 +2210,7 @@ function chatList() {
 
 function chatView(side) {
   const peer = chatPeerOf(), d = D.chatDetail;
-  const head = side === 'c' ? [['Кабинет', '/c/home'], ['Чат']] : [[esc(D.coName || 'Компания'), '/e/signup'], ['Чат']];
+  const head = side === 'c' ? [['Кабинет', '/c/home'], ['Чат']] : [[esc(D.coName || 'Компания'), '/e/company'], ['Чат']];
   // телефон и планшет: открыт диалог — списка не видно, назад к нему — кнопкой в шапке диалога
   const back = `<button class="btn ghost small chat-back" data-go="/${side}/chat">← Диалоги</button>`;
   const box = d ? `
@@ -2466,7 +2511,7 @@ V['/e/pipeline'] = () => {
       </tr>`).join('') || '<tr><td colspan="7" class="muted">Приглашений пока нет</td></tr>'}</tbody>
     </table></div>
   </div>
-  ${demo && (demo.status === 'sent' || demo.status === 'seen') ? `<div class="alert info" style="margin-top:16px"><span>→</span><span>A-1042 ещё не ответил. Переключитесь на роль «Кандидат», откройте приглашение ${esc(D.coName || 'компании')} и примите его: статус и контакты появятся здесь.</span></div>` : ''}
+  ${demo && (demo.status === 'sent' || demo.status === 'seen') ? `<div class="alert info" style="margin-top:16px"><span>→</span><span>A-1042 ещё не ответил. Откройте <a href="/candidate" target="_blank" rel="noopener">кабинет кандидата</a> в соседней вкладке (войти за Дмитрия Орлова — по почте d.orlov@example.ru), примите приглашение ${esc(D.coName || 'компании')} — статус и контакты появятся здесь.</span></div>` : ''}
   <p class="small muted" style="margin-top:16px">Отметка после собеседования калибрует тест: если грейд не подтверждается, задания этого кандидата уходят на перепроверку.</p>`;
 };
 
@@ -2477,7 +2522,7 @@ V['/e/search'] = () => {
   const pages = Math.max(1, Math.ceil(R.total / R.limit));
   const facet = (k, obj) => Object.entries(obj).map(([v, n]) => `<button class="chip ${f[k] === v ? 'on' : ''}" data-act="sf-facet" data-k="${k}" data-v="${esc(v)}">${esc(v)} <b class="num">${n}</b></button>`).join('');
   return `
-  ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Поиск по банку']])}
+  ${crumbs([[esc(D.coName || 'Компания'), '/e/company'], ['Поиск по банку']])}
   ${subnav('e')}
   ${coBanners()}
   <div class="grid side-l">
@@ -2568,7 +2613,7 @@ function vacancyForm() {
 V['/e/vacancies'] = () => {
   const L = (D.myvac && D.myvac.items) || [], lim = D.myvac && D.myvac.limit, full = lim && lim.open >= lim.max;
   return `
-  ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Вакансии']])}
+  ${crumbs([[esc(D.coName || 'Компания'), '/e/company'], ['Вакансии']])}
   ${subnav('e')}
   ${coBanners()}
   <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>Вакансии</h2><span class="small muted">Дополнительный путь: кандидат откликается сам, контакты открываются, когда вы примете отклик. Основной — приглашения из подборки.</span></div>${S.vform ? '' : `<button class="btn primary small" data-act="vac-new" ${full ? 'disabled' : ''}>Новая вакансия</button>`}</div>
@@ -2671,7 +2716,7 @@ const refText = t => {
 V['/e/tasks'] = () => {
   const L = D.mytasks || [];
   return `
-  ${crumbs([[esc(D.coName || 'Компания'), '/e/signup'], ['Задания']])}
+  ${crumbs([[esc(D.coName || 'Компания'), '/e/company'], ['Задания']])}
   ${subnav('e')}
   <div class="row sb fade" style="margin-bottom:16px"><div class="stack-s"><h2>Задания</h2><span class="small muted">Решения приходят анонимно. Ваша оценка — свежий сигнал в карточке кандидата для других компаний; на грейд не влияет.</span></div>${S.tform ? '' : '<button class="btn primary small" data-act="task-new">Новое задание</button>'}</div>
   <div class="stack">
@@ -2811,48 +2856,6 @@ function vsep(Sp) {
   <p class="small muted">Слабо различающих заданий (r<sub>pb</sub> &lt; 0,2): ${PCT(it.rpb_poor)} — на модельных ответах по той же 2PL, калибровки по живым ответам пока нет. AUC — вероятность, что у кандидата старшего грейда оценка θ выше, чем у младшего; 0,5 — не различает.</p>` : ''}`;
 }
 
-/* ===================== карта экранов ===================== */
-const MAP = [
-  ['Общее', [['/', 'Главная']]],
-  ['Кандидат', [['/c/signup', 'Вход и регистрация'], ['/c/profile', 'Профиль, резюме и достижения'], ['/c/quest', 'Тест-квест: грейд и история'], ['/c/quest/go', 'Тест-квест: задания'], ['/c/result', 'Категория и вердикт'], ['/c/home', 'Кабинет и приглашения'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Витрина задач'], ['/c/settings', 'Согласия и мои данные']]],
-  ['Работодатель', [['/e/signup', 'Вход и компания'], ['/e/need', 'Потребность и план теста'], ['/e/picks', 'Подборка и лотерея'], ['/e/search', 'Поиск по банку'], ['/e/cand/A-1042', 'Карточка кандидата'], ['/e/invite/C-0775', 'Форма приглашения'], ['/e/pipeline', 'Статусы и обратная связь'], ['/e/vacancies', 'Вакансии и отклики'], ['/e/tasks', 'Задания и решения']]],
-  ['Жюри', [['/v', 'Дашборд валидации']]],
-];
-function openMap() {
-  const r = route(), role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
-  let n = 0;
-  const sbw = innerWidth - document.documentElement.clientWidth;  // полоса прокрутки исчезнет — страница не должна сдвинуться
-  document.documentElement.style.paddingRight = sbw ? sbw + 'px' : '';
-  document.documentElement.classList.add('lock');
-  document.querySelector('[data-act="map"]').setAttribute('aria-expanded', 'true');
-  document.querySelector('header.top').inert = $app.inert = true;  // фон под меню недоступен ни мыши, ни клавиатуре
-  // на телефоне шапка без ролей и «Выйти»: они здесь, над картой экранов
-  const roles = `<div class="m-only"><div class="stack-s"><span class="label">Роль</span><nav class="seg m-roles" aria-label="Роль">${[['/c/home', 'c', 'Кандидат'], ['/e/picks', 'e', 'Работодатель'], ['/v', 'v', 'Валидация']].map(([p, k, t]) => `<button data-go="${p}" aria-current="${role === k}">${t}</button>`).join('')}</nav>
-    <button class="btn ghost block" id="theme-m" data-act="theme"></button>
-    ${(role === 'c' || role === 'e') && TOK[role] ? `<button class="btn ghost block" data-act="logout">Выйти из кабинета ${role === 'c' ? 'кандидата' : 'работодателя'}</button>` : ''}</div></div>`;
-  document.getElementById('overlay').innerHTML = `<div class="overlay" data-act="close-map"><div class="drawer" role="dialog" aria-modal="true" aria-labelledby="map-title">
-    <div class="row sb"><h3 id="map-title"><span class="on-wide">Карта экранов</span><span class="on-narrow">Меню</span></h3><button class="btn ghost small" data-act="close-map">Закрыть</button></div>
-    ${roles}
-    ${MAP.map(([g, items]) => [g, g === 'Кандидат' ? [...items, ...((D.invites && D.invites.items) || []).slice(0, 2).map(i => ['/c/invite/' + i.id, 'Приглашение: ' + esc(i.company)])] : items]).map(([g, items]) => `<div class="grp"><span class="label" style="margin:0 10px 4px">${g}</span>${items.map(([p, t]) => `<button data-go="${p}" aria-current="${r === p}"><span class="num">${String(++n).padStart(2, '0')}</span><span>${t}</span></button>`).join('')}</div>`).join('')}
-    <p class="small muted">Демо-сценарий: регистрация → профиль и PDF → тест → категория → работодатель пишет потребность → подборка → приглашение → кандидат принимает → контакты. Вход за демо-персонажей — кнопками «Демо: войти как …» на экранах входа.</p>
-  </div></div>`;
-  paintTheme();  // подпись переключателя темы в меню
-  document.querySelector('#overlay [data-act="close-map"].btn').focus();
-}
-function closeMap() {
-  const ov = document.getElementById('overlay');
-  if (!ov.innerHTML) return;
-  const back = ov.contains(document.activeElement);  // фокус был в меню — возвращаем на кнопку меню
-  ov.innerHTML = '';
-  document.documentElement.classList.remove('lock');
-  document.documentElement.style.paddingRight = '';
-  document.querySelector('header.top').inert = false;
-  $app.inert = $app.hasAttribute('aria-busy');  // экран мог ещё грузиться (busy)
-  const btn = document.querySelector('[data-act="map"]');
-  btn.setAttribute('aria-expanded', 'false');
-  if (back) btn.focus();
-}
-
 /* ===================== загрузка данных экрана ===================== */
 const or404 = p => p.catch(e => { if (e.status === 404) return null; throw e; });
 
@@ -2865,7 +2868,7 @@ async function loadMe() {
 async function ensureCo() {
   if (D.co) return;
   D.co = await api('GET', '/api/employer/company').catch(e => {
-    if (e.status === 403) { go('/e/signup'); e.message = 'Сначала заполните данные компании'; }
+    if (e.status === 403) { go('/e/company', true); e.message = 'Сначала заполните данные компании'; }
     throw e;
   });
   D.coName = D.co.name;
@@ -2895,8 +2898,8 @@ async function load(r) {
     GRADE_TH = Object.entries(META.grade_th).filter(([g]) => g !== 'Intern').map(([g, t]) => ({ g, t }));
   }
   const [, side, page, arg] = r.split('/');
-  if ((side === 'c' || side === 'e') && page !== 'signup' && page !== 'chat' && TOK[side]) UNREAD = await api('GET', '/api/chat/unread').then(x => x.unread_count, e => { if (e.status === 401) throw e; return 0; });  // бейдж не критичен: ошибка сети его не роняет, протухший вход — обычный путь
-  if (side === 'c' && page !== 'signup') {
+  if (roleOf(r) && !OPEN(r) && page !== 'chat' && TOK[side]) UNREAD = await api('GET', '/api/chat/unread').then(x => x.unread_count, e => { if (e.status === 401) throw e; return 0; });  // бейдж не критичен: ошибка сети его не роняет, протухший вход — обычный путь
+  if (side === 'c' && !OPEN(r)) {
     await loadMe();
     if (page === 'profile') { ACH = ME ? await api('GET', '/api/achievements') : null; S.pf = pfFromMe(); S.cv = null; S.cfCode = null; }  // код CF — только один раз
     if (!ME) return;
@@ -2921,9 +2924,9 @@ async function load(r) {
     else if (page === 'task') { S.taskInv = +r.split('/')[4] || null; [D.task, D.subs] = await Promise.all([or404(api('GET', '/api/tasks/' + encodeURIComponent(arg))), api('GET', '/api/tasks/submissions/mine')]); S.answer = ''; S.picks = []; }
     else if (page === 'chat') await loadChat(arg);
   }
-  if (side === 'e') {
-    if (page === 'signup') {
-      D.company = TOK.e ? await api('GET', '/api/employer/company').catch(() => null) : null;
+  if (side === 'e' && !OPEN(r)) {
+    if (page === 'company') {  // 403 — компании ещё нет: форма регистрации
+      D.company = await api('GET', '/api/employer/company').catch(e => { if (e.status === 403) return null; throw e; });
       if (D.company) { D.co = D.company; D.coName = D.company.name; }
       return;
     }
@@ -2954,7 +2957,7 @@ function render() {
   let html;
   try {
     const pv = PARAM_VIEWS.find(([p]) => r.startsWith(p));
-    html = ME_ERR && r.startsWith('/c/') && r !== '/c/signup' ? meErr() : V[r] ? V[r]() : pv ? pv[1]() : V['/']();
+    html = ME_ERR && r.startsWith('/c/') && !OPEN(r) ? meErr() : V[r] ? V[r]() : pv ? pv[1]() : V['/']();
   } catch (e) {
     console.error(e);
     html = `<div class="panel stack"><p>Не удалось показать экран: данные не загрузились.</p><div class="row"><button class="btn ghost small" data-act="reload">Повторить</button></div></div>`;
@@ -2964,9 +2967,12 @@ function render() {
   centerNav();
   const cm = document.getElementById('chat-messages');
   if (cm) cm.scrollTop = cm.scrollHeight;
-  const role = r.startsWith('/c') ? 'c' : r.startsWith('/e') ? 'e' : r.startsWith('/v') ? 'v' : '';
-  document.querySelectorAll('.roles button').forEach(b => b.setAttribute('aria-current', b.dataset.role === role));
-  document.getElementById('logout').hidden = !(role === 'c' || role === 'e') || !TOK[role];
+  const role = roleOf(r);
+  // шапка: логотип — дом текущего кабинета (вне кабинета — главная), подпись — какой кабинет открыт
+  const home = role && TOK[role] ? (role === 'c' ? '/c/home' : '/e/picks') : '/', brand = document.querySelector('.brand');
+  brand.dataset.go = home; brand.setAttribute('href', pathOf(home));
+  document.getElementById('cab').textContent = role ? (role === 'c' ? 'Кабинет кандидата' : 'Кабинет компании') : 'обратный найм в ИТ';
+  document.getElementById('logout').hidden = !role || !TOK[role];
   if ((role === 'c' || role === 'e') && TOK[role]) { if (chatStreamSide !== role) chatStream(role); } else chatStop();
   startTimer();
 }
@@ -2990,12 +2996,12 @@ function rerender() {
 
 // смена экрана: без входа — на экран входа своей роли; загрузка данных, рендер
 // пока грузится следующий экран, прежний неактивен (inert): клик по устаревшей кнопке не уйдёт с параметрами старого экрана
-function busy(on) { $app.inert = on || !!document.querySelector('#overlay .overlay'); on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
+function busy(on) { $app.inert = on; on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
 async function show(keep) {
   const r = route(), my = ++seq, y = scrollY;
   const side = r.split('/')[1];
   busy(true);
-  if ((side === 'c' || side === 'e') && r !== `/${side}/signup` && !TOK[side]) { go(`/${side}/signup`); return; }
+  if (roleOf(r) && !OPEN(r) && !TOK[side]) { toLogin(side, true); return; }  // без входа — на вход своей роли, после него — сюда же (?next=)
   try {
     await load(r);
     if (my === seq) ME_ERR = false;
@@ -3033,7 +3039,10 @@ function capture() {
     Object.assign(S.pf, { name: v('p-name').trim(), tg: v('p-tg').trim(), city: v('p-city').trim(), spec: v('p-spec'), track: v('p-track') || null });
     S.pf.min = num(v('p-min'));
   }
-  if (v('su-mail') != null) Object.assign(S.signup, { email: v('su-mail').trim(), c152: ck('su-152'), publish: ck('su-pub'), tg: ck('su-tg') });
+  if (v('su-mail') != null) S.signup.email = v('su-mail').trim();
+  // согласия — на экране регистрации или в шаге «Профиль» (вход без регистрации); на экране входа их нет
+  for (const p of ['su', 'p']) if (ck(p + '-152') != null) Object.assign(S.signup, { c152: ck(p + '-152'), publish: ck(p + '-pub') });
+  if (ck('su-tg') != null) S.signup.tg = ck('su-tg');
   if (v('su-otp') != null) S.signup.otp = v('su-otp').trim();
   if (v('es-mail') != null) S.esignup.email = v('es-mail').trim();
   if (v('es-otp') != null) S.esignup.otp = v('es-otp').trim();
@@ -3082,17 +3091,15 @@ const darkMq = matchMedia('(prefers-color-scheme: dark)');
 const isDark = () => (document.documentElement.dataset.theme || (darkMq.matches ? 'dark' : 'light')) === 'dark';
 // на телефоне и планшете в шапке — только значок (подпись .on-wide скрыта), имя кнопки — из aria-label
 const paintTheme = () => {
-  const el = document.getElementById('theme'), m = document.getElementById('theme-m'), t = isDark() ? 'Светлая тема' : 'Тёмная тема', ic = `<span aria-hidden="true">${isDark() ? '☀' : '☾'}</span>`;
+  const el = document.getElementById('theme'), t = isDark() ? 'Светлая тема' : 'Тёмная тема', ic = `<span aria-hidden="true">${isDark() ? '☀' : '☾'}</span>`;
   el.innerHTML = `${ic}<span class="on-wide"> ${t}</span>`;
   el.setAttribute('aria-label', t);
-  if (m) m.innerHTML = `${ic} ${t}`;  // то же в меню телефона — с подписью
   document.querySelector('meta[name="theme-color"]').content = isDark() ? '#17181D' : '#FFFFFF';  // строка состояния и адресная строка телефона — под фон шапки
 };
 darkMq.addEventListener('change', paintTheme);
 
 const ACT = {
   theme: () => { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; LS.set('fsp.theme', t); paintTheme(); },
-  map: () => openMap(),
   fold: (a, d) => {
     S.fold[d.k] = !S.fold[d.k];
     a.closest('.fold').classList.toggle('open', S.fold[d.k]);
@@ -3105,9 +3112,10 @@ const ACT = {
   'confirm-yes': (a, d) => CONFIRM[d.k](),
   async logout() {
     const role = roleOf(route());
+    if (!role) return;  // «Выйти» есть только в кабинетах
     await api('POST', '/api/auth/logout', undefined, role).catch(() => null);  // токен мог уже истечь — всё равно чистим
-    clearSide(role); toast('Вы вышли'); closeMap();
-    const to = role === 'e' ? '/e/signup' : '/c/signup';
+    clearSide(role); toast('Вы вышли');
+    const to = `/${role}/login`;
     if (route() === to) show(); else go(to);
   },
 
@@ -3119,14 +3127,10 @@ const ACT = {
   },
 
   // вход
-  async demo(a, d) {
-    await demoLogin(d.who);
-    toast(d.who === 'newco' ? 'Вход: «Новый Стартап» (компания не прошла проверку)' : 'Демо-вход выполнен');
-    go(d.who === 'c' ? '/c/home' : '/e/picks');
-  },
   'fsp-login': (a, d) => fspStart('login', d.side, d.idp),
   'fsp-link': () => fspStart('link'),
   async 'otp-send'() {
+    S.roleErr = null;
     if (!S.signup.email) throw new Error('Укажите почту');
     const r = await api('POST', '/api/auth/email', { email: S.signup.email, role: 'candidate' }, 'c');
     S.signup.sent = true; S.signup.otp = r.otp || '';
@@ -3137,19 +3141,22 @@ const ACT = {
     S.signup.sent = false;
     // профиль уже есть — в кабинет (как вход через ФСП ID с has_profile), иначе — шаг «Профиль» регистрации
     // сбой /me (сеть, 5xx) после входа — тоже в кабинет: загрузчик повторит запрос, при новом сбое — «Не удалось загрузить профиль · Повторить»
-    try { await loadMe(); } catch { return go('/c/home'); }
-    if (ME) { toast('Вход выполнен'); go('/c/home'); } else go('/c/profile');
+    const next = nextPath('c');
+    try { await loadMe(); } catch { return afterLogin('c', true, next); }
+    if (ME) toast('Вход выполнен');
+    afterLogin('c', !!ME, next);
   },
   async 'eotp-send'() {
+    S.roleErr = null;
     if (!S.esignup.email) throw new Error('Укажите рабочую почту');
     const r = await api('POST', '/api/auth/email', { email: S.esignup.email, role: 'employer' }, 'e');
     S.esignup.sent = true; S.esignup.otp = r.otp || '';
     toast('Код отправлен на ' + S.esignup.email); rerender();
   },
   async 'eotp-verify'() {
-    await verifyLogin('e', S.esignup.email, S.esignup.otp);
+    const r = await verifyLogin('e', S.esignup.email, S.esignup.otp);
     S.esignup.sent = false;
-    go('/e/picks');
+    afterLogin('e', r.has_profile, nextPath('e'));  // компании ещё нет — сразу к её данным, без тоста об ошибке
   },
 
   // профиль, резюме, достижения
@@ -3164,7 +3171,7 @@ const ACT = {
     // файл с авторизацией: обычная ссылка не передаст Bearer-токен
     const r = await fetch('/api/candidate/profile.pdf', { headers: { Authorization: 'Bearer ' + TOK.c } }).catch(() => null);
     if (!r) throw new Error('Сервер недоступен');
-    if (r.status === 401) { clearSide('c'); go('/c/signup'); throw new Error('Сессия истекла: войдите снова'); }  // как в api()
+    if (r.status === 401) { clearSide('c'); toLogin('c'); throw new Error('Сессия истекла: войдите снова'); }  // как в api()
     if (!r.ok) { const d = await r.json().catch(() => null); throw new Error((d && typeof d.detail === 'string' && d.detail) || `Ошибка ${r.status}`); }
     const name = ((r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) || [])[1] || 'fsp-career-profile.pdf';
     const url = URL.createObjectURL(await r.blob());
@@ -3181,7 +3188,7 @@ const ACT = {
     if (!f.min) throw new Error('Укажите минимальную зарплату');
     if (!f.formats.length) throw new Error('Выберите хотя бы один формат');
     const first = !ME;
-    if (first && !S.signup.c152) throw new Error('Нужно согласие на обработку персональных данных: отметьте его на экране регистрации');
+    if (first && !S.signup.c152) throw new Error('Нужно согласие на обработку персональных данных: отметьте его внизу формы');
     ME = await api('POST', '/api/candidate/profile', {
       name: f.name, tg: f.tg || null, spec: f.spec, track: f.track, grade_claimed: f.grade, min_salary: f.min,
       formats: f.formats, city: f.city, skills_claimed: f.skills, years_exp: f.years, roles: f.roles, soft_skills: f.soft,
@@ -3189,7 +3196,9 @@ const ACT = {
       // резюме, загруженное до профиля: сервер его не хранил, сохранит вместе с согласием
       ...(first && S.cv && S.cv.text ? { cv_text: S.cv.text, cv_filename: S.cv.filename } : {}),
     });
-    if (first) await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
+    if (!first) { toast('Профиль сохранён'); S.pf = pfFromMe(); return rerender(); }  // раздел «Профиль» кабинета: остаёмся на месте
+    await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
+    Object.assign(S.signup, { c152: false, publish: false });  // согласия уже на сервере (журнал ConsentEvent)
     toast('Профиль сохранён'); go('/c/quest');
   },
   async 'consent-ext'() {
@@ -3321,14 +3330,15 @@ const ACT = {
 
   // работодатель
   async 'co-save'() {
-    const v = id => document.getElementById(id).value.trim();
+    const v = id => document.getElementById(id).value.trim(), first = !D.company;
     D.company = await api('POST', '/api/employer/company', {
       inn: v('co-inn'), name: v('co-name'), recruiter_name: v('co-rec'), site_domain: v('co-site') || null,
       recruiter_email: v('co-mail') || null, about: v('co-about') || null,
     });
     D.co = D.company; D.coName = D.company.name;
     toast(D.company.verified ? 'Компания проверена' : 'Компания сохранена без подтверждения: квота 3 приглашения в неделю');
-    if (D.company.verified) go('/e/need'); else rerender();
+    // регистрация — всегда дальше, к первой потребности (статус проверки — плашкой там же); правка — на месте, с разделами
+    if (first) go('/e/need'); else rerender();
   },
   async parse(a) {
     a.textContent = 'Разбираю…';
@@ -3455,13 +3465,14 @@ document.addEventListener('keydown', e => {
 // вставка в редактор кода: сколько символов пришло из буфера (сигнал для флага code_pasted, на оценку не влияет)
 document.addEventListener('paste', e => { if (e.target.id === 'code-ed') S.qPasted += ((e.clipboardData && e.clipboardData.getData('text')) || '').length; });
 
-addEventListener('hashchange', () => { closeMap(); show(); });
+addEventListener('popstate', () => show());
 
 document.addEventListener('click', e => {
   const g = e.target.closest('[data-go]');
   const a = e.target.closest('[data-act]');
-  if (a && a.dataset.act === 'close-map' && (e.target === a || a.tagName === 'BUTTON')) { closeMap(); return; }
-  if (g && !g.disabled) { e.preventDefault(); if (route() === g.dataset.go) { closeMap(); } else go(g.dataset.go); return; }
+  // ссылка с Ctrl/⌘/Shift — браузер сам откроет новую вкладку или окно; обычный клик — переход без перезагрузки
+  if (g && g.tagName === 'A' && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button)) return;
+  if (g && !g.disabled) { e.preventDefault(); if (route() !== g.dataset.go) go(g.dataset.go); return; }
   if (!a || a.disabled || a.matches(':disabled') || !ACT[a.dataset.act]) return;
   e.preventDefault();
   capture();
@@ -3545,10 +3556,20 @@ document.addEventListener('submit', async e => {
   }
 });
 
-addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
 matchMedia('(max-width: 640px)').addEventListener('change', () => { if (document.querySelector('.quest .chart')) { capture(); rerender(); } });  // график теста — узкий или широкий холст после поворота
 document.addEventListener('touchstart', () => {}, { passive: true });  // без него iOS Safari не показывает :active при касании
 for (const ev of ['pointerdown', 'mousedown']) document.addEventListener(ev, e => { if (e.target.closest('[data-keepfocus]')) e.preventDefault(); });
+// старые ссылки вида /#/c/home (до разделения кабинетов): тот же экран по новому адресу, без лишней записи в истории —
+// при загрузке и при смене одного хеша на открытой странице
+function oldHash() {
+  if (!location.hash.startsWith('#/')) return false;
+  const k = location.hash.slice(1) === '/e/signup' ? (TOK.e ? '/e/company' : '/e/login') : location.hash.slice(1), p = pathOf(k);
+  // неизвестный старый ключ кабинета — тот же хвост в кабинете, там его встретит «Не найдено»
+  history.replaceState(null, '', (p === '/' && /^\/[ce]\//.test(k) ? (k[1] === 'c' ? '/candidate' : '/employer') + k.slice(2) : p) + location.search);
+  return true;
+}
+addEventListener('hashchange', () => { if (oldHash()) show(); });
+oldHash();
 fspReturn().catch(fail).finally(() => show());
 </script>
 </body>
