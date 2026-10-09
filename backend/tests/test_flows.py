@@ -1,6 +1,7 @@
 """Сценарий демо целиком: потребность → анонимная подборка → вилка → приглашение → принятие → контакты → отметка.
 Плюс ёмкость, квота, лотерея, истечение, неподтверждённая компания, поиск по банку, согласия и права по 152-ФЗ. Своя БД (fsp_flows), LLM выключена — работают правила."""
 
+import base64
 import io
 import json
 import os
@@ -11,17 +12,20 @@ os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://fsp:fsp@localhost:54
 os.environ["LLM_BASE_URL"] = ""
 os.environ.setdefault("DEMO", "1")
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from pypdf import PdfReader
 from fastapi.testclient import TestClient
+from fpdf import FPDF
+from PIL import Image, ImageDraw
 
 from app import catalog, config, deps, mail
 from app.db import Base, SessionLocal, engine
 from app.deps import issue_token
 from app.models import Achievement, AuditLog, Candidate, Company, ConsentEvent, Event, ExternalAccount, Invitation, RetiredPublicId, User, Vacancy
 from app.routers import candidate, employer, lottery
-from app.services import matching, profile_pdf
+from app.services import llm, matching, ocr, profile_pdf
 
 config.LLM_BASE_URL = ""
 NOW = datetime.now(UTC)
@@ -490,6 +494,145 @@ def test_cv_before_profile(client):
     assert [j["from"] for j in again["experience"]] == [2021, 2023]
     text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(client.get("/api/candidate/profile.pdf", headers=LATE).content)).pages)
     assert "Acme Pay" in text
+
+
+# ---------- OCR скана резюме (vLLM замокан) ----------
+
+OCR_URL = "http://vllm.test/v1"
+SCAN_TEXT = "Ivan Testov\nivan.testov@example.ru\nGo, PostgreSQL, Redis. 3 years of experience"  # синтетика
+
+
+def _scan(pages: int = 1, size: tuple[int, int] = (1240, 1754), logo: bool = False) -> bytes:
+    """PDF-скан без текстового слоя: на странице только растровая картинка (fpdf2 + Pillow, синтетика)."""
+    pdf = FPDF(unit="pt", format=(612, 792))
+    for i in range(pages):
+        pdf.add_page()
+        img = Image.new("L", size, 255)
+        ImageDraw.Draw(img).text((60, 60 + i), "Go, PostgreSQL, Redis. 3 years", fill=0)
+        pdf.image(img, x=0, y=0, w=612, h=792)
+        if logo:  # мелкая картинка поверх — не страница, OCR её не берёт
+            pdf.image(Image.new("RGB", (64, 64), (200, 0, 0)), x=10, y=10, w=20, h=20)
+    return bytes(pdf.output())
+
+
+def _fresh_user(email: str) -> dict:
+    with SessionLocal() as db:
+        u = User(email=email, role="candidate")
+        db.add(u)
+        db.commit()
+        return {"Authorization": "Bearer " + issue_token(db, u)}
+
+
+@pytest.fixture
+def vllm(monkeypatch):
+    """Свой vLLM: OCR_URL включён, httpx.post подменён; ответ — vllm.reply (str | Exception | httpx.Response)."""
+    monkeypatch.setattr(config, "OCR_URL", OCR_URL)
+    monkeypatch.setattr(config, "OCR_API_KEY", "")
+    monkeypatch.setattr(config, "OCR_TIMEOUT", 30.0)
+
+    class Fake:
+        reply: object = ""
+        calls: list = []
+        llm_bodies: list = []
+
+        def __call__(self, url, json=None, headers=None, timeout=None, **kw):
+            req = httpx.Request("POST", url)
+            if not url.startswith(OCR_URL):  # разбор резюме LLM (если тест её включил)
+                self.llm_bodies.append(json)
+                return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]}, request=req)
+            self.calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+            if isinstance(self.reply, Exception):
+                raise self.reply
+            if isinstance(self.reply, httpx.Response):
+                return self.reply
+            return httpx.Response(200, json={"choices": [{"message": {"content": self.reply}}]}, request=req)
+
+    fake = Fake()
+    fake.calls, fake.llm_bodies = [], []
+    monkeypatch.setattr(ocr.httpx, "post", fake)
+    return fake
+
+
+def _upload(client, hdr, pdf):
+    return client.post("/api/candidate/cv", files={"file": ("scan.pdf", pdf, "application/pdf")}, headers=hdr)
+
+
+def test_scan_without_ocr_is_422(client, monkeypatch):
+    monkeypatch.setattr(config, "OCR_URL", "")
+    pdf = _scan()
+    assert "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages).strip() == ""  # текстового слоя правда нет
+    r = _upload(client, _fresh_user("scan-off@example.ru"), pdf)
+    assert r.status_code == 422 and "нет текстового слоя" in r.json()["detail"]
+
+
+def test_scan_recognized_and_parsed(client, vllm, caplog):
+    vllm.reply = SCAN_TEXT
+    caplog.set_level("DEBUG")
+    r = _upload(client, _fresh_user("scan-on@example.ru"), _scan(logo=True))
+    assert r.status_code == 200, r.text
+    cv = r.json()
+    assert cv["parsed"]["skills"] == ["Go", "PostgreSQL", "Redis"] and cv["parsed"]["years_exp"] == 3 and cv["text"] == SCAN_TEXT
+    assert len(vllm.calls) == 1  # одна страница — один запрос; логотип не ушёл отдельной картинкой
+    call = vllm.calls[0]
+    assert call["url"] == OCR_URL + "/chat/completions" and call["headers"] == {} and 0 < call["timeout"] <= 30
+    body = call["json"]
+    assert body["model"] == config.OCR_MODEL and body["max_tokens"] == ocr.MAX_TOKENS
+    image, prompt = body["messages"][0]["content"]
+    assert prompt["type"] == "text" and image["type"] == "image_url"
+    url = image["image_url"]["url"]
+    assert url.startswith("data:image/jpeg;base64,")
+    sent = Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1])))
+    assert sent.format == "JPEG" and max(sent.size) == ocr.MAX_SIDE  # страница, уменьшенная до лимита
+    for secret in ("Ivan", "Testov", "ivan.testov", "PostgreSQL"):  # ни текста скана, ни ПДн в логах
+        assert secret not in caplog.text
+
+
+def test_scan_text_masked_before_llm(client, vllm, monkeypatch):
+    """Распознанный текст идёт обычным путём: в LLM разбора уходит только после mask_pii."""
+    monkeypatch.setattr(config, "LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setattr(config, "LLM_BASE_URL", "http://llm.test/v1")
+    monkeypatch.setattr(config, "LLM_MODEL", "test-chat")
+    monkeypatch.setattr(config, "EMBED_MODEL", "")
+    monkeypatch.setattr(llm, "_down_until", 0.0)
+    vllm.reply = SCAN_TEXT
+    r = _upload(client, _fresh_user("scan-llm@example.ru"), _scan())
+    assert r.status_code == 200 and r.json()["parsed"]["contacts"]["email"] == "ivan.testov@example.ru"  # контакты — правилами, локально
+    sent = json.dumps(vllm.llm_bodies, ensure_ascii=False)
+    assert vllm.llm_bodies and "Testov" not in sent and "ivan.testov" not in sent
+
+
+@pytest.mark.parametrize("reply", [
+    httpx.ConnectError("нет соединения"),
+    httpx.ReadTimeout("таймаут"),
+    httpx.InvalidURL("кривой OCR_URL"),
+    httpx.Response(500, text="Ivan Testov boom", request=httpx.Request("POST", OCR_URL)),
+    httpx.Response(200, content=b"<html>", request=httpx.Request("POST", OCR_URL)),
+    httpx.Response(200, json={"choices": []}, request=httpx.Request("POST", OCR_URL)),
+    "   ",  # пустой ответ
+], ids=["connect", "timeout", "bad-url", "http500", "not-json", "no-choices", "empty"])
+def test_scan_model_failure_is_422(client, vllm, caplog, reply, request):
+    vllm.reply = reply
+    r = _upload(client, _fresh_user(f"scan-fail-{request.node.callspec.id}@example.ru"), _scan())
+    assert r.status_code == 422 and "Не удалось распознать скан" in r.json()["detail"]
+    assert "Ivan" not in caplog.text and "boom" not in caplog.text
+
+
+def test_scan_limits(vllm, monkeypatch):
+    """Лимит страниц, мелкие картинки, общий срок на документ, ключ vLLM, выключенный OCR."""
+    assert len(ocr.page_images(_scan(pages=ocr.MAX_PAGES + 2))) == ocr.MAX_PAGES
+    assert ocr.page_images(_scan(size=(200, 280))) == []  # только мелкая картинка — не скан страницы
+    assert ocr.recognize(_scan(size=(200, 280))) is None and vllm.calls == []
+    monkeypatch.setattr(ocr, "MAX_PIXELS", 1_000_000)  # страница 1240×1754 больше лимита — не декодируется, а не грузит память
+    assert ocr.page_images(_scan()) == []
+    monkeypatch.setattr(ocr, "MAX_PIXELS", 40_000_000)
+    vllm.reply = "text"
+    monkeypatch.setattr(config, "OCR_API_KEY", "k")
+    assert ocr.recognize(_scan(pages=2)) == "text\ntext" and vllm.calls[0]["headers"] == {"Authorization": "Bearer k"}
+    monkeypatch.setattr(config, "OCR_TIMEOUT", 0.0)  # срок истёк до первого запроса — None, без запроса
+    n = len(vllm.calls)
+    assert ocr.recognize(_scan()) is None and len(vllm.calls) == n
+    monkeypatch.setattr(config, "OCR_URL", "")
+    assert ocr.recognize(_scan()) is None and len(vllm.calls) == n
 
 
 def test_consents_export_delete(client, monkeypatch):

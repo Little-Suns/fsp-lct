@@ -13,11 +13,6 @@ test('приглашения: открыть → просмотрено, отк�
   await expect(page.getByText('Ничего делать не нужно. Новые приглашения появятся в этом кабинете.')).toBeVisible();
   await expect(page.getByText(/Telegram/)).toHaveCount(0);  // макета Telegram-уведомления больше нет: бот не сделан
 
-  // карта экранов показывает открытые приглашения кандидата
-  await page.getByRole('button', { name: 'Экраны' }).click();
-  await expect(page.getByRole('dialog').getByRole('button', { name: /Приглашение: Ладога Пэй/ })).toBeVisible();
-  await page.keyboard.press('Escape');
-
   // «Ладога Пэй»: контакт рекрутера виден до принятия, открытие помечает «просмотрено»
   const seen = api(page, 'GET', '/api/candidate/invites/' + (await lad.getAttribute('data-go')).split('/').pop());
   await lad.click();
@@ -193,7 +188,7 @@ test('профиль и результат теста демо-кандидат�
   await expect(sw).toHaveAttribute('aria-checked', 'false');
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
   await expect(toast(page)).toHaveText('Профиль сохранён');
-  await expect(page.getByRole('heading', { name: 'Ночь, пейджер, падает приём платежей' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
 
   await open(page, '/c/result');
   await expect(page.getByText('Ваша категория')).toBeVisible();

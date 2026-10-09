@@ -21,7 +21,7 @@ from app.deps import current_candidate, current_user
 from app.integrations.consent import lock_candidate, set_external_consent
 from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, Message, QuestSession, RetiredPublicId, TaskSubmission, User
 from app.routers.employer import Salary, company_trust
-from app.services import matching, profile_pdf, reputation
+from app.services import matching, ocr, profile_pdf, reputation
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, canon_terms, parse_cv
 
@@ -294,6 +294,10 @@ async def upload_cv(response: Response, file: UploadFile = File(...), user: User
         text = text.replace("\x00", "").strip()  # NUL (бывает у странных шрифтов) Postgres не примет
     except (PdfReadError, ValueError) as e:
         raise HTTPException(422, "Не удалось прочитать PDF") from e
+    if not text and ocr.enabled():  # скан: распознаём картинки страниц своей vision-моделью (OCR_URL — только self-hosted)
+        text = ((await run_in_threadpool(ocr.recognize, data)) or "")[:CV_MAX_CHARS].replace("\x00", "").strip()
+        if not text:
+            raise HTTPException(422, "Не удалось распознать скан резюме. Загрузите PDF с текстом или заполните поля вручную")
     if not text:
         raise HTTPException(422, "В PDF нет текстового слоя (скан?). Заполните поля вручную")
     name = (file.filename or "").replace("\x00", "")[:255] or "resume.pdf"

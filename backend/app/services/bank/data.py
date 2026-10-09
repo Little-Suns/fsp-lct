@@ -213,7 +213,7 @@ def _(rng):
         lines = [_log("02:10:00", "iam", "INFO", f"role etl-{src} rotated: new policy attached (s3:GetObject on raw/{src}/* — missing)"), head,
                  _log("03:00:04", f"load_{src}", "ERROR", f"AccessDenied: s3:GetObject on s3://raw/{src}/2026-09-{day:02d}.csv"),
                  _log("03:00:05", "scheduler", "INFO", f"task load_{src} failed, retries=3, all failed")]
-        story = f"С сегодняшней ночи загрузка {src} падает каждый раз; файл в бакете на месте."
+        story = f"Этой ночью загрузка {src} упала, и все повторы — тоже, хотя файл в бакете на месте."
     else:
         # выгрузка пишется частями в каталог дня: загрузка видит каталог непустым и забирает то, что уже успело лечь
         lines = [head, _log("03:00:04", f"load_{src}", "INFO", f"loaded s3://raw/{src}/2026-09-{day:02d}/*.csv: {rng.randint(40, 300)} 000 rows"),
@@ -224,7 +224,7 @@ def _(rng):
                                "У задачи нет прав на чтение бакета: вернуть роли нужное разрешение",
                                "Выгрузка читается до конца записи: запускать загрузку по маркеру готовности _SUCCESS, а не по файлам"], v,
                          ["Включить catchup, чтобы Airflow сам догнал упавший запуск", "Увеличить retries до пяти с паузой в минуту"])
-    return {"scene_title": "Ночная загрузка", "story": story, "prompt": "В чём причина?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
+    return {"scene_title": "Загрузка в 03:00", "story": story, "prompt": "В чём причина?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
 @family("dea_pipe_catchup", SPEC, "Пайплайны", "choice", 2.2, 0.9)
@@ -239,7 +239,7 @@ def _(rng):
                  _log("09:14:03", "scheduler", "INFO", f"Created DagRun scheduled__{year}-01-02T00:00:00"),
                  _log("09:14:04", "scheduler", "INFO", f"DagRuns queued for {dag}: {total}"),
                  _log("09:14:30", "pg-replica", "WARN", f"{rng.randint(40, 90)} active queries from airflow_etl, connections near limit")]
-        story = f"Новый DAG {dag} выкатили утром. Через минуту воркеры забиты, а реплика базы-источника захлёбывается запросами."
+        story = f"Выкатили новый DAG {dag} — и через минуту воркеры забиты, а реплика базы-источника захлёбывается запросами."
     elif v == 1:
         d = rng.randint(3, 12)
         lines = [_log("09:14:02", "scheduler", "INFO", f"clear & rerun {dag}: scheduled__2026-09-{d:02d}"),
@@ -578,8 +578,8 @@ def _(rng):
         lines = ["-- предложение аналитика: MAU из дневной витрины", "SELECT sum(dau) AS mau",
                  "FROM mart_dau_daily  -- day, country, platform, channel, dau = uniqExact(user_id)",
                  "WHERE day BETWEEN '2026-09-01' AND '2026-09-30'", f"  AND country = '{country}' AND platform = '{platform}';"]
-        story = (f"Продукт хочет MAU по любому периоду и сочетанию фильтров (страна × платформа × канал) за секунды; погрешность 1–2 % устраивает. "
-                 f"Сочетаний фильтров тысячи, хранить на каждое по дню полный список пользователей дорого. Сырых событий {n} млрд, uniqExact по ним за месяц считается {m} мин.")
+        story = (f"Продукту нужен MAU за любой период и по любому сочетанию фильтров (страна × платформа × канал) за секунды, погрешность 1–2 % допустима. "
+                 f"Сочетаний тысячи — хранить на каждое по дню полный список пользователей дорого, а uniqExact по {n} млрд сырых событий за месяц считается {m} мин.")
     elif v == 1:
         lines = ["-- текущий запрос: топ-100 поисковых запросов за день", "SELECT query, count() AS c FROM search_events",
                  "WHERE day = today() - 1 GROUP BY query ORDER BY c DESC LIMIT 100;  -- GROUP BY по ~2 млрд уникальных строк"]

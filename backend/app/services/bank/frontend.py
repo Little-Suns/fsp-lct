@@ -31,7 +31,7 @@ def _(rng):
                                "У части элементов автора нет (null): обработать отсутствующие данные — опциональная цепочка и заглушка"], v,
                          ["Vite не пересобрал модуль после изменения файла: нужен полный перезапуск dev-сервера с очисткой кэша",
                           "У элементов списка нет key, поэтому React не может отрисовать map"])
-    return {"scene_title": "Белый экран", "story": f"Понедельник. Экран {comp} падает при открытии. Состояние объявлено как {state}, данные грузятся в useEffect.",
+    return {"scene_title": "Белый экран", "story": f"На предрелизном стенде экран {comp} падает при открытии. Состояние объявлено как {state}, данные грузятся в useEffect.",
             "prompt": "Почему компонент падает?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -45,7 +45,7 @@ def _(rng):
                 f'Prop `id` did not match. Server: "field-{rng.randint(1000, 9999)}" Client: "field-{rng.randint(1000, 9999)}"',
                 'Text content did not match. Server: "Войти" Client: "Привет, Анна"'][v]
     story = [f"Пользователи из {city} жалуются: время доставки на секунду показывается одно, потом меняется.",
-             "После перехода на SSR поля формы теряют связь с подписями, а консоль сыплет ошибками гидрации.",
+             "После перехода на SSR поля формы теряют связь с подписями.",
              "Залогиненные пользователи на мгновение видят «Войти» вместо своего имени — имя хранится в localStorage."][v]
     lines = [_log("14:32:07", "browser", "WARN", f"Warning: {mismatch}\n    at {comp}"),
              _log("14:32:07", "browser", "ERROR", "Error: Hydration failed because the initial UI does not match what was rendered on the server."),
@@ -238,7 +238,7 @@ def _(rng):
                                "Превью создаются через URL.createObjectURL и не освобождаются: вызывать URL.revokeObjectURL"], v,
                          [f"Таблица во вкладке «{b}» не виртуализирована: тысячи узлов делают каждый кадр тяжёлым — виртуализировать",
                           "Detached-узлы и объекты держит React DevTools у операторов: в проде без расширения утечки нет"])
-    return {"scene_title": "Тормозит к обеду", "story": story, "prompt": "В чём причина?", "panel": panel, "options": opts, "key": key}
+    return {"scene_title": "Вкладка вязнет", "story": story, "prompt": "В чём причина?", "panel": panel, "options": opts, "key": key}
 
 
 # --- Ревью кода ---
@@ -422,7 +422,7 @@ def _(rng):
                                "Отдавать списку только нужные поля и страницами — пагинация на сервере"], v,
                          ["Перенести все запросы из useEffect в useLayoutEffect, чтобы они уходили раньше первой отрисовки",
                           "Хранить ответы API в localStorage без срока жизни и больше не запрашивать их повторно"])
-    return {"scene_title": "Медленная загрузка", "story": story, "prompt": "Как исправить архитектурно?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
+    return {"scene_title": "Запросы при загрузке", "story": story, "prompt": "Как исправить архитектурно?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
 @family("fe_arch_federation", "Frontend", "Архитектура клиента", "choice", 2.3, 2.2)
@@ -587,7 +587,7 @@ def _(rng):
                                "Очередь на индексе головы вместо shift(): shift сдвигает весь массив на каждом шаге",
                                "Вставлять новую заявку на место, найденное бинарным поиском, а не сортировать весь массив заново"], v,
                          ["Заменить find и shift на filter(...)[0]: на больших массивах он быстрее", "Переписать map на цикл for: основная потеря — в вызовах функций"])
-    return {"scene_title": "Медленно в браузере", "story": story, "prompt": "Как ускорить?", "panel": {"type": "code", "lang": "ts", "lines": lines}, "options": opts, "key": key}
+    return {"scene_title": "Тяжёлый расчёт на клиенте", "story": story, "prompt": "Как ускорить?", "panel": {"type": "code", "lang": "ts", "lines": lines}, "options": opts, "key": key}
 
 
 @family("fe_alg_tree_path", "Frontend", "Алгоритмы", "choice", 2.1, 0.3)

@@ -1,11 +1,11 @@
-// Публичные экраны: главная, карта экранов, дашборд валидации; пути ошибок (401, 5xx, сеть, сломанный ответ).
+// Публичные экраны: главная, шапка, дашборд валидации по прямой ссылке; пути ошибок (401, 5xx, сеть, сломанный ответ).
 const fs = require('fs');
 const path = require('path');
 const { test, expect, open, demo, toast } = require('./fixtures');
 
 const VAL = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'validation.json'), 'utf8'));
 
-test('главная: герой, двери ролей и ссылка на валидацию', async ({ page }) => {
+test('главная: герой и двери ролей', async ({ page }) => {
   await open(page, '/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('работодатели сами приходят');
   await expect(page.getByText('У кандидата не больше 4 открытых приглашений')).toBeVisible();
@@ -25,38 +25,39 @@ test('главная: герой, двери ролей и ссылка на в�
   await expect(page).toHaveURL(/#\/c\/signup$/);
 });
 
-test('карта экранов: открытие, переход, закрытие по Esc и по фону', async ({ page }) => {
+test('шапка: только роли кандидата и работодателя, без карты экранов и вкладки валидации', async ({ page }) => {
   await open(page, '/');
-  await page.getByRole('button', { name: 'Экраны' }).click();
-  const drawer = page.getByRole('dialog', { name: 'Карта экранов' });
-  await expect(drawer).toBeVisible();
-  await expect(drawer.getByRole('button', { name: /Главная/ })).toHaveAttribute('aria-current', 'true');
-  await drawer.getByRole('button', { name: /Дашборд валидации/ }).click();
-  await expect(drawer).toBeHidden();
-  await expect(page).toHaveURL(/#\/v$/);
-  await page.getByRole('button', { name: 'Экраны' }).click();
-  await page.keyboard.press('Escape');
-  await expect(drawer).toBeHidden();
-  await page.getByRole('button', { name: 'Экраны' }).click();
-  await page.locator('.overlay').click({ position: { x: 10, y: 10 } });
-  await expect(drawer).toBeHidden();
-  await page.getByRole('button', { name: 'Экраны' }).click();
-  // переход на текущий экран просто закрывает карту
-  await drawer.getByRole('button', { name: /Дашборд валидации/ }).click();
-  await expect(drawer).toBeHidden();
-  await page.getByRole('button', { name: 'Экраны' }).click();
-  await drawer.getByRole('button', { name: 'Закрыть' }).click();
-  await expect(drawer).toBeHidden();
+  const roles = page.getByRole('navigation', { name: 'Роль' });
+  await expect(roles.getByRole('button')).toHaveText(['Кандидат', 'Работодатель']);
+  await expect(page.getByRole('button', { name: 'Экраны' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Валидация|дашборд валидации/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Демо: войти как/ })).toHaveCount(0);
+  // на экранах входа — только ФСП ID и почта, без легаси-кнопок демо-входа
+  await open(page, '/c/signup');
+  await expect(page.getByRole('button', { name: /^Демо: войти как/ })).toHaveCount(0);
+  await open(page, '/e/signup');
+  await expect(page.getByRole('button', { name: /^Демо: войти как/ })).toHaveCount(0);
+  await expect(page.getByText('Демо-вход работает только')).toHaveCount(0);
+  // с входом двери главной ведут прямо в кабинеты
+  await demo(page, 'c');
+  await demo(page, 'e');
+  await page.locator('.brand').click();
+  await page.getByRole('button', { name: 'Я разработчик' }).click();
+  await expect(page.locator('#app .crumbs b')).toHaveText('Кабинет кандидата');
+  await page.locator('.brand').click();
+  await page.getByRole('button', { name: 'Я нанимаю' }).click();
+  await expect(page.locator('#app .crumbs b')).toHaveText('Подборка');
 });
 
-test('валидация /v: без прогона — подсказка, с прогоном — цифры', async ({ page }) => {
+test('валидация /v по прямой ссылке без входа: без прогона — подсказка, с прогоном — цифры', async ({ page }) => {
   // результат прогона лежит в общем backend/var/validation.json — не трогаем его, ответ API подменяем
   await page.route('**/api/validation', r => r.fulfill({ status: 404, json: { detail: 'Прогона ещё не было' } }));
-  await open(page, '/v');
+  await page.goto('/#/v');
   await expect(page.getByRole('heading', { name: 'Валидация подбора и теста' })).toBeVisible();
+  await expect(page).toHaveURL(/#\/v$/);  // без входа не уводит на экран входа
   await expect(page.getByText('прогон не запускался')).toBeVisible();
   await expect(page.getByText('Нет данных. Нажмите «Запустить прогон»')).toHaveCount(5);
-  await expect(page.locator('.roles button[data-role=v]')).toHaveAttribute('aria-current', 'true');
+  await expect(page.locator('.roles button[aria-current="true"]')).toHaveCount(0);  // ни одна роль не выделена
 
   // демо-стенд (DEMO=1): прогон кнопкой; ответ подменён — настоящий пересчёт писал бы в общий validation.json
   const RUN = '**/api/validation/run*';

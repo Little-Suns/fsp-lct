@@ -45,22 +45,29 @@ async function open(page, route) {
 
 const toast = page => page.locator('#toast');
 
-// демо-вход кнопками экрана входа: c — Дмитрий Орлов (A-1042), e — «Ладога Пэй», newco — «Новый Стартап»
+// вход за демо-персонажа через API (DEMO=1): c — Дмитрий Орлов (A-1042), e — «Ладога Пэй» (POST /api/auth/demo/…),
+// newco — «Новый Стартап» по почте (в демо код приходит в ответе). Токен кладём как сам фронт после входа:
+// clearSide + setTok (память приложения и localStorage), затем кабинет роли
 async function demo(page, who) {
-  const signup = who === 'c' ? '/c/signup' : '/e/signup';
-  await open(page, signup);
-  if (who !== 'c') {  // работодатель уже вошёл — на экране компании сначала «Выйти»
-    const out = page.locator('#app').getByRole('button', { name: 'Выйти' });
-    await expect(page.getByRole('heading', { name: 'Вход для компаний' }).or(out)).toBeVisible();
-    if (await out.isVisible()) {
-      await out.click();
-      await expect(page.getByRole('heading', { name: 'Вход для компаний' })).toBeVisible();
-    }
-  }
-  const label = { c: 'Демо: войти как Дмитрий Орлов', e: 'Демо: войти как «Ладога Пэй»', newco: 'Демо: войти как «Новый Стартап»' }[who];
-  await page.getByRole('button', { name: label }).click();
-  // ждём сам экран после входа (крошки), а не любой заголовок: на экране входа тоже есть h1
-  await expect(page.locator('#app .crumbs b')).toHaveText(who === 'c' ? 'Кабинет кандидата' : 'Подборка');
+  const side = who === 'c' ? 'c' : 'e';
+  let r;
+  if (who === 'newco') {
+    const email = 'newco.hr@gmail.com';
+    const sent = await page.request.post('/api/auth/email', { data: { email, role: 'employer' } });
+    expect(sent.ok(), 'код входа «Нового Стартапа»').toBe(true);
+    r = await page.request.post('/api/auth/verify', { data: { email, otp: (await sent.json()).otp } });
+  } else r = await page.request.post('/api/auth/demo/' + (side === 'c' ? 'candidate' : 'employer'));
+  expect(r.ok(), 'демо-вход ' + who).toBe(true);
+  const { token } = await r.json();
+  if (!page.url().startsWith('http')) await open(page, '/');
+  const to = side === 'c' ? '/c/home' : '/e/picks';
+  await page.evaluate(([s, t, to]) => {
+    clearSide(s); setTok(s, t);
+    document.getElementById('app').setAttribute('aria-busy', 'true');
+    if (location.hash === '#' + to) show(); else location.hash = '#' + to;  // уже на кабинете — перерисовать под новым токеном
+  }, [side, token, to]);
+  // ждём сам экран после входа (крошки), а не любой заголовок
+  await expect(page.locator('#app .crumbs b')).toHaveText(side === 'c' ? 'Кабинет кандидата' : 'Подборка');
   await settled(page);
 }
 

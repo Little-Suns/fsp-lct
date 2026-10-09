@@ -1,5 +1,5 @@
 // Мобильная вёрстка: телефон 375×812 и планшет 768×1024 (сенсорный экран). Ключевые экраны обоих кабинетов без
-// горизонтальной прокрутки страницы; шапка в одну строку, роли и выход — в меню; разделы кабинета — одной строкой
+// горизонтальной прокрутки страницы; шапка в одну строку: логотип, тема и «Выйти», роль — с главной; разделы кабинета — одной строкой
 // с прокруткой; фильтры сворачиваются, а список не уезжает под боковые панели; чат — список или диалог; тест —
 // прилипающие таймер и «Дальше»; поля не меньше 16 px (iOS не увеличивает страницу); манифест для домашнего экрана.
 const { test, expect, demo, open, settled, toast } = require('./fixtures');
@@ -22,15 +22,16 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
   test.describe(name, () => {
     test.use({ viewport, hasTouch: true, isMobile: true });
 
-    test(`${name}: публичные экраны, шапка и меню`, async ({ page }) => {
+    test(`${name}: публичные экраны и шапка`, async ({ page }) => {
       for (const r of ['/', '/c/signup', '/e/signup', '/v']) {
         await open(page, r);
         await noHScroll(page, r);
       }
-      // шапка — одна строка: роли и «Выйти» спрятаны, вместо «Экраны» — «Меню»
+      // шапка — одна строка: роли спрятаны (роль выбирается на главной), без входа «Выйти» нет
       expect((await box(page.locator('header.top'))).h).toBeLessThanOrEqual(64);
       await expect(page.locator('header .roles')).toBeHidden();
-      // тема: в шапке — значок (подпись в aria-label), в меню — кнопка с подписью; обе переключают тему
+      await expect(page.locator('#logout')).toBeHidden();
+      // тема: в шапке — значок, подпись — в aria-label
       const theme = page.locator('#theme');
       await expect(theme).toHaveAttribute('aria-label', 'Тёмная тема');
       await expect(theme.locator('.on-wide')).toBeHidden();
@@ -38,22 +39,14 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
       await expect(theme).toHaveAttribute('aria-label', 'Светлая тема');
       await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#17181D');  // строка состояния телефона — тёмная
-      await page.getByRole('button', { name: 'Меню' }).click();
-      await expect(page.locator('#overlay')).toContainText('Карточка кандидата');
-      await noHScroll(page, 'меню экранов');
-      await expect(page.locator('#theme-m')).toHaveText('☀ Светлая тема');
-      await page.locator('#theme-m').click();
+      await theme.click();
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-      await expect(page.locator('#theme-m')).toHaveText('☾ Тёмная тема');
-      expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).toBe('hidden');  // страница под меню не прокручивается
-      // роль переключается из меню, меню закрывается
-      const roles = page.locator('#overlay').getByRole('navigation', { name: 'Роль' });
-      await expect(roles.getByRole('button', { name: 'Валидация' })).toHaveAttribute('aria-current', 'true');
-      await roles.getByRole('button', { name: 'Работодатель' }).click();
+      await expect(page.getByRole('button', { name: 'Меню' })).toHaveCount(0);  // карты экранов больше нет
+      // роль — с главной: логотип → «Я нанимаю»
+      await page.locator('.brand').click();
+      await page.getByRole('button', { name: 'Я нанимаю' }).click();
       await settled(page);
       await expect(page.getByRole('heading', { name: 'Вход для компаний' })).toBeVisible();
-      await expect(page.locator('#overlay')).toBeEmpty();
-      expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).not.toBe('hidden');
 
       // иконка и манифест: стенд можно добавить на домашний экран телефона
       const man = await page.evaluate(async () => {
@@ -79,11 +72,11 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       const [n, on] = [await box(nav), await box(nav.locator('.chip.on'))];
       expect(on.left).toBeGreaterThanOrEqual(n.left);
       expect(on.right).toBeLessThanOrEqual(n.right);
-      // «Выйти» — в меню, а не в шапке
-      await expect(page.locator('#logout')).toBeHidden();
-      await page.getByRole('button', { name: 'Меню' }).click();
-      await expect(page.locator('#overlay').getByRole('button', { name: 'Выйти из кабинета кандидата' })).toBeVisible();
-      await page.locator('#overlay').getByRole('button', { name: 'Закрыть' }).click();
+      // «Выйти» — в шапке рядом с темой, шапка осталась одной строкой
+      await expect(page.locator('#logout')).toBeVisible();
+      const mid = async sel => { const b = await box(page.locator(sel)); return b.top + b.h / 2; };  // элементы разной высоты — по центру
+      for (const sel of ['#theme', '#logout']) expect(Math.abs(await mid(sel) - await mid('header .brand'))).toBeLessThan(4);
+      expect((await box(page.locator('header.top'))).h).toBeLessThanOrEqual(64);
 
       // вакансии: на телефоне и планшете (одна колонка) фильтры свёрнуты, список — сразу под ними
       await open(page, '/c/vacancies');
@@ -312,6 +305,7 @@ for (const [name, viewport] of [['узкий телефон', { width: 320, heig
       await page.getByLabel('Рабочая почта').press('Enter');
       await expect(toast(page)).toHaveText('Код отправлен на ' + email);
       await demo(page, 'c');
+      await expect(page.locator('#logout')).toBeVisible();  // «Выйти» помещается в шапку и на 320 px
       for (const r of ['/c/home', '/c/vacancies', '/c/profile', '/c/quest', '/c/settings']) {
         await open(page, r);
         await noHScroll(page, r);
