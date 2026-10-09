@@ -259,6 +259,7 @@ def test_express_mode(env):
         st = client.post("/api/quest/start", json={"mode": "express", "story": False}).json()
         assert st["mode"] == "express" and st["progress"]["total"] == irt.EXPRESS_ITEMS
         assert st["time_limit_s"] == quest.EXPRESS_TIME_LIMIT_S == st["item"]["time_limit_s"] and st["remaining_s"] <= 60
+        assert st["deadline_s"] - st["remaining_s"] == quest.TIMEOUT_GRACE_S  # льгота после нуля таймера — фронт показывает её
         resumed = client.post("/api/quest/start", json={"story": False}).json()  # режим продолжаемой сессии не меняется
         assert resumed["resumed"] and resumed["mode"] == "express" and resumed["session_id"] == st["session_id"]
 

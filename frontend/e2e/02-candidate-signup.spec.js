@@ -220,6 +220,18 @@ test('кандидат: регистрация → профиль и PDF → т�
   expect(await (await exStart).json()).toMatchObject({ mode: 'express', time_limit_s: 60, progress: { total: 5 } });
   await expect(page.locator('.quest-top')).toContainText('экспресс · ');
   await expect(page.locator('#timer span')).toHaveText(/^(1:00|0:5\d)$/);
+  await expect(page.locator('#tmo')).toBeHidden();
+  // таймер на нуле: плашка про льготные секунды, после них — «не засчитается» (минуту не ждём: остаток подменён при продолжении сессии)
+  await page.route('**/api/quest/start', async r => {
+    const res = await r.fetch();
+    await r.fulfill({ response: res, json: { ...(await res.json()), remaining_s: 1, deadline_s: 5 } });
+  }, { times: 1 });
+  await page.getByRole('switch', { name: 'сюжет' }).click();
+  await expect(page.locator('#tmo.warn')).toContainText(/Время вышло\. Ответ засчитается, если отправить его в ближайшие [12] с\./);
+  await expect(page.locator('#timer span')).toHaveText('0:00');
+  await expect(page.locator('#tmo.bad')).toContainText('Время вышло, ответ не засчитается — переходите к следующему.', { timeout: 5000 });
+  await page.getByRole('switch', { name: 'сюжет' }).click();  // настоящий остаток: плашки нет
+  await expect(page.locator('#tmo')).toBeHidden();
   expect(await answerAll(page)).toBe(5);
   await expect(page.getByText('Экспресс-тест · Все задания пройдены · 5 из 5')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Смена сдана' })).toBeVisible();  // финал сюжета Backend (items.STORY)
@@ -335,8 +347,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await page.getByRole('button', { name: 'Подключить' }).first().click();
   await expect(toast(page)).toHaveText('Команда CTFtime привязана');
   await expect(page.getByText('CTFtime · E2E Crew, рейтинг 33,5 · web')).toBeVisible();
-  await page.getByRole('button', { name: 'Подключить' }).click();  // Kaggle — ещё не подключается
-  await expect(toast(page)).toHaveText('Kaggle — для ML/DS треков');
+  await expect(page.getByText('Kaggle')).toHaveCount(0);  // не подключается — строки-заглушки нет
   await page.unrouteAll();
 
   // настройки: публикация карточки, отзыв и возврат согласий, скрытие от компаний

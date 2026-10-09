@@ -104,7 +104,7 @@ def _accepted_share(db: Session, company_id: int, before: datetime | None = None
 def quota(db: Session, co: Company) -> dict:
     """Недельная квота (сброс в понедельник 00:00 МСК). Лимит растёт до QUOTA_BONUS, если в прошлые недели
     принято ≥ 50 % закрытых приглашений. Неподтверждённая компания — UNVERIFIED_QUOTA без бонуса. Много плохих отзывов
-    кандидатов за окно — FEEDBACK_PENALTY_QUOTA без бонуса, блок — 0 (services/reputation.py). Оплата — только за принятые."""
+    кандидатов за окно — FEEDBACK_PENALTY_QUOTA без бонуса, блок — 0 (services/reputation.py)."""
     start = _week_start(datetime.now(UTC))
     used = db.scalar(select(func.count()).select_from(Invitation).where(Invitation.company_id == co.id, Invitation.sent_at >= start))
     bonus = lambda share: max(co.quota_max, catalog.QUOTA_BONUS) if share is not None and share >= catalog.QUOTA_BONUS_AT else co.quota_max
