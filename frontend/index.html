@@ -2333,7 +2333,7 @@ function inviteFormView() {
   const f = S.inviteForm, mk = c.market, maxW = (META && META.fork_max_width) || .4;
   // задача вместо созвона — из заданий компании, которые кандидат сможет открыть: публичные его специализации
   // или привязанные к потребности приглашения (tasks._can_see); подходящих нет — своим текстом
-  const tasks = (D.mytasks || []).filter(t => t.spec === c.spec && (t.public || (n && t.need_id === n.id)));
+  const tasks = (D.mytasks || []).filter(t => (t.public && t.spec === c.spec) || (n && t.need_id === n.id));
   if (f.task && tasks.length && !tasks.some(t => t.id === f.taskId)) f.taskId = tasks[0].id;
   const errs = [], warns = [];
   if (!f.from || !f.to) errs.push('Укажите обе границы вилки.');

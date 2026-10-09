@@ -301,7 +301,7 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(taskBox).not.toBeChecked();
   await expect(page.getByText(/дубл/)).toHaveCount(0);
   await taskBox.check();
-  const mine = (await page.evaluate(() => api('GET', '/api/tasks/mine'))).filter(t => t.spec === 'Backend' && (t.public || t.need_id === ladNeed));  // только те, что кандидат сможет открыть
+  const mine = (await page.evaluate(() => api('GET', '/api/tasks/mine'))).filter(t => (t.public && t.spec === 'Backend') || t.need_id === ladNeed);  // только те, что кандидат сможет открыть
   const pick = page.locator('#f-task-id');
   await expect(pick.locator('option')).toHaveCount(mine.length);
   await pick.selectOption(String(mine[mine.length - 1].id));
