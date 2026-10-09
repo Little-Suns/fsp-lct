@@ -155,16 +155,13 @@ def cf_prior(rating: float | None) -> float:
 
 
 def decide_grade(prev: str | None, theta: float, se: float, upgrade_allowed: bool = True) -> str:
-    """Грейд с гистерезисом. Повышение — если θ − SE выше порога нового грейда (и не идёт кулдаун).
-    Понижение — сразу, но только если θ + SE ниже порога текущего грейда (вся полоса погрешности ниже)."""
+    """Грейд после попытки. Первое присвоение — по θ − SE. Дальше только вверх: повышение — если θ − SE выше порога
+    нового грейда (и не идёт кулдаун). Принудительно грейд не понижается никогда: попытка ниже текущего грейда в профиль
+    не идёт, кандидат может сам принять нижний грейд (quest.accept_lower)."""
     up = catalog.grade_from_theta(theta, se)
     if prev not in catalog.GRADES:
         return up
-    gi = catalog.GRADES.index
-    if gi(up) > gi(prev):
-        return up if upgrade_allowed else prev
-    down = catalog.grade_from_theta(theta, -se)  # высший грейд, порог которого ниже θ + SE
-    return down if gi(down) < gi(prev) else prev
+    return up if upgrade_allowed and catalog.GRADES.index(up) > catalog.GRADES.index(prev) else prev
 
 
 def simulate_session(bank, true_theta: float, rng: random.Random, prior_mean: float = 0.0, express: bool = False) -> tuple[float, float, int]:

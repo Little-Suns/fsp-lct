@@ -12,6 +12,11 @@ EXPRESS_TIME_LIMIT_S на каждое, тот же адаптивный выб�
 Экспресс даёт только предварительную категорию (Candidate.grade_express): ставится, лишь если у кандидата ещё нет грейда,
 не запускает кулдаун и не повышает и не понижает грейд — ни свой прошлый экспресс, ни полный тест (попытка уходит в историю
 с applied = False). Полный тест после экспресса считается первым присвоением грейда: нейтральный априор, кулдаун с него.
+
+Грейд принудительно не понижается: попытка, измеренный грейд которой (θ − SE) ниже текущего, в профиль не идёт
+(applied = False, грейд, θ и компетенции прежние) — кандидат видит результат попытки и может сам принять нижний грейд
+(POST /accept-lower, событие grade_lowered в AuditLog). Результат задан специализацией: при её смене в профиле
+(candidate.save_profile) тест сбрасывается, и первый тест по новой специализации — первое присвоение, без кулдауна.
 """
 
 import json
@@ -31,7 +36,7 @@ from sqlalchemy.orm import Session
 from app import catalog, config
 from app.db import get_db
 from app.deps import current_candidate, current_company
-from app.models import Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession
+from app.models import AuditLog, Candidate, Company, ExternalAccount, Invitation, Item, Need, QuestSession
 from app.routers.employer import check_category
 from app.services import code_items, irt, sandbox
 from app.services.items import STORY, plan_for_need
@@ -205,7 +210,7 @@ def _cooldown(cand: Candidate) -> dict:
     until = _utc(cand.next_upgrade_at)
     active = bool(cand.tested_at and until and until > _now())
     return {"active": active, "until": until.isoformat() if active else None,
-            "note": f"Повышение грейда возможно с {_ru_date(until)}. Сейчас пересдача может только понизить результат." if active else None}
+            "note": f"Повышение грейда возможно с {_ru_date(until)}. До этого пересдача грейд не повысит, а понизить его можете только вы сами." if active else None}
 
 
 def _express(sess: QuestSession) -> bool:
@@ -470,6 +475,22 @@ def _target(sess: QuestSession | None, cand: Candidate) -> dict | None:
     return {"grade": sess.target_grade, "result_grade": got, "verdict": verdict, "label": VERDICT[verdict]}
 
 
+def _lower_offer(cand: Candidate, sess: QuestSession | None) -> dict | None:
+    """Полная попытка показала грейд ниже текущего и в профиль не пошла: кандидат может сам принять этот грейд."""
+    if not sess or not sess.finished_at or sess.applied is not False or sess.mode != "full" or not sess.grade:
+        return None
+    if cand.grade not in catalog.GRADES or cand.grade_express or catalog.GRADES.index(sess.grade) >= catalog.GRADES.index(cand.grade):
+        return None
+    return {"session_id": sess.id, "grade": sess.grade, "theta": round(sess.theta, 2), "se": round(sess.se, 2)}
+
+
+def _estimate(sess: QuestSession, bank: dict[int, Item], spec: str) -> tuple[float, float, list[dict]]:
+    """θ, SE и компетенции попытки — с нейтральным априором N(0, 1): CF-рейтинг только ускоряет подбор заданий."""
+    theta, se = irt.eap(_responses(sess, bank))
+    names = catalog.COMPETENCIES[spec]
+    return theta, se, irt.competency_estimates({n: _responses(sess, bank, n) for n in names}, names, theta)
+
+
 def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
     grades = catalog.GRADES
     gi = grades.index(cand.grade)
@@ -505,6 +526,7 @@ def _result(cand: Candidate, sess: QuestSession | None, db: Session) -> dict:
         "assessment_label": EXPRESS_LABEL if cand.grade_express else None,
         "tested_at": _utc(cand.tested_at).isoformat() if cand.tested_at else None,
         "review_passed": cand.review_passed,
+        "lower_offer": _lower_offer(cand, sess),  # попытка ниже текущего грейда: принять её может только сам кандидат
     }
 
 
@@ -523,10 +545,7 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     resp = _responses(sess, bank)
     if not resp:
         raise HTTPException(409, "Нет ответов для оценки")
-    # итог — с нейтральным априором N(0, 1): CF-рейтинг только ускоряет подбор заданий, на грейд/перцентиль/компетенции не влияет
-    theta, se = irt.eap(resp)
-    names = catalog.COMPETENCIES[cand.spec]
-    comps = irt.competency_estimates({n: _responses(sess, bank, n) for n in names}, names, theta)
+    theta, se, comps = _estimate(sess, bank, cand.spec)
     timings = [(a["server_ms"], _limit(sess, bank[a["item_id"]])) for a in _answered(sess, bank) if not a["pilot"]]
     flags = irt.suspicion_flags(theta, resp, timings)
     # верное решение задачи на код, больше половины которого вставлено из буфера (данные клиента — обходится, только сигнал)
@@ -546,8 +565,13 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
         if not applied:
             note = ("Предварительная категория уже выставлена по экспресс-тесту, повторный экспресс её не меняет. Уточнить грейд — полным тестом."
                     if provisional else "Экспресс-оценка не меняет категорию, подтверждённую полным тестом.")
+    elif prev and catalog.GRADES.index(catalog.grade_from_theta(theta, se)) < catalog.GRADES.index(prev):
+        # ниже текущего грейда — в профиль не идёт: принудительно грейд не понижается, принять нижний может только сам кандидат
+        applied = False
+        note = (f"Результат попытки — {catalog.grade_from_theta(theta, se)}, ниже вашего грейда {prev}. Грейд не понижен: "
+                "категория и место в выдаче прежние. Если согласны с результатом, можете принять нижний грейд сами.")
     else:
-        # в кулдаун пересдача может только понизить результат
+        # в кулдаун пересдача не повышает: применяется только θ ниже прежнего в пределах того же грейда (не «выуживать» θ)
         applied = not cooldown or cand.theta is None or theta < cand.theta
         if not applied:
             note = f"Результат не ниже текущего, поэтому категория не изменилась. Повышение возможно с {_ru_date(_utc(cand.next_upgrade_at))}."
@@ -572,6 +596,35 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     sess.theta, sess.se, sess.flags, sess.finished_at = theta, se, flags, now
     db.commit()
     return {**_result(cand, sess, db), "applied": applied, "note": note, "attempt": {"theta": round(theta, 2), "se": round(se, 2)}}
+
+
+class AcceptLowerIn(BaseModel):
+    session_id: int
+
+
+@router.post("/accept-lower")
+def accept_lower(body: AcceptLowerIn, cand: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
+    """Добровольное понижение: кандидат сам принимает грейд своей последней полной попытки, если тот ниже текущего.
+    Применяется результат именно этой попытки (θ, SE, компетенции); кулдаун повышения не сдвигается. Пишется в AuditLog."""
+    cand = db.scalar(select(Candidate).where(Candidate.id == cand.id).with_for_update().execution_options(populate_existing=True))
+    sess = db.scalar(select(QuestSession).where(QuestSession.candidate_id == cand.id, QuestSession.finished_at.is_not(None))
+                     .order_by(QuestSession.id.desc()).limit(1).with_for_update())
+    if not sess or sess.id != body.session_id:
+        raise HTTPException(409, "Принять можно только результат последней завершённой попытки")
+    offer = _lower_offer(cand, sess)
+    if not offer:
+        raise HTTPException(409, "Эта попытка не ниже текущего грейда или уже применена")
+    prev = cand.grade
+    theta, se, comps = _estimate(sess, _bank(db, cand.spec), cand.spec)
+    cand.theta, cand.se, cand.grade, cand.competencies = theta, se, sess.grade, comps
+    cand.skills_confirmed = _skills(cand, comps, sess.grade)
+    cand.tested_at = sess.finished_at
+    cand.percentile = _percentile(db, cand)[0]
+    sess.applied = True
+    db.add(AuditLog(actor_user_id=cand.user_id, action="grade_lowered", subject_candidate_id=cand.id,
+                    detail={"session_id": sess.id, "from": prev, "to": sess.grade}))
+    db.commit()
+    return {**_result(cand, sess, db), "applied": True, "note": f"Грейд {sess.grade} принят по вашему решению."}
 
 
 @router.get("/result")

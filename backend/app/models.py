@@ -288,7 +288,7 @@ class QuestSession(Base):
     focus: Mapped[dict | None] = mapped_column(JSON)  # веса компетенций из описания вакансии {competency: weight}
     mode: Mapped[str] = mapped_column(String(8), default="full", server_default="full")  # full | express
     grade: Mapped[str | None] = mapped_column(String(16))  # грейд, измеренный этой попыткой
-    applied: Mapped[bool | None] = mapped_column(Boolean)  # попал ли результат в профиль (во время кулдауна — только понижение)
+    applied: Mapped[bool | None] = mapped_column(Boolean)  # попал ли результат в профиль (ниже текущего грейда — только по решению кандидата, /accept-lower)
     flags: Mapped[list[str]] = mapped_column(JSON, default=list)  # подозрения: inconsistent, too_fast…
     started_at: Mapped[datetime] = _now()
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -394,7 +394,7 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(primary_key=True)
     actor_user_id: Mapped[int | None] = mapped_column(Integer)  # без FK: запись переживает удаление аккаунта
-    action: Mapped[str] = mapped_column(String(32))  # contacts_revealed | data_exported | account_deleted | consent_changed | company_blocked | company_unblocked
+    action: Mapped[str] = mapped_column(String(32))  # contacts_revealed | data_exported | account_deleted | consent_changed | company_blocked | company_unblocked | test_reset | grade_lowered
     subject_candidate_id: Mapped[int | None] = mapped_column(Integer)
     detail: Mapped[dict | None] = mapped_column(JSON)  # без самих ПДн: только идентификаторы и основания
     at: Mapped[datetime] = _now()

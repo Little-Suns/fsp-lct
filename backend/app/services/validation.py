@@ -98,25 +98,22 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
     per = {v: [] for v, _ in VARIANTS}
     kinds = {kd: {v: [] for v, _ in VARIANTS} for kd in KINDS}
     ranked_pool, skipped, ceiling = {}, 0, []
-    unc = Counter()  # не подтверждённые тестом: в пуле, среди годных по эталону, в топ-k «full»
+    untested_in_pool = 0  # инвариант: без теста кандидат не попадает в пул подбора (matching.visible)
     for n in needs:
         pool = pools[n.id]
         rel = {c.id: relevance(c, n) for c in pool}
+        untested_in_pool += sum(not matching.tested(c) for c in pool)
         full = matching.score_candidates(db, n, pool, variant="full", limit=matching.RETRIEVE_K)
         ranked_pool[n.id] = full
         if not any(r >= REL_TH for r in rel.values()):  # нет ни одного годного — нечего искать, метрика не определена
             skipped += 1
             continue
         n_rel = sum(r >= REL_TH for r in rel.values())
-        unc.update(pool=len(pool), pool_u=sum(not matching.tested(c) for c in pool), rel=n_rel,
-                   rel_u=sum(rel[c.id] >= REL_TH and not matching.tested(c) for c in pool),
-                   top=len(full[:k]), top_u=sum(not matching.tested(r.candidate) for r in full[:k]))
         ceiling.append(min(k, n_rel) / k)  # лучшая достижимая precision@k для этой потребности
         tops = {
             "embed": [r.candidate for r in matching.score_candidates(db, n, pool, variant="embed", limit=k)],
-            # «rerank» = тот же пул RETRIEVE_K, отсортированный по соответствию — ровно как score_candidates(variant="rerank"):
-            # не подтверждённые тестом — после прошедших (matching.order_key)
-            "rerank": [r.candidate for r in sorted(full, key=lambda r: (not matching.tested(r.candidate), -r.match, r.candidate.public_id))[:k]],
+            # «rerank» = тот же пул RETRIEVE_K, отсортированный по соответствию — ровно как score_candidates(variant="rerank")
+            "rerank": [r.candidate for r in sorted(full, key=lambda r: (-r.match, r.candidate.public_id))[:k]],
             "full": [r.candidate for r in full[:k]],
         }
         for v, top in tops.items():
@@ -136,9 +133,7 @@ def quality(db: Session, needs: list[Need], pools: dict, k: int) -> tuple[dict, 
         "precision_ideal": round(float(np.mean(ceiling)), 3) if ceiling else None,
         "needs_evaluated": len(per["full"]),
         "needs_skipped": skipped,
-        # эталон считает не подтверждённых по правде синтетики (годный без теста — годный), подбор ставит их ниже
-        # прошедших тест: доля среди годных против доли в топе — сколько честно годных подбор опускает
-        "unconfirmed": {key: round(unc[f"{key}_u"] / unc[key], 3) if unc[key] else None for key in ("pool", "rel", "top")},
+        "untested_in_pool": untested_in_pool,
     }, ranked_pool
 
 
@@ -475,7 +470,8 @@ def run(db: Session, *, k: int = 10, seed: int = 42, today: date | None = DEMO_T
                                 .options(selectinload(Need.company)).order_by(Need.id)))
         pools = _pools(db, needs)
         q, ranked_pool = quality(db, needs, pools, k)
-        population = list(db.scalars(select(Candidate).where(Candidate.status == "open")))  # с не подтверждёнными: они в выдаче
+        # охват и Джини — по тем, кого работодатели видят (открыт, согласия, тест пройден): без теста пригласить нельзя
+        population = [c for c in db.scalars(select(Candidate).where(Candidate.status == "open")) if matching.visible(c)]
         mk = market(needs, ranked_pool, population, seed)
     finally:
         config.LLM_BASE_URL = saved
@@ -515,10 +511,7 @@ def report(res: dict) -> str:
          f"  потолок precision@{k} (все годные наверху): {f(q['precision_ideal'])}",
          f"  {'вариант':<26}{'precision@' + str(k):>14}{'nDCG@' + str(k):>10}"]
     L += [f"  {v['label']:<26}{f(v['precision']):>14}{f(v['ndcg']):>10}" for v in q["variants"]]
-    u = q.get("unconfirmed") or {}
-    pc = lambda x: "—" if x is None else f"{x:.1%}"  # noqa: E731
-    L.append(f"  не подтверждённые тестом (идут после прошедших): в пуле {pc(u.get('pool'))}, среди годных по эталону {pc(u.get('rel'))}, "
-             f"в топ-{k} {pc(u.get('top'))}")
+    L.append(f"  без теста в пулах подбора: {q.get('untested_in_pool', 0)} (без теста кандидат работодателю не виден)")
     L.append("  по типам потребностей (precision / nDCG):")
     for kd, d2 in q["by_kind"].items():
         L.append(f"    {kd:<10}" + "  ".join(f"{v}: {f(d2[v]['precision'])} / {f(d2[v]['ndcg'])}" for v, _ in VARIANTS))
@@ -531,7 +524,7 @@ def report(res: dict) -> str:
     L += [f"  {r['label']:<38}{r['grade']:>8}   θ = {r['theta']:+.2f} ± {r['se']:.2f}" for r in ch["rows"]]
     L.append(f"  поймано проверкой на несогласованность: {ch['caught']:.0%}; ложные тревоги у честных: {ch['false_alarm']:.0%}")
     L += ["", "Стабильность:",
-          f"  тот же грейд при пересдаче: {st['retest_same_grade']:.0%} с гистерезисом, {st['retest_same_grade_no_hysteresis']:.0%} без",
+          f"  грейд в профиле после пересдачи не изменился: {st['retest_same_grade']:.0%} (без понижения), сырая оценка совпала: {st['retest_same_grade_no_hysteresis']:.0%}",
           f"  корреляция истинного и оценённого θ: {f(st['theta_corr'])}",
           f"  Спирмен θ «Алгоритмы» × рейтинг CF: {f(st['cf_spearman'])} (n = {st['cf_n']})",
           f"  разброс b внутри семейства (среднее SD): {f(st['clone_b_spread'])}"]

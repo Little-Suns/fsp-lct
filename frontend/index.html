@@ -851,10 +851,8 @@ const BADGE = { fsp: 'ФСП', hackathon: 'Хакатон', ctftime: 'CTF' };
 const RESULT = { winner: 'победитель', prize: 'призёр', finalist: 'финалист', participant: 'участник отбора' };
 // подсказка бейджа: название + дисциплина и результат из протокола (факты, дисциплины не ранжируются)
 const badgeTitle = b => [b.title, b.discipline, RESULT[b.result]].filter(Boolean).join(' · ');
-// грейд категории без теста — со слов кандидата; тест показал не тот грейд, что заявлен, — видны оба
-const gradeNote = c => c.grade_tested === false ? '<span class="chip warn">грейд не подтверждён тестом</span>'
-  : c.grade_claimed && c.grade_claimed !== c.grade ? `<span class="chip dim">заявлен ${esc(c.grade_claimed)}, тест — ${esc(c.grade)}</span>` : '';
-const claimedChips = c => c.grade_tested === false ? (c.claimed || []).map(s => `<span class="chip dim">${esc(s)}</span>`).join('') : '';
+// грейд категории — только по тесту (без теста кандидат работодателю не виден); тест показал не тот грейд, что заявлен, — видны оба
+const gradeNote = c => c.grade && c.grade_claimed && c.grade_claimed !== c.grade ? `<span class="chip dim">заявлен ${esc(c.grade_claimed)}, тест — ${esc(c.grade)}</span>` : '';
 // бейджи достижений на анонимной карточке: ФСП / хакатон / CTF + разряд ФСП + рейтинг Codeforces
 // грейд по экспресс-тесту (5 заданий) — предварительный, SE больше
 const expressChip = c => c.express ? '<span class="chip dim" title="Грейд по экспресс-тесту из 5 заданий: предварительный, погрешность больше">экспресс-оценка</span>' : '';
@@ -1185,7 +1183,8 @@ V['/c/profile'] = () => {
         <div class="field"><span>Грейд, на который претендуете</span>
           <div class="seg" role="group">${((META && META.grades) || ['Intern', 'Junior', 'Middle', 'Senior', 'Lead']).map(g => `<button data-act="pgrade" data-v="${g}" aria-pressed="${g === f.grade}">${g}</button>`).join('')}</div>
           ${S.cv && S.cv.parsed && S.cv.parsed.grade_hint ? `<p class="small" id="grade-hint">По резюме похоже на <b>${esc(S.cv.parsed.grade_hint.grade)}</b>: ${esc(S.cv.parsed.grade_hint.why)}. Это подсказка — выберите сами, тест подтвердит или нет.</p>` : ''}
-          <span class="hint">Тест проверит грейд. Если он окажется ниже — категория обновится сразу, выше — через 90 дней.</span>
+          <span class="hint">Тест проверит грейд. Выше — повышение не чаще раза в 90 дней; ниже — грейд сам не понизится, принять нижний можете только вы.</span>
+          ${ME && ME.grade && f.spec !== ME.spec ? `<div class="alert warn" id="spec-reset"><span>!</span><span>Результат теста привязан к специализации ${esc(ME.spec)} (грейд ${esc(ME.grade)}) и в ${esc(f.spec)} не переносится: после сохранения грейд и подтверждённые навыки сбросятся, а работодатели не увидят вас, пока вы не пройдёте тест по новой специализации.</span></div>` : ''}
         </div>
         <div class="field"><span>Роли</span>
           <div class="chips">${((META && META.roles) || []).map(x => `<button class="chip ${f.roles.includes(x) ? 'on' : ''}" data-act="ptoggle" data-k="roles" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>
@@ -1252,7 +1251,7 @@ V['/c/quest'] = () => {
         <dt style="color:var(--on-dark-2)">Что можно</dt><dd>Документация ${docs}. Задания составлены так, что ИИ-помощник почти не ускоряет.</dd>
         ${META && META.code_tasks ? '<dt style="color:var(--on-dark-2)">Задача на код</dt><dd>Одна за полный тест (в экспресс-тесте её нет), на Python или TypeScript: функция проверяется на скрытых тестах в изолированной песочнице, до отправки можно запустить её на примерах.</dd>' : ''}
         <dt style="color:var(--on-dark-2)">Без игровых очков</dt><dd>Нет жизней и рейтингов. Финал — экран категории.</dd>
-        <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Повышение грейда — не чаще раза в 90 дней${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Повышение возможно с ${DATE(ME.next_upgrade_at)}: сейчас пересдача может только понизить результат` : ''}</dd>
+        <dt style="color:var(--on-dark-2)">Пересдача</dt><dd>Повышение грейда — не чаще раза в 90 дней${ME && ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? `. Повышение возможно с ${DATE(ME.next_upgrade_at)}: до этого пересдача грейд не повысит` : ''}. Слабая попытка грейд не понижает — принять нижний грейд можете только вы</dd>
       </dl>
       <div class="field"><span style="color:var(--on-dark-2)">На какой грейд проходите тест</span>
         <div class="seg" role="group" aria-label="Грейд теста">${((META && META.grades) || []).map(g => `<button data-act="target" data-v="${g}" aria-pressed="${g === (S.target || (ME && ME.grade_claimed))}">${g}</button>`).join('')}</div>
@@ -1425,7 +1424,8 @@ V['/c/result'] = () => {
       </div>
       ${R.express ? `<div class="alert info"><span>≈</span><span><b>Экспресс-оценка.</b> Категория предварительная: ${R.mode === 'express' ? '5 заданий' : 'по экспресс-тесту'}, погрешность ± ${R.se.toFixed(2)} больше, чем у полного теста, поэтому грейд выставлен осторожно: Senior и Lead экспресс почти не присваивает. Работодатели видят пометку «экспресс-оценка». Подтвердите грейд полным тестом — кулдаун не мешает. <button class="btn ghost small" data-act="qstart" data-v="full">Полный тест</button></span></div>` : ''}
       ${R.target ? `<div class="alert ${R.target.verdict === 'below' ? 'warn' : 'ok'}"><span>${R.target.verdict === 'below' ? '↓' : R.target.verdict === 'above' ? '↑' : '✓'}</span><span><b>${esc(R.target.label)}.</b> Тест на ${esc(R.target.grade)}, результат попытки — ${esc(R.target.result_grade)}.</span></div>` : ''}
-      ${S.finish && S.finish.note ? `<div class="alert warn"><span>!</span><span>${esc(S.finish.note)} Результат попытки: θ = ${S.finish.attempt.theta.toFixed(2)} ± ${S.finish.attempt.se.toFixed(2)}.</span></div>` : ''}
+      ${S.finish && S.finish.note ? `<div class="alert warn"><span>!</span><span>${esc(S.finish.note)}${S.finish.attempt ? ` Результат попытки: θ = ${S.finish.attempt.theta.toFixed(2)} ± ${S.finish.attempt.se.toFixed(2)}.` : ''}</span></div>` : ''}
+      ${R.lower_offer ? `<div class="alert info" id="lower-offer"><span>↓</span><span>Последняя попытка показала <b>${esc(R.lower_offer.grade)}</b> (θ = ${R.lower_offer.theta.toFixed(2)} ± ${R.lower_offer.se.toFixed(2)}) — ниже вашего грейда ${esc(c.grade)}. Сам грейд не понижается. Если согласны с результатом, можете принять его: категория станет ${esc(R.lower_offer.grade)}, срок повышения не сдвинется. <button class="btn ghost small" data-act="accept-lower" data-id="${R.lower_offer.session_id}">Принять грейд ${esc(R.lower_offer.grade)}</button></span></div>` : ''}
       <div class="panel">
         <div class="row sb"><h3>Компетенции</h3><span class="muted small">точка — оценка θ, полоса — погрешность</span></div>
         <div style="margin-top:18px">${compRows(R.competencies)}</div>
@@ -1478,7 +1478,7 @@ V['/c/home'] = () => {
             <button data-act="status" data-v="off" aria-pressed="${ME.status === 'off'}">Не ищу</button>
           </div>
         </div>
-        ${!ME.grade ? `<div class="alert info"><span>→</span><span>Пройдите тест-квест: ${ME.visible ? 'пока его нет, работодатели видят вас по заявленному грейду с пометкой «грейд не подтверждён тестом» — после прошедших тест и без перцентиля.' : 'без него грейд — только с ваших слов.'} <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
+        ${!ME.grade ? `<div class="alert warn"><span>!</span><span><b>Работодатели вас не видят, пока вы не пройдёте тест${ME.spec ? ` по специализации ${esc(ME.spec)}` : ''}.</b> Категорию задаёт только тест: без него вас нет ни в подборках, ни в поиске, ни в лотерее, и пригласить вас нельзя. <button class="btn ghost small" data-go="/c/quest">К тесту</button></span></div>` : ''}
         ${!ME.consent_publish ? `<div class="alert warn"><span>!</span><span>Карточка не опубликована: работодатели вас не видят и не могут пригласить. <button class="btn ghost small" data-go="/c/settings">Настройки приватности</button></span></div>` : ''}
         ${ME.status === 'open'
           ? `<p class="prose small">Ничего делать не нужно. Новые приглашения придут на почту и в Telegram. Активность на сайте не влияет на позицию в выдаче.</p>`
@@ -2120,7 +2120,7 @@ V['/e/picks'] = () => {
       ${list.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
           <div class="stack-s" style="min-width:0">
             <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${expressChip(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
-            <div class="chips">${c.skills.map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${claimedChips(c)}${badgeChips(c)}</div>
+            <div class="chips">${c.skills.map(s => `<span class="chip ${n.must.includes(s) || n.nice.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
           </div>
           <div class="score"><b class="num">${c.score.toFixed(2)}</b><span class="small muted">итог</span></div>
           <div class="facts">
@@ -2130,7 +2130,7 @@ V['/e/picks'] = () => {
             <div><span class="muted">Нагрузка</span><b class="num" style="color:${c.busy ? 'var(--red)' : 'inherit'}">${c.load} / ${CAP}</b>${c.busy ? '<span style="color:var(--red)">много предложений</span>' : ''}</div>
           </div>
         </button>`).join('') || '<div class="panel">Под фильтры никто не подходит. Снимите один из фильтров.</div>'}
-      <p class="small muted">Итог = соответствие × (0,5 + 0,5 · вероятность принятия) × поправка на нагрузку. Кандидаты без пройденного теста — в категории по заявленному грейду, с пометкой «грейд не подтверждён тестом» и всегда после прошедших тест. Подробности — в карточке.</p>
+      <p class="small muted">Итог = соответствие × (0,5 + 0,5 · вероятность принятия) × поправка на нагрузку. В подборке только прошедшие тест: категория — по его результату, заявленный грейд её не задаёт. Подробности — в карточке.</p>
     </div>
   </div>`;
 };
@@ -2316,30 +2316,29 @@ function candView() {
     <div class="stack">
       <div class="panel stack">
         <div class="row sb">
-          <div class="stack-s"><h2>Кандидат ${esc(c.id)}</h2><div class="row">${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${expressChip(c)}${c.grade_tested === false ? '' : `<span class="small muted">${c.express ? 'экспресс-оценка' : 'грейд подтверждён'} ${esc(c.confirmed || '—')}</span>`}</div></div>
+          <div class="stack-s"><h2>Кандидат ${esc(c.id)}</h2><div class="row">${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${expressChip(c)}<span class="small muted">${c.express ? 'экспресс-оценка' : 'грейд подтверждён'} ${esc(c.confirmed || '—')}</span></div></div>
           <div class="row" style="gap:24px">
             <div class="stat"><span class="label">Перцентиль</span><b>${c.pct ?? '—'}</b></div>
             <div class="stat"><span class="label">θ</span><b class="num" style="font-size:20px">${esc(c.theta)}</b></div>
           </div>
         </div>
         <div class="chips">${badgeChips(c)}</div>
-        ${c.grade_tested === false ? `<div class="alert warn"><span>!</span><span>Тест не пройден: грейд ${esc(c.grade)} заявлен кандидатом. Перцентиля, θ и компетенций нет; в подборке и поиске такие кандидаты идут после прошедших тест, в лотерею не попадают. Навыки — со слов кандидата: ${esc((c.claimed || []).join(', ')) || '—'}.</span></div>` : ''}
       </div>
       <div class="panel stack">
         <h3>Почему в подборке</h3>
         <div class="stack-s">
           ${e && e.why ? `<div class="alert info"><span>→</span><span>${esc(e.why)}</span></div>` : ''}
-          ${c.grade_tested === false ? '<div class="alert warn"><span>!</span><span>Навыки не подтверждены: тест не пройден</span></div>' : `<div class="alert ok"><span>✓</span><span>Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}</span></div>`}
+          <div class="alert ok"><span>✓</span><span>Обязательные навыки подтверждены тестом: ${esc(must.join(', ')) || '—'}</span></div>
           ${c.gaps.map(g => `<div class="alert warn"><span>!</span><span>${esc(g)}</span></div>`).join('')}
           ${c.inFork != null ? `<div class="alert ${c.inFork ? 'ok' : 'warn'}"><span>${c.inFork ? '✓' : '!'}</span><span>Ожидания от ${RUB(c.salary)} на руки ${c.inFork ? '— внутри вашей вилки' : '— выше вашей вилки: вероятность принятия ниже'}</span></div>` : ''}
           <div class="alert ${c.fmtOk === false ? 'warn' : 'ok'}"><span>${c.fmtOk === false ? '!' : '✓'}</span><span>Формат: ${esc(c.format)}</span></div>
           ${ach.length ? `<div class="alert info"><span>★</span><span>${esc(ach.join(' · '))}</span></div>` : '<div class="alert info"><span>·</span><span>Внешних достижений нет. Это не снижает позицию: оценка по тесту.</span></div>'}
         </div>
       </div>
-      ${c.grade_tested === false ? '' : `<div class="panel">
+      <div class="panel">
         <div class="row sb"><h3>Компетенции</h3><span class="muted small">θ ± погрешность</span></div>
         <div style="margin-top:18px">${compRows(c.competencies)}</div>
-      </div>`}
+      </div>
     </div>
     <aside class="stack">
       ${b ? `<div class="panel tight stack-s">
@@ -2502,11 +2501,11 @@ V['/e/search'] = () => {
       </div>
     </aside>
     <div class="stack">
-      <div class="row sb small muted"><span>Найдено ${R.total} · сортировка по силе подтверждённого профиля, без пройденного теста — в конце${R.skills.length ? ` · навыки: ${esc(R.skills.join(', '))}` : ''}</span><span>Только опубликованные анонимные карточки</span></div>
+      <div class="row sb small muted"><span>Найдено ${R.total} · сортировка по силе подтверждённого профиля, только прошедшие тест${R.skills.length ? ` · навыки: ${esc(R.skills.join(', '))}` : ''}</span><span>Только опубликованные анонимные карточки</span></div>
       ${R.items.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
           <div class="stack-s" style="min-width:0">
             <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${expressChip(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
-            <div class="chips">${c.skills.map(s => `<span class="chip ${c.matched.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${claimedChips(c)}${badgeChips(c)}</div>
+            <div class="chips">${c.skills.map(s => `<span class="chip ${c.matched.includes(s) ? 'on' : ''}">${esc(s)}</span>`).join('')}${badgeChips(c)}</div>
           </div>
           <div class="score"><b class="num">${DEC(c.strength)}</b><span class="small muted">сила профиля</span></div>
           <div class="facts">
@@ -2765,7 +2764,7 @@ V['/v'] = () => {
     <div class="panel stack">
       <h3>Стабильность и внешняя проверка</h3>
       ${St ? `<div class="grid g2" style="gap:16px">
-        <div class="stat"><span class="label">Тот же грейд при пересдаче</span><b>${PCT(St.retest_same_grade)}</b><span class="small muted">с гистерезисом θ − SE${St.retest_same_grade_no_hysteresis != null ? `; без него ${PCT(St.retest_same_grade_no_hysteresis)}` : ''}</span></div>
+        <div class="stat"><span class="label">Тот же грейд при пересдаче</span><b>${PCT(St.retest_same_grade)}</b><span class="small muted">в профиле: без принудительного понижения, повышение по θ − SE${St.retest_same_grade_no_hysteresis != null ? `; сырая оценка θ − SE совпала у ${PCT(St.retest_same_grade_no_hysteresis)}` : ''}</span></div>
         <div class="stat"><span class="label">Корреляция θ «Алгоритмы» и CF</span><b>${DEC(St.cf_spearman)}</b><span class="small muted">n = ${St.cf_n ?? '—'}, Спирмен</span></div>
         ${St.theta_corr != null ? `<div class="stat"><span class="label">Оценка θ и «истинный» θ</span><b>${DEC(St.theta_corr)}</b><span class="small muted">корреляция на синтетике</span></div>` : ''}
         <div class="stat"><span class="label">Утечка: сложность клона задания</span><b>±${DEC(St.clone_b_spread)}</b><span class="small muted">разброс b внутри семейства</span></div>
@@ -3189,7 +3188,8 @@ const ACT = {
       ...(first && S.cv && S.cv.text ? { cv_text: S.cv.text, cv_filename: S.cv.filename } : {}),
     });
     if (first) await api('PATCH', '/api/candidate/notif', { tg: S.signup.tg });
-    toast('Профиль сохранён'); go('/c/quest');
+    D.result = null; S.finish = null;
+    toast(ME.test_reset ? `Специализация изменена: пройдите тест по ${ME.spec} — до него работодатели вас не видят` : 'Профиль сохранён'); go('/c/quest');
   },
   async 'consent-ext'() {
     const on = ACH ? ACH.consent_external : ME.consent_external;
@@ -3273,6 +3273,11 @@ const ACT = {
     }
     S.qAt = Date.now();
     render(); scrollTo(0, 0);
+  },
+  async 'accept-lower'(a, d) {
+    S.finish = await api('POST', '/api/quest/accept-lower', { session_id: +d.id });
+    D.result = S.finish; D.history = await api('GET', '/api/quest/history'); await loadMe();
+    toast(`Грейд ${S.finish.category.grade} принят`); rerender();
   },
   async finish() {
     try { S.finish = await api('POST', '/api/quest/finish'); }
