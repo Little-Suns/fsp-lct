@@ -604,11 +604,12 @@ def test_scan_text_masked_before_llm(client, vllm, monkeypatch):
 @pytest.mark.parametrize("reply", [
     httpx.ConnectError("нет соединения"),
     httpx.ReadTimeout("таймаут"),
+    httpx.InvalidURL("кривой OCR_URL"),
     httpx.Response(500, text="Ivan Testov boom", request=httpx.Request("POST", OCR_URL)),
     httpx.Response(200, content=b"<html>", request=httpx.Request("POST", OCR_URL)),
     httpx.Response(200, json={"choices": []}, request=httpx.Request("POST", OCR_URL)),
     "   ",  # пустой ответ
-], ids=["connect", "timeout", "http500", "not-json", "no-choices", "empty"])
+], ids=["connect", "timeout", "bad-url", "http500", "not-json", "no-choices", "empty"])
 def test_scan_model_failure_is_422(client, vllm, caplog, reply, request):
     vllm.reply = reply
     r = _upload(client, _fresh_user(f"scan-fail-{request.node.callspec.id}@example.ru"), _scan())
@@ -621,6 +622,9 @@ def test_scan_limits(vllm, monkeypatch):
     assert len(ocr.page_images(_scan(pages=ocr.MAX_PAGES + 2))) == ocr.MAX_PAGES
     assert ocr.page_images(_scan(size=(200, 280))) == []  # только мелкая картинка — не скан страницы
     assert ocr.recognize(_scan(size=(200, 280))) is None and vllm.calls == []
+    monkeypatch.setattr(ocr, "MAX_PIXELS", 1_000_000)  # страница 1240×1754 больше лимита — не декодируется, а не грузит память
+    assert ocr.page_images(_scan()) == []
+    monkeypatch.setattr(ocr, "MAX_PIXELS", 40_000_000)
     vllm.reply = "text"
     monkeypatch.setattr(config, "OCR_API_KEY", "k")
     assert ocr.recognize(_scan(pages=2)) == "text\ntext" and vllm.calls[0]["headers"] == {"Authorization": "Bearer k"}
