@@ -44,7 +44,8 @@ async def limit_body(request: Request, call_next):
     return await call_next(request)
 
 
-# заголовки безопасности на каждый ответ; роутер, поставивший свой (no-referrer у ФСП ID), не перетирается
+# заголовки безопасности на каждый ответ (объявлен после limit_body — внешний, 413 тоже получает; 500 из ServerErrorMiddleware — нет);
+# роутер, поставивший свой (no-referrer у ФСП ID), не перетирается
 SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",  # кликджекинг: чужой сайт не встроит кабинет и не подставит «Принять и открыть контакты»
     "Content-Security-Policy": "frame-ancestors 'none'",  # ponytail: только запрет фреймов; полный CSP — с хэшем inline-скрипта (table.md)

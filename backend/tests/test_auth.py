@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from app import catalog, config, deps
 from app.db import Base, SessionLocal, engine, reset_schema
 from app.deps import hash_secret, issue_token, otp_hash
-from app.main import app
+from app.main import MAX_BODY, app
 from app.models import Candidate, Company, LoginChallenge, User
 from app.services.items import STORY
 
@@ -102,6 +102,11 @@ def test_security_headers_on_pages_and_api(client, tmp_path, monkeypatch):
         h = client.get(p).headers
         assert h["x-frame-options"] == "DENY" and h["content-security-policy"] == "frame-ancestors 'none'", p
         assert h["x-content-type-options"] == "nosniff" and h["referrer-policy"] == "same-origin", p
+    # 413 из limit_body — тоже: security_headers объявлен после него и снаружи (перестановка декораторов уронит проверку)
+    r = client.post("/api/candidate/profile", content=b"x" * (MAX_BODY + 1))
+    assert r.status_code == 413 and r.headers["x-frame-options"] == "DENY"
+    if os.path.isdir(os.path.join(config.FRONTEND_DIR, "assets")):  # ассеты StaticFiles
+        assert client.get("/assets/logo.svg").headers["x-content-type-options"] == "nosniff"
     # свой заголовок роутера не перетирается: возврат из ФСП ID — no-referrer (код и state не утекают)
     r = client.get("/api/auth/fsp/callback?state=x&code=y", follow_redirects=False)
     assert r.headers["referrer-policy"] == "no-referrer"
