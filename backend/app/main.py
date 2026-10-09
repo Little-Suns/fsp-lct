@@ -92,6 +92,7 @@ if (_front / "index.html").is_file():
 # опечатка в /api/…, /docs и /mock-fsp-id по-прежнему отвечают своим 404, а не страницей
 @app.get("/", include_in_schema=False)
 @app.get("/v", include_in_schema=False)
+@app.get("/org", include_in_schema=False)  # импорт протоколов организатором
 @app.get("/candidate", include_in_schema=False)
 @app.get("/candidate/{rest:path}", include_in_schema=False)
 @app.get("/employer", include_in_schema=False)
