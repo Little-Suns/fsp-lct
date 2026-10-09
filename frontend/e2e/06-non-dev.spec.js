@@ -4,7 +4,7 @@ const { test, expect, open, demo, api } = require('./fixtures');
 
 test('продакт-менеджер: разбор в Management · Product, план теста и подборка', async ({ page }) => {
   await demo(page, 'e');
-  await open(page, '/e/need');
+  await open(page, '/employer/needs/new');
   await page.locator('#need-text').fill('Ищем продакт-менеджера в B2B SaaS. Нужен опыт CustDev и A/B-тестов, хорошо бы Jira. Мидл, до 300 на руки. Удалённо.');
   const parsed = api(page, 'POST', '/api/employer/needs/parse');
   await page.getByRole('button', { name: 'Разобрать' }).click();
