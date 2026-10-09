@@ -542,13 +542,17 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
     cooldown = _cooldown(cand)["active"]
     # предварительный экспресс-грейд не считается присвоенным: полный тест после него — первое присвоение
     prev = cand.grade if cand.tested_at and not provisional else None
+    # после смены категории в интервал: первое присвоение разрешено, но не выше прежнего грейда и без нового интервала
+    cap = cand.grade_cap if cooldown and prev is None and cand.grade_cap in catalog.GRADES else None
+    capped = lambda g: min(g, cap, key=catalog.GRADES.index) if cap else g  # noqa: E731
+    until = _ru_date(_utc(cand.next_upgrade_at)) if cooldown else None
     note = None
     if express:
         # экспресс — только предварительная категория тому, у кого грейда ещё нет; существующий не меняет ни вверх, ни вниз
-        applied = not cand.tested_at and not cooldown
+        applied = not cand.tested_at and (not cooldown or cap is not None)
         if not applied:
             if cooldown and not cand.tested_at:
-                note = f"Смена грейда возможна с {_ru_date(_utc(cand.next_upgrade_at))}. Результат сохранён в истории."
+                note = f"Смена грейда возможна с {until}. Результат сохранён в истории."
             elif provisional:
                 note = "Предварительная категория уже выставлена по экспресс-тесту, повторный экспресс её не меняет. Уточнить грейд — полным тестом."
             else:
@@ -558,22 +562,29 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
         target = sess.target_grade or cand.grade_claimed
         passed = catalog.GRADES.index(measured) >= catalog.GRADES.index(target)
         lower = prev is not None and catalog.GRADES.index(target) < catalog.GRADES.index(prev)
-        grade = irt.decide_grade(prev, theta, se, lower_allowed=lower)
-        applied = passed and (not cooldown or (prev is not None and grade == prev))
+        uncapped = irt.decide_grade(prev, theta, se, lower_allowed=lower)
+        grade = capped(uncapped)
+        applied = passed and (not cooldown or cap is not None or (prev is not None and grade == prev))
         if not passed:
             note = "Заявленный уровень не подтверждён. Категория не изменилась; можно выбрать нижний уровень и пройти новый тест."
         elif not applied:
-            note = f"Смена грейда возможна с {_ru_date(_utc(cand.next_upgrade_at))}. Результат сохранён в истории."
+            note = f"Смена грейда возможна с {until}. Результат сохранён в истории."
     if applied:
         if express:
-            grade = catalog.grade_from_theta(theta, se)
-        # Любая смена грейда полным тестом запускает ограничение, включая добровольный переход вниз.
-        if not express and grade != prev:
+            uncapped = catalog.grade_from_theta(theta, se)
+            grade = capped(uncapped)
+        if grade != uncapped:
+            note = f"Категория — не выше прежнего грейда {cap} до {until}: смена специализации не обходит интервал смены грейда."
+        # Любая смена грейда полным тестом запускает ограничение, включая добровольный переход вниз;
+        # присвоение в новой категории под потолком срок не продлевает.
+        if not express and grade != prev and cap is None:
             cand.next_upgrade_at = now + timedelta(days=catalog.UPGRADE_COOLDOWN_DAYS)
         cand.theta, cand.se, cand.grade, cand.competencies = theta, se, grade, comps
         # по одному заданию на компетенцию навыки не подтверждаются: в экспресс-оценке — только заявленные
         cand.skills_confirmed = [] if express else _skills(cand, comps, grade)
         cand.grade_express = express
+        if not express:
+            cand.grade_cap = None
         cand.tested_at = now
         cand.percentile = _percentile(db, cand)[0]
 
@@ -582,6 +593,8 @@ def finish(cand: Candidate = Depends(current_candidate), db: Session = Depends(g
         flags.append("review_required")  # ponytail: только флаг; асинхронный «разбор решения» (3–4 вопроса LLM) — отдельный сервис
     # грейд попытки: присвоенный (с гистерезисом), а если не применён — измеренный самой попыткой
     sess.grade = cand.grade if applied else catalog.grade_from_theta(theta, se)
+    if sess.spec is None:  # попытка начата до 0011_quest_category: результат относится к текущей категории
+        sess.spec, sess.track = cand.spec, cand.track
     sess.applied = applied
     sess.theta, sess.se, sess.flags, sess.finished_at = theta, se, flags, now
     db.commit()

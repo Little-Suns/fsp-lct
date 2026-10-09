@@ -1267,6 +1267,7 @@ V['/c/profile'] = () => {
 
       ${achPanel()}
       ${ME ? '' : `<div class="panel stack"><h3>Согласия</h3>${consentChecks('p')}<span class="hint">Согласие на обработку обязательно: без него профиль не сохранить. Введённое выше не потеряется.</span></div>`}
+      ${ME && ME.grade && (f.spec !== ME.spec || (f.track || null) !== (ME.track || null)) ? `<div class="alert warn"><span>!</span><span>Смена специализации или трека сбросит категорию ${esc(ME.grade)}: до нового теста работодатели вас не увидят.${ME.next_upgrade_at && new Date(ME.next_upgrade_at) > new Date() ? ` До ${DATE(ME.next_upgrade_at)} новая категория — не выше ${esc(ME.grade)}.` : ''}</span></div>` : ''}
       <div class="row"><button class="btn primary" data-act="psave">${ME ? 'Сохранить' : 'Сохранить и перейти к тесту'}</button></div>
     </fieldset>
     <aside class="panel tight stack-s">
@@ -3484,6 +3485,7 @@ paintTheme();
 document.addEventListener('change', async e => {
   const t = e.target;
   if (t.id === 'p-spec') { capture(); S.pf.track = ((META && META.tracks[t.value]) || [])[0] || null; rerender(); }
+  if (t.id === 'p-track' && ME && ME.grade) { capture(); rerender(); }  // предупреждение о сбросе категории
   if (t.id === 'vx-spec') { capture(); S.vform.track = ''; rerender(); }
   if (t.id === 'tx-spec') { capture(); S.tform.competency = ''; rerender(); }
   if (t.id === 'sf-spec') { capture(); S.sf.track = ''; rerender(); }

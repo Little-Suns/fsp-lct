@@ -257,11 +257,48 @@ def test_failed_initial_attempt_and_voluntary_lower_level(env):
             started = quest.start(quest.StartIn(mode="express", target_grade="Intern"), stale_cand, stale_db)
             attempt = stale_db.get(QuestSession, started["session_id"])
             assert (attempt.spec, attempt.track) == ("Backend", "Go")
+        # смена трека в интервал: категория в новой — сразу, но не выше прежнего грейда и без продления интервала
+        with SessionLocal() as db:
+            assert db.get(Candidate, cid).grade_cap == "Intern"
         express = _run(client, env["items"], lambda it: True, {"mode": "express", "target_grade": "Intern"})["result"]
-        assert not express["applied"] and not express["assigned"] and "Смена грейда" in express["note"]
+        assert express["applied"] and express["assigned"] and express["category"] == {"spec": "Backend", "track": "Go", "grade": "Intern"}
+        full = _run(client, env["items"], lambda it: True, {"target_grade": "Intern"})["result"]
+        assert full["applied"] and not full["express"] and full["category"]["grade"] == "Intern"
+        assert "не выше прежнего грейда Intern" in full["note"]  # все ответы верны: без потолка грейд был бы выше
         with SessionLocal() as db:
             c = db.get(Candidate, cid)
-            assert c.grade is None and c.next_upgrade_at == old_until
+            assert c.grade == "Intern" and c.grade_cap is None and c.next_upgrade_at == old_until
+        # прежняя категория в новом треке присвоена: дальше обычное правило — повышение только после интервала
+        again = _run(client, env["items"], lambda it: True, {"target_grade": "Junior"})["result"]
+        assert not again["applied"] and again["category"]["grade"] == "Intern" and "Смена грейда" in again["note"]
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(Candidate).where(Candidate.id == cid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
+
+
+def test_attempt_started_before_category_snapshot(env):
+    """Попытка, начатая до 0011_quest_category (spec/track — NULL), после завершения видна в /result текущей категории."""
+    with SessionLocal() as db:
+        user = User(email=f"legacy-{secrets.token_hex(4)}@example.ru", role="candidate")
+        db.add(user)
+        db.flush()
+        cand = Candidate(public_id=f"L-{secrets.token_hex(4)}", user_id=user.id, name="Л", email=user.email, **MK)
+        db.add(cand)
+        db.commit()
+        cid, uid, client = cand.id, user.id, _client(issue_token(db, user))
+    try:
+        sid = client.post("/api/quest/start", json={"story": False, "target_grade": "Senior"}).json()["session_id"]
+        with SessionLocal() as db:
+            db.get(QuestSession, sid).spec = db.get(QuestSession, sid).track = None
+            db.commit()
+        failed = _run(client, env["items"], lambda it: False)["result"]
+        assert not failed["applied"] and not failed["assigned"]
+        res = client.get("/api/quest/result")
+        assert res.status_code == 200 and res.json()["assigned"] is False
+        with SessionLocal() as db:
+            assert (db.get(QuestSession, sid).spec, db.get(QuestSession, sid).track) == ("Backend", "Python")
     finally:
         with SessionLocal() as db:
             db.execute(delete(Candidate).where(Candidate.id == cid))

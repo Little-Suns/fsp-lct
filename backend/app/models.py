@@ -73,6 +73,8 @@ class Candidate(Base):
     skills_confirmed: Mapped[list[str]] = mapped_column(JSON, default=list)
     tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_upgrade_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # грейд до смены специализации/трека: потолок первого присвоения в новой категории, пока идёт интервал смены грейда
+    grade_cap: Mapped[str | None] = mapped_column(String(16))
     # грейд — предварительная экспресс-оценка (routers/quest.py): помечается в карточке, кулдаун не запускает
     grade_express: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     review_passed: Mapped[bool] = mapped_column(Boolean, default=False)  # «разбор решения» для Senior+

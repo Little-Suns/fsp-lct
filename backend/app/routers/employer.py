@@ -514,7 +514,7 @@ def search(
     db: Session = Depends(get_db),
 ):
     """Поиск по всему банку без потребности: фильтры + ранжирование по силе подтверждённого профиля (matching.strength);
-    не подтверждённые тестом — после прошедших (matching.search_key), грейд у них — заявленный.
+    кандидаты без пройденного теста в поиск не входят (matching.visible).
     q — свободный текст, из него берутся навыки справочника. Фасеты spec/grade считаются без своего фильтра."""
     want = list(dict.fromkeys(canon_skills(skills.split(",")) + extract_skills(q))) if skills or q else []
     base = db.scalars(

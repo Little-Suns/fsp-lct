@@ -189,7 +189,9 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
         active = db.scalar(select(QuestSession.id).where(QuestSession.candidate_id == c.id, QuestSession.finished_at.is_(None)))
         if active:
             raise HTTPException(409, "Сначала завершите текущий тест, затем меняйте специализацию или трек")
-        # Подтверждение относится к прежней категории. История и срок смены грейда сохраняются.
+        # Подтверждение относится к прежней категории. История и срок смены грейда сохраняются;
+        # прежний грейд — потолок первого присвоения в новой категории до конца срока (quest.finish).
+        c.grade_cap = c.grade or c.grade_cap
         c.grade = c.theta = c.se = c.percentile = c.tested_at = None
         c.competencies, c.skills_confirmed = [], []
         c.grade_express, c.review_passed, c.employer_confirmed = False, False, 0

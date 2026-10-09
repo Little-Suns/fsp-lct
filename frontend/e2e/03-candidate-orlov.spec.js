@@ -173,6 +173,15 @@ test('профиль и результат теста демо-кандидат�
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Ментор' })).toHaveClass(/on/);
   await expect(page.locator('button.chip[data-act=ptoggle]', { hasText: 'Работа в команде' })).toHaveClass(/on/);
   await expect(card.locator('.chip', { hasText: 'Капитан команды' })).toBeVisible();
+  // смена трека сбрасывает категорию: предупреждение до сохранения, возврат трека его убирает
+  const reset = page.getByText(/Смена специализации или трека сбросит категорию/);
+  await expect(reset).toHaveCount(0);
+  const track = await page.locator('#p-track').inputValue();
+  const other = await page.locator('#p-track option').evaluateAll((os, cur) => os.map(o => o.value).find(v => v !== cur), track);
+  await page.locator('#p-track').selectOption(other);
+  await expect(reset).toBeVisible();
+  await page.locator('#p-track').selectOption(track);
+  await expect(reset).toHaveCount(0);
   // «Опыт» PDF-профиля: ровно распознанное из резюме, с пометкой; исключение сохраняется сразу, без сохранения профиля
   const exp = page.locator('.field', { hasText: 'Опыт в PDF-профиле' });
   await expect(exp).toContainText('2023 — н. в. · Финтех «Волна Пэй», бэкенд-разработчик платёжного шлюза');
