@@ -59,14 +59,14 @@ test('«Новый Стартап»: плашка, квота 3, приглаш�
   const list = (await (await page.request.get(`/api/employer/needs/${picks.id}/picks?limit=20`, { headers: await auth(page) })).json()).items
     .filter(c => !c.invited && !c.busy && c.id !== 'A-1042');
   for (const c of list.slice(0, 2)) {
-    await open(page, '/e/invite/' + c.id);
+    await open(page, `/e/invite/${c.id}?need=${picks.id}`);
     await expect(page.getByRole('heading', { name: 'Приглашение для ' + c.id })).toBeVisible();
     await fork();
     await page.getByRole('button', { name: 'Отправить приглашение' }).click();
     await expect(page.getByRole('row', { name: new RegExp(c.id) })).toBeVisible();
   }
   await expect(page.getByText(/квота 3 \/ 3/)).toBeVisible();
-  await open(page, '/e/invite/' + list[2].id);
+  await open(page, `/e/invite/${list[2].id}?need=${picks.id}`);
   await expect(page.getByText('Квота на неделю исчерпана. Обновится в понедельник.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Отправить приглашение' })).toBeDisabled();
 

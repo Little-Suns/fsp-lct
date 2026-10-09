@@ -301,7 +301,7 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(taskBox).not.toBeChecked();
   await expect(page.getByText(/дубл/)).toHaveCount(0);
   await taskBox.check();
-  const mine = (await page.evaluate(() => api('GET', '/api/tasks/mine'))).filter(t => t.spec === 'Backend');
+  const mine = (await page.evaluate(() => api('GET', '/api/tasks/mine'))).filter(t => t.spec === 'Backend' && (t.public || t.need_id === ladNeed));  // только те, что кандидат сможет открыть
   const pick = page.locator('#f-task-id');
   await expect(pick.locator('option')).toHaveCount(mine.length);
   await pick.selectOption(String(mine[mine.length - 1].id));
@@ -316,6 +316,13 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(row).toContainText('отправлено');
   await expect(row).toContainText('скрыты');
   await expect(page.getByText(/квота 7 \/ \d+/)).toBeVisible();
+  // из статусов — карточка относительно потребности приглашения
+  await row.getByRole('button', { name: fresh.id }).click();
+  await expect(page).toHaveURL(new RegExp(`#/e/cand/${fresh.id}\\?need=${ladNeed}$`));
+  await expect(page.getByRole('heading', { name: 'Почему в подборке' })).toBeVisible();
+  // потребность из адреса, которой нет у компании, — карточка как без потребности
+  await open(page, `/e/cand/${fresh.id}?need=999999`);
+  await expect(page.getByRole('heading', { name: 'О кандидате' })).toBeVisible();
 
   for (const r of ['/e/cand/Z-0000', '/e/invite/Z-0000']) {
     await open(page, r);

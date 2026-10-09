@@ -2394,8 +2394,9 @@ function inviteFormView() {
     desc: n ? n.text : '', task: false, taskId: null, taskText: '', server: null,
   };
   const f = S.inviteForm, mk = c.market, maxW = (META && META.fork_max_width) || .4;
-  // задача вместо созвона — из заданий компании по специализации кандидата; заданий нет — своим текстом
-  const tasks = (D.mytasks || []).filter(t => t.spec === c.spec);
+  // задача вместо созвона — из заданий компании, которые кандидат сможет открыть: публичные его специализации
+  // или привязанные к потребности приглашения (tasks._can_see); подходящих нет — своим текстом
+  const tasks = (D.mytasks || []).filter(t => t.spec === c.spec && (t.public || (n && t.need_id === n.id)));
   if (f.task && tasks.length && !tasks.some(t => t.id === f.taskId)) f.taskId = tasks[0].id;
   const errs = [], warns = [];
   if (!f.from || !f.to) errs.push('Укажите обе границы вилки.');
@@ -2427,7 +2428,7 @@ function inviteFormView() {
       <label class="field"><span>О работе</span><textarea class="input" id="f-desc" style="min-height:80px">${esc(f.desc)}</textarea></label>
       <label class="check"><input type="checkbox" id="f-task" ${f.task ? 'checked' : ''}> Приложить задачу вместо первого созвона</label>
       ${!f.task ? '' : tasks.length ? `<label class="field"><span>Задача</span><select class="input" id="f-task-id">${tasks.map(t => `<option value="${t.id}" ${t.id === f.taskId ? 'selected' : ''}>${esc(t.title)}, ~${t.minutes} мин</option>`).join('')}</select></label>`
-        : `<label class="field"><span>Задача</span><input class="input" id="f-task-text" maxlength="500" placeholder="Что сделать и сколько времени займёт" value="${esc(f.taskText)}"><span class="hint">Своих заданий по ${esc(c.spec)} нет — их можно завести в разделе «Задания»</span></label>`}
+        : `<label class="field"><span>Задача</span><input class="input" id="f-task-text" maxlength="500" placeholder="Что сделать и сколько времени займёт" value="${esc(f.taskText)}"><span class="hint">Заданий, которые кандидат сможет открыть, нет: нужно публичное по ${esc(c.spec)} или привязанное к потребности — раздел «Задания»</span></label>`}
       <div class="row small muted">Срок ответа — ${(META && META.invite_ttl_days) || 7} дней. Изменить нельзя.</div>
       ${q.used >= q.max ? '<div class="alert bad">Квота на неделю исчерпана. Обновится в понедельник.</div>' : ''}
       <div class="row"><button class="btn primary" type="submit" ${ok ? '' : 'disabled'}>Отправить приглашение</button><button class="btn ghost" type="button" data-go="/e/cand/${esc(c.id)}${needQ(n)}">Отмена</button></div>
@@ -2954,8 +2955,8 @@ async function load(r) {
     else if (page === 'cand' || page === 'invite') {
       // потребность — только явно из адреса (пришли из подборки или лотереи); из поиска и статусов — без неё
       const nid = +routeQ('need') || null;
-      D.candNeed = nid ? S.needs.find(x => x.id === nid) || null : null;
-      D.cand = await or404(api('GET', `/api/employer/candidates/${encodeURIComponent(arg)}${nid ? '?need_id=' + nid : ''}`));
+      D.candNeed = nid ? S.needs.find(x => x.id === nid) || null : null;  // чужая или удалённая — как без потребности
+      D.cand = await or404(api('GET', `/api/employer/candidates/${encodeURIComponent(arg)}${D.candNeed ? '?need_id=' + nid : ''}`));
       if (page === 'invite') [D.quota, D.mytasks] = await Promise.all([api('GET', '/api/employer/quota'), api('GET', '/api/tasks/mine')]);
     }
     else if (page === 'pipeline') D.pipe = await api('GET', '/api/employer/pipeline');
