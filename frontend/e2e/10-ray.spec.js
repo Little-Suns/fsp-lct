@@ -109,10 +109,10 @@ test('главная: шаг «Тест-квест» — про день с Ре
   await expect(page.locator('.steps .ray[aria-hidden="true"]')).toBeVisible();
 });
 
-test('загрузка экрана: бегущий Рей с «Загрузка…», экран помечен aria-busy; иконка вкладки — Рей', async ({ page }) => {
+test('загрузка экрана: бегущий Рей с «Загрузка…», экран помечен aria-busy; иконка вкладки — знак ФСП', async ({ page }) => {
   await demo(page, 'c');
   const icon = await page.locator('link[rel=icon]').getAttribute('href');
-  expect(icon).toBe('/assets/ray.svg');
+  expect(icon).toBe('/assets/favicon.svg');
   const svg = await page.request.get(icon);
   expect(svg.ok()).toBe(true);
   expect(svg.headers()['content-type']).toContain('image/svg+xml');
