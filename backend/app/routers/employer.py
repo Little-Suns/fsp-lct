@@ -16,6 +16,7 @@ from app import catalog, config, mail
 from app.api_schemas import CandidateCard, InviteResult, NeedView, PicksResult, SearchResult
 from app.db import get_db
 from app.deps import DEMO_PERSONAS, active_company, current_company, current_user
+from app.integrations.consent import lock_candidate
 from app.models import Candidate, Company, Invitation, Lottery, Need, Task, User, Vacancy
 from app.services import lottery as lottery_svc
 from app.services import matching, reputation
@@ -740,18 +741,33 @@ class FeedbackIn(BaseModel):
 
 @router.post("/invites/{invite_id}/feedback")
 def feedback(invite_id: int, body: FeedbackIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
+    return set_feedback(invite_id, body, co, db)
+
+
+def set_feedback(invite_id: int, body: FeedbackIn, co: Company, db: Session, idempotent: bool = False) -> dict:
+    """idempotent (ATS-ретраи): та же отметка — 200; сравнение после блокировок, иначе параллельный повтор получит 409."""
     if body.value not in catalog.FEEDBACK:
         raise HTTPException(422, f"Отметка: одна из {', '.join(catalog.FEEDBACK)}")
+    # порядок блокировок «кандидат → приглашение», как в delete_me и accept: без блокировки узнаём, чьё приглашение
     inv = db.get(Invitation, invite_id)
     if not inv or inv.company_id != co.id:
         raise HTTPException(404, "Приглашение не найдено")
+    cand = lock_candidate(db, inv.candidate_id)
+    inv = db.scalar(select(Invitation).where(Invitation.id == invite_id).with_for_update().execution_options(populate_existing=True))  # параллельные отметки по очереди
+    if not cand or not inv or inv.company_id != co.id:
+        db.rollback()
+        raise HTTPException(404, "Приглашение не найдено")
     if inv.status != "accepted":
+        db.rollback()
         raise HTTPException(409, "Отметка доступна после принятия приглашения")
     if inv.feedback:
+        db.rollback()
+        if idempotent and inv.feedback == body.value:
+            return _row(inv)
         raise HTTPException(409, "Отметка уже поставлена")
     inv.feedback = body.value
     if body.value in ("confirmed", "hired"):
-        inv.candidate.employer_confirmed += 1
+        cand.employer_confirmed += 1
     # ponytail: «не подтвердился» только сохраняется; очередь перепроверки заданий кандидата — в модуле теста
     db.commit()
     return _row(inv)

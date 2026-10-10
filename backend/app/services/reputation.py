@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app import catalog, config
 from app.models import AuditLog, Company, Invitation
+from app.services import ats
 
 
 def _now() -> datetime:
@@ -69,7 +70,9 @@ def check_block(db: Session, co: Company) -> bool:
     if db.scalar(q) >= catalog.FRAUD_BLOCK_MIN:
         co.blocked_at = _now()
         # открытые приглашения истекают: принять их и раскрыть контакты нельзя, а кандидат видит нейтральное «истекло»
-        db.execute(update(Invitation).where(Invitation.company_id == co.id, Invitation.status.in_(("sent", "seen"))).values(status="expired"))
+        rows = db.execute(update(Invitation).where(Invitation.company_id == co.id, Invitation.status.in_(("sent", "seen"))).values(status="expired").returning(Invitation.id)).all()
+        for (inv_id,) in rows:
+            ats.emit(db, co.id, "invitation.expired", invitation_id=inv_id, status="expired", reason=None)
         db.add(AuditLog(actor_user_id=None, action="company_blocked", detail={"company_id": co.id, "basis": "fraud_feedback"}))
         return True
     return False

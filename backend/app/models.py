@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, text, true
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, text, true
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -470,3 +470,45 @@ class Message(Base):
     text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = _now()
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ApiKey(Base):
+    """Ключ API компании для интеграции с ATS. В БД — только sha256 (deps.hash_secret), открытым текстом ключ показан один раз."""
+
+    __tablename__ = "api_keys"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    prefix: Mapped[str] = mapped_column(String(12))  # начало ключа — узнать его в списке, не раскрывая
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list)  # services/ats.SCOPES
+    created_at: Mapped[datetime] = _now()
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AtsLink(Base):
+    """Соответствие внешнего id из ATS работодателя нашей сущности: PUT по external_id идемпотентен."""
+
+    __tablename__ = "ats_links"
+    __table_args__ = (UniqueConstraint("company_id", "entity", "external_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    entity: Mapped[str] = mapped_column(String(16))  # vacancy
+    external_id: Mapped[str] = mapped_column(String(128))
+    internal_id: Mapped[int] = mapped_column(Integer)
+
+
+class OutboxEvent(Base):
+    """Лента событий для ATS: пишется в той же транзакции, что и смена статуса; ATS забирает её курсором «txid.id».
+    В payload только идентификаторы и статусы — без ПДн: карточку и контакты лента собирает при чтении по текущим правилам."""
+
+    __tablename__ = "outbox_events"
+    __table_args__ = (Index("ix_outbox_company_id", "company_id", "txid", "id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int]  # без FK: вставка события не берёт блокировку строки компании
+    # id транзакции, вставившей событие: лента отдаёт события только завершённых транзакций в порядке (txid, id)
+    txid: Mapped[int] = mapped_column(BigInteger, server_default=text("pg_current_xact_id()::text::bigint"))
+    type: Mapped[str] = mapped_column(String(40))  # services/ats.EVENTS
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    at: Mapped[datetime] = _now()

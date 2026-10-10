@@ -22,9 +22,10 @@ from sqlalchemy.orm import object_session, Session, selectinload
 from app import catalog
 from app.db import get_db
 from app.deps import active_company, current_candidate, current_company, current_user
+from app.integrations.consent import lock_candidate
 from app.models import Application, AuditLog, Candidate, Company, Vacancy
 from app.routers.employer import MSK, Salary, company_trust, validate_fork
-from app.services import matching
+from app.services import ats, matching
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, mask_contacts
 
@@ -357,6 +358,11 @@ class AppStatusIn(BaseModel):
 
 @router.post("/applications/{application_id}/status")
 def set_application_status(application_id: int, body: AppStatusIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
+    return move_application(application_id, body, co, db)
+
+
+def move_application(application_id: int, body: AppStatusIn, co: Company, db: Session, idempotent: bool = False) -> dict:
+    """idempotent (ATS-ретраи): тот же статус — 200 с текущим состоянием; сравнение после блокировок, иначе параллельный повтор получит 409."""
     if body.status not in EMPLOYER_MOVES:
         raise HTTPException(422, f"Статус: один из {', '.join(EMPLOYER_MOVES)}")
     if body.status == "declined" and body.reason not in catalog.DECLINE_REASONS:
@@ -364,6 +370,20 @@ def set_application_status(application_id: int, body: AppStatusIn, co: Company =
     a = _lock(db, Application, application_id)  # кандидат может отзывать отклик параллельно
     if not a or a.vacancy.company_id != co.id:
         raise HTTPException(404, "Отклик не найден")
+    # порядок «отклик → кандидат», как в delete_me: отзыв согласия/скрытие держат кандидата и считают получателей access_revoked,
+    # принятие не должно раскрыть контакты по старому согласию мимо события
+    if lock_candidate(db, a.candidate_id) is None:
+        db.rollback()
+        raise HTTPException(404, "Отклик не найден")
+    if idempotent and a.status == body.status:
+        if body.status == "declined" and body.reason != a.decline_reason:
+            db.rollback()
+            raise HTTPException(409, "Отклик уже отклонён с другой причиной")
+        if _shown(a):
+            _reveal(db, co, [a])  # контакты отдаём только с записью в журнале (идемпотентно)
+        else:
+            db.rollback()
+        return _employer_row(a, a.vacancy)
     if a.status not in EMPLOYER_MOVES[body.status]:
         raise HTTPException(409, f"Нельзя перевести отклик из «{a.status}» в «{body.status}»")
     now = _now()
@@ -371,6 +391,8 @@ def set_application_status(application_id: int, body: AppStatusIn, co: Company =
     if body.status != "seen":
         a.responded_at = now
         a.decline_reason = body.reason if body.status == "declined" else None
+    ats.emit(db, co.id, "application.status", application_id=a.id, vacancy_id=a.vacancy_id, status=body.status,
+             reason=a.decline_reason if body.status == "declined" else None)
     if _shown(a):
         _reveal(db, co, [a])  # принятие открывает контакты: запись в журнале в той же транзакции, что и статус
     else:
@@ -460,6 +482,7 @@ def withdraw(application_id: int, c: Candidate = Depends(current_candidate), db:
     if a.status not in OPEN_APP:
         raise HTTPException(409, "Отозвать можно только отклик без ответа")
     a.status, a.responded_at = "withdrawn", _now()
+    ats.emit(db, a.vacancy.company_id, "application.withdrawn", application_id=a.id, vacancy_id=a.vacancy_id, status="withdrawn")
     db.commit()
     return _cand_row(a)
 
@@ -503,6 +526,8 @@ def apply(vacancy_id: int, body: ApplyIn, c: Candidate = Depends(current_candida
     a = Application(vacancy_id=v.id, candidate_id=c.id, note=(body.note or "").strip() or None, status="sent")
     db.add(a)
     try:
+        db.flush()  # id отклика нужен событию; дубль ловится здесь же
+        ats.emit(db, v.company_id, "application.created", application_id=a.id, vacancy_id=v.id, status="sent")
         db.commit()
     except IntegrityError:
         db.rollback()

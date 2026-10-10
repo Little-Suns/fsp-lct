@@ -183,6 +183,7 @@ Compose читает `.env` из корня сам; `.env` в `.gitignore`, се
 | `FSP_ID_CLIENT_ID` | `fsp-career` | нет | клиент в Keycloak |
 | `FSP_ID_CLIENT_SECRET` | пусто (для мока — случайный на процесс) | для боевого входа | секрет confidential-клиента |
 | `FSP_ID_MOCK` | пусто (= по `DEMO`) | нет | `1` — включить мок без `DEMO`; рядом с боевым `FSP_ID_ISSUER` мок выключен всегда |
+| `ATS_MOCK` | пусто (= по `DEMO`) | нет | `1` — включить демо-приёмник Mock ATS `/mock-ats` без `DEMO`; `0` — выключить при `DEMO=1` |
 | `FSP_ID_IDPS` | пусто (в моке — `yandex:Яндекс ID,corp:Корпоративный SSO`) | нет | сторонние входы через брокер Keycloak: `alias:Подпись,alias2:Подпись2` |
 
 ### LLM и OCR (необязательны)

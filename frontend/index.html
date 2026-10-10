@@ -2238,8 +2238,40 @@ V['/e/company'] = () => {
       <p class="small">Старт — 10 приглашений в неделю, у неподтверждённой компании — 3. Лимит растёт, если кандидаты принимают больше половины приглашений.</p>
       ${q ? `<p class="small num">Сейчас: <b>${q.used} / ${q.max}</b>, обновится ${DAYMON(q.resets_at)}. Принято приглашений: <b>${q.paid_accepts}</b></p>` : ''}
     </aside>
-  </div>`;
+  </div>
+  ${D.company ? atsPanel() : ''}`;
 };
+
+// интеграция с ATS: ключи API компании (GET/POST/DELETE /api/employer/api-keys); ключ показывается один раз — в ответе выпуска
+async function loadKeys() {  // ответ — {items, scopes: {область: подпись}}; null — ошибка загрузки
+  const r = await api('GET', '/api/employer/api-keys').catch(() => null);
+  D.apikeys = r && r.items; D.atsScopes = (r && r.scopes) || D.atsScopes || {};
+}
+function atsPanel() {
+  const ks = D.apikeys;
+  const row = k => `<div class="row sb" style="padding:10px 0;border-bottom:1px dashed var(--line-2);gap:12px" data-key="${k.id}">
+    <div class="stack-s" style="min-width:0">
+      <div class="row" style="gap:8px"><b>${esc(k.name)}</b><code class="num">${esc(k.prefix)}…</code>${k.revoked_at ? '<span class="chip">отозван</span>' : ''}</div>
+      <span class="small muted">${k.scopes.map(esc).join(', ')}</span>
+      <span class="small muted">Создан ${DATE(k.created_at)} · ${k.last_used_at ? 'последний вызов ' + DATE(k.last_used_at) : 'не вызывался'}</span>
+    </div>
+    ${k.revoked_at ? '' : `<button class="btn ghost small" data-act="ak-revoke" data-id="${k.id}">Отозвать</button>`}
+  </div>`;
+  return `<div class="panel stack fade" id="ats" style="margin-top:24px">
+    <div class="row sb"><h2>Интеграция с ATS</h2>${META && META.ats_mock ? '<a class="btn ghost small" href="/mock-ats" target="_blank" rel="noopener">Открыть Mock ATS</a>' : ''}</div>
+    <p class="small muted">Ключ API даёт вашей системе найма доступ к <code>/api/ats/v1</code>: вакансии, статусы откликов и лента событий. Через API видно ровно то, что вы видите в кабинете: контакты — только после согласия кандидата.</p>
+    ${S.akKey ? `<div class="alert ok"><span>✓</span><span><b>Ключ «${esc(S.akKey.name)}» выпущен.</b> Больше не покажем — скопируйте сейчас.<br><code class="num" id="ak-key" style="font-size:16px;word-break:break-all;user-select:all">${esc(S.akKey.key)}</code></span></div>
+    <div class="row"><button class="btn primary small" data-act="ak-copy">Скопировать</button><button class="btn ghost small" data-act="ak-done">Я сохранил ключ</button></div>` : ''}
+    <div id="ak-list">${ks === null || ks === undefined ? '<div class="alert warn"><span>!</span><span>Не удалось загрузить ключи.</span></div>'
+      : ks.length ? ks.map(row).join('') : '<p class="small muted">Ключей пока нет.</p>'}</div>
+    <span class="label">Новый ключ</span>
+    <div class="stack-s" id="ak-form">
+      <label class="field"><span>Название</span><input class="input" id="ak-name" maxlength="64" placeholder="Хантфлоу, продакшен"></label>
+      ${Object.entries(D.atsScopes || {}).map(([s, t]) => `<label class="check"><input type="checkbox" data-scope="${s}"> <span><code>${s}</code> — ${t}</span></label>`).join('')}
+      <div class="row"><button class="btn primary" data-act="ak-issue">Выпустить ключ</button></div>
+    </div>
+  </div>`;
+}
 
 // POST /api/quest/plan: как тест проверит кандидатов под потребность
 function planPanel() {
@@ -3427,7 +3459,8 @@ async function load(r) {
   if (side === 'e' && !OPEN(r)) {
     if (page === 'company') {  // 403 — компании ещё нет: форма регистрации
       D.company = await api('GET', '/api/employer/company').catch(e => { if (e.status === 403) return null; throw e; });
-      if (D.company) { D.co = D.company; D.coName = D.company.name; }
+      if (D.company) { D.co = D.company; D.coName = D.company.name; await loadKeys(); }  // D.apikeys null — ошибка загрузки; выпущенный ключ — только на экране выпуска
+      S.akKey = null;
       return;
     }
     await ensureCo();
@@ -3913,6 +3946,27 @@ const ACT = {
     // регистрация — всегда дальше, к первой потребности (статус проверки — плашкой там же); правка — на месте, с разделами
     if (first) go('/e/need'); else rerender();
   },
+  async 'ak-issue'() {
+    const name = document.getElementById('ak-name').value.trim();
+    const scopes = [...document.querySelectorAll('#ak-form input[data-scope]:checked')].map(x => x.dataset.scope);
+    if (!name) throw new Error('Назовите ключ');
+    if (!scopes.length) throw new Error('Отметьте хотя бы одну область доступа');
+    const k = await api('POST', '/api/employer/api-keys', { name, scopes });
+    S.akKey = { name: k.name, key: k.key };
+    delete k.key;
+    D.apikeys = [k, ...(D.apikeys || [])];
+    rerender();
+  },
+  async 'ak-revoke'(a, d) {
+    await api('DELETE', `/api/employer/api-keys/${d.id}`);
+    toast('Ключ отозван');
+    await loadKeys();
+    rerender();
+  },
+  async 'ak-copy'() {
+    try { await navigator.clipboard.writeText(S.akKey.key); toast('Ключ скопирован'); } catch { toast('Не удалось скопировать — выделите ключ и скопируйте вручную'); }
+  },
+  'ak-done': () => { S.akKey = null; rerender(); },
   async parse(a) {
     a.innerHTML = ray('run', { size: 2.4, decorative: true }) + 'Разбираю…';
     S.need.parsed = await api('POST', '/api/employer/needs/parse', { text: S.need.text });

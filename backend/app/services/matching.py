@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session, selectinload
 from app import catalog
 from app.integrations import scoring
 from app.models import Candidate, Company, Invitation, Need
-from app.services import llm
+from app.services import ats, llm
 
 W_THETA, W_COVER, W_ACH = 0.45, 0.45, 0.10
 CREDIT_CONFIRMED, CREDIT_CLAIMED, CREDIT_ADJACENT = 1.0, 0.4, 0.3  # вклад навыка в покрытие
@@ -115,7 +115,10 @@ def expire_invites(db: Session, **where) -> None:
     q = update(Invitation).where(Invitation.status.in_(OPEN), Invitation.expires_at <= _now())
     for k, v in where.items():
         q = q.where(getattr(Invitation, k) == v)
-    if db.execute(q.values(status="expired")).rowcount:
+    rows = db.execute(q.values(status="expired").returning(Invitation.id, Invitation.company_id)).all()
+    for inv_id, company_id in sorted(rows, key=lambda r: r[1]):  # компании по возрастанию — стабильный порядок блокировок ленты
+        ats.emit(db, company_id, "invitation.expired", invitation_id=inv_id, status="expired", reason=None)
+    if rows:
         db.commit()
 
 

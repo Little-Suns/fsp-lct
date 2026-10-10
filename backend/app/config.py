@@ -44,6 +44,8 @@ FRONTEND_DIR = os.environ.get("FRONTEND_DIR", os.path.join(os.path.dirname(__fil
 
 # Демо-режим (стенд для жюри): вход за демо-персонажей, код почты в ответе, мок-провайдер ФСП ID. По умолчанию выключен.
 DEMO = os.environ.get("DEMO", "0") == "1"
+# Демо-приёмник «Mock ATS» (/mock-ats): страница, которая читает ленту событий по ключу API. По умолчанию — при DEMO=1.
+ATS_MOCK = (os.environ.get("ATS_MOCK") or ("1" if DEMO else "0")) == "1"
 
 # Письма с кодом входа. Без SMTP_HOST и вне DEMO вход по почте недоступен (503).
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
