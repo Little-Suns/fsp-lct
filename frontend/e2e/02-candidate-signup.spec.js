@@ -96,6 +96,7 @@ test('согласия с регистрации доходят до шага «
   const c152 = page.getByLabel(/обработку персональных данных по 152-ФЗ/), pub = page.getByLabel(/Показывать мою обезличенную карточку/);
   await expect(c152).toBeChecked();  // отмечено на регистрации — тот же человек
   await expect(pub).toBeChecked();
+  await page.locator('#me').click();
   await page.locator('#logout').click();
   await expect(page).toHaveURL(/\/candidate\/login$/);
   const email = `consent-b-${uniq()}@example.ru`;
@@ -440,6 +441,6 @@ test('кандидат: регистрация → профиль и PDF → т�
   expect((await del).status()).toBe(200);
   await expect(toast(page)).toHaveText('Аккаунт удалён');
   await expect(page).toHaveURL(/:\d+\/$/);
-  await expect(page.locator('#logout')).toBeHidden();
+  await expect(page.locator('#me')).toBeHidden();
   expect(await page.evaluate(() => localStorage.getItem('fsp.tok.c'))).toBeNull();
 });
