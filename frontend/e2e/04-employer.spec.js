@@ -508,8 +508,14 @@ test('Ладога: поиск по банку — фасеты, флаги, т�
   await expect(page.getByText('Под фильтры никто не подходит.')).toBeVisible();
   await page.getByRole('button', { name: 'Сбросить' }).click();
   await expect.poll(total).toBe(all);
+  // поиск по ID (скопирован из воронки или чата): находит ровно его, даже при фильтре другой специализации
+  const pid = (await page.locator('#app button.cand').nth(1).textContent()).match(/[A-Z]-\d{4}/)[0];
+  await page.getByLabel('Специализация').selectOption('Design');
+  await page.getByLabel('Текст').fill(pid.toLowerCase());
+  await page.getByRole('button', { name: 'Найти' }).click();
+  await expect(page.getByText(/^Найдено 1 · поиск по ID, фильтры не применялись/)).toBeVisible();
   await page.locator('#app button.cand').first().click();
-  await expect(page.getByRole('heading', { name: /^Кандидат [A-Z]-\d+$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Кандидат ' + pid })).toBeVisible();
 });
 
 test('Ладога: без теста кандидата не видно нигде; тест ниже заявленного — оба грейда видны', async ({ page }) => {

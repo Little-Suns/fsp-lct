@@ -275,6 +275,23 @@ def test_search(client):
     page2 = client.get("/api/employer/search?grade=Middle&q=кафка&limit=2&page=2", headers=E).json()
     assert [(c["id"], c["rank"]) for c in page2["items"]] == [("G-0005", 3)]
     assert "U-0004" not in client.get("/api/employer/search?limit=100", headers=E).text
+    # поиск по ID: мимо остальных фильтров, любой регистр, кириллица того же начертания, тире из мессенджеров
+    find = lambda q, **f: client.get("/api/employer/search", params={"q": q, **f}, headers=E).json()  # noqa: E731
+    by_id = lambda q, **f: [c["id"] for c in find(q, **f)["items"]]  # noqa: E731
+    r = find("A-1042", spec="Frontend", grade="Junior")
+    assert [c["id"] for c in r["items"]] == ["A-1042"] and r["by_id"] and r["total"] == 1 and r["skills"] == []
+    assert r["facets"] == {"spec": {"Backend": 1}, "grade": {"Middle": 1}}  # фасеты — только по найденным видимым
+    assert by_id("а-1042") == ["A-1042"] and by_id("A–1042") == ["A-1042"]  # кириллическая «а», длинное тире
+    assert sorted(by_id("A-1042, b-2318")) == ["A-1042", "B-2318"]
+    # скрытый от компании, без согласия, без теста, закрытый профиль — по ID тоже не найти, и о них ничего не видно
+    for pid in ("H-0002", "P-0008", "U-0004", "Z-0001"):
+        r = find(pid)
+        assert r["items"] == [] and r["total"] == 0 and r["facets"] == {"spec": {}, "grade": {}}, pid
+    # не ID: пять цифр, ID внутри слова, ID вместе с текстом — обычный текстовый поиск, фильтры и навыки на месте
+    assert by_id("ID: A-1042.") == ["A-1042"] and by_id("«A-1042»") == ["A-1042"]  # скопировано из чата с пунктуацией
+    assert not find("A-10420")["by_id"] and not find("C-3PO")["by_id"]
+    r = find("A-1042 kafka", spec="Frontend")
+    assert not r["by_id"] and r["skills"] == ["Kafka"] and "A-1042" not in [c["id"] for c in r["items"]]
 
 
 def test_untested_invisible(client, monkeypatch):

@@ -1,5 +1,6 @@
 """Кабинет работодателя: компания, потребности, подборка, карточка кандидата, приглашения, воронка, квота."""
 
+import re
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -498,6 +499,23 @@ SEARCH_SKIP = [
 ]
 
 
+# ID кандидата: латинская буква, дефис и 4 цифры (seed.generate, candidate._new_public_id), целым словом; кириллические буквы
+# того же начертания и тире из мессенджеров (–, —, неразрывный дефис) тоже принимаются
+PUBLIC_ID_RE = re.compile(r"(?<![\w-])([A-Za-zАВЕКМНОРСТУХавекмнорстух])[-\u2010\u2011\u2013\u2014]([0-9]{4})(?![\w-])")
+_LAT = str.maketrans("АВЕКМНОРСТУХ", "ABEKMHOPCTYX")
+# что может окружать скопированный ID: разделители, пунктуация, кавычки, приставка «ID:» / «id»
+_ID_REST = re.compile(r"(?:[\s,;/.!#():\"'«»]|\b[Ii][Dd]\b)*")
+
+
+def public_ids(q: str) -> set[str]:
+    """ID кандидатов, если запрос состоит только из них (разделители, пунктуация и приставка «ID:» не мешают):
+    «T-1000 kafka» — обычный текстовый поиск, а не поиск по ID, иначе случайное совпадение молча сбросило бы навыки и фильтры."""
+    found = PUBLIC_ID_RE.findall(q)
+    if not found or not _ID_REST.fullmatch(PUBLIC_ID_RE.sub(" ", q)):
+        return set()
+    return {m[0].upper().translate(_LAT) + "-" + m[1] for m in found}
+
+
 @router.get("/search", response_model=SearchResult)
 def search(
     spec: str | None = None,
@@ -517,8 +535,10 @@ def search(
 ):
     """Поиск по всему банку без потребности: фильтры + ранжирование по силе подтверждённого профиля (matching.strength);
     только прошедшие тест (matching.visible).
-    q — свободный текст, из него берутся навыки справочника. Фасеты spec/grade считаются без своего фильтра."""
-    want = list(dict.fromkeys(canon_skills(skills.split(",")) + extract_skills(q))) if skills or q else []
+    q — свободный текст, из него берутся навыки справочника; если q — только ID кандидатов («A-1042, B-2318»), поиск по ID
+    мимо остальных фильтров (работодатель скопировал ID из воронки или чата). Фасеты spec/grade считаются без своего фильтра."""
+    ids = public_ids(q)
+    want = [] if ids else list(dict.fromkeys(canon_skills(skills.split(",")) + extract_skills(q))) if skills or q else []
     base = db.scalars(
         select(Candidate)
         .where(Candidate.status == "open", matching.published())
@@ -527,6 +547,8 @@ def search(
     attr = {"spec": lambda c: c.spec, "grade": matching.category_grade}
 
     def ok(c: Candidate, skip: str | None = None) -> bool:
+        if ids:
+            return c.public_id in ids and matching.visible(c, co)
         have = set(c.skills_confirmed or []) | set(c.skills_claimed or [])
         return (
             matching.visible(c, co)
@@ -552,7 +574,7 @@ def search(
         card["matched"] = [k for k in want if k in (c.skills_confirmed or [])]
         items.append(card)
     facet = lambda k: dict(sorted(Counter(attr[k](c) for c in base if ok(c, skip=k)).items()))  # noqa: E731
-    return {"items": items, "total": len(found), "page": page, "limit": limit, "skills": want, "facets": {"spec": facet("spec"), "grade": facet("grade")}, "cap": catalog.CANDIDATE_CAP}
+    return {"items": items, "total": len(found), "page": page, "limit": limit, "skills": want, "facets": {"spec": facet("spec"), "grade": facet("grade")}, "cap": catalog.CANDIDATE_CAP, "by_id": bool(ids)}
 
 
 # ---------- приглашения ----------

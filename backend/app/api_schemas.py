@@ -68,6 +68,7 @@ class SearchResult(BaseModel):
     skills: list[str]
     facets: dict[str, dict[str, int]]
     cap: int
+    by_id: bool = False  # запрос — только ID кандидатов: фильтры и навыки не применялись
 
 
 class NeedView(BaseModel):

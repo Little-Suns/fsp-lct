@@ -2939,7 +2939,7 @@ V['/e/search'] = () => {
       <div class="panel tight stack-s fold m-before ${S.fold.sf ? 'open' : ''}">
         ${foldHead('sf', 'Фильтры', nOn({ ...f, page: '' }))}
         <div class="fold-b stack-s">
-        <label class="field"><span>Текст</span><input class="input" id="sf-q" type="search" enterkeyhint="search" value="${esc(f.q)}" placeholder="python kafka платежи"></label>
+        <label class="field"><span>Текст</span><input class="input" id="sf-q" type="search" enterkeyhint="search" value="${esc(f.q)}" placeholder="python kafka платежи или A-1042"></label>
         <label class="field"><span>Специализация</span><select class="input" id="sf-spec">${opt((META && META.specs) || [], f.spec)}</select></label>
         <label class="field"><span>Трек</span><select class="input" id="sf-track">${opt(f.spec && META ? META.tracks[f.spec] : [], f.track)}</select></label>
         <label class="field"><span>Грейд</span><select class="input" id="sf-grade">${opt((META && META.grades) || [], f.grade)}</select></label>
@@ -2957,7 +2957,7 @@ V['/e/search'] = () => {
       </div>
     </aside>
     <div class="stack">
-      <div class="row sb small muted"><span>Найдено ${R.total} · сортировка по силе подтверждённого профиля, только прошедшие тест${R.skills.length ? ` · навыки: ${esc(R.skills.join(', '))}` : ''}</span><span>Только опубликованные анонимные карточки</span></div>
+      <div class="row sb small muted"><span>Найдено ${R.total} · ${R.by_id ? 'поиск по ID, фильтры не применялись' : `сортировка по силе подтверждённого профиля, только прошедшие тест`}${R.skills.length ? ` · навыки: ${esc(R.skills.join(', '))}` : ''}</span><span>Только опубликованные анонимные карточки</span></div>
       ${R.items.map(c => `<button class="cand" data-go="/e/cand/${esc(c.id)}">
           <div class="stack-s" style="min-width:0">
             <div class="row"><span class="muted small num">#${c.rank}</span><span class="id">Кандидат ${esc(c.id)}</span>${catTag(c.spec, c.track, c.grade)}${gradeNote(c)}${expressChip(c)}${c.invited ? '<span class="status s-sent">уже приглашён</span>' : ''}</div>
