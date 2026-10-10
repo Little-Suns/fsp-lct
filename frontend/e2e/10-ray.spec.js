@@ -101,11 +101,13 @@ test('Рей в тесте: вводная, бег после ответа, ож
   await expect(page.locator('#qpet')).toHaveCount(0);
 });
 
-test('загрузка экрана: бегущий Рей с «Загрузка…», экран помечен aria-busy; иконка вкладки — Рей', async ({ page }) => {
-  // главная: шаг «Тест-квест» — про день с Реем, сам Рей рядом с заголовком декоративный (текст уже о нём)
+test('главная: шаг «Тест-квест» — про день с Реем, Рей у заголовка декоративный (текст уже о нём)', async ({ page }) => {
   await open(page, '/');
   await expect(page.getByText('Один день с вашим джек-расселом Реем')).toBeVisible();
   await expect(page.locator('.steps .ray[aria-hidden="true"]')).toBeVisible();
+});
+
+test('загрузка экрана: бегущий Рей с «Загрузка…», экран помечен aria-busy; иконка вкладки — Рей', async ({ page }) => {
   await demo(page, 'c');
   const icon = await page.locator('link[rel=icon]').getAttribute('href');
   expect(icon).toBe('/assets/ray.svg');
