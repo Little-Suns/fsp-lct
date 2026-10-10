@@ -219,7 +219,7 @@ Content-Type: application/json
 ```json
 {
   "session_id": 812,
-  "quest_title": "Смена дежурного",
+  "quest_title": "Где Рей?",
   "mode": "full",
   "story": true,
   "target_grade": "Middle",

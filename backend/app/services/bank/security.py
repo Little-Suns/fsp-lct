@@ -1,4 +1,4 @@
-"""Security, сюжет «Ночной инцидент»: защитные сценарии — обнаружение, разбор кода и триаж по образцу Backend.
+"""Security, сюжет «Открытая дверь» (умный дом сам выпустил Рея во двор): защитные сценарии — обнаружение, разбор кода и триаж по образцу Backend.
 По 3 семейства на компетенцию сверх простого из items.py, сложность разнесена по полосам. Без рецептов атак:
 задания про то, как находить и чинить дефекты, читать логи инцидента и правильно реагировать.
 У каждого семейства три варианта механики (items._variant), правильные ответы других вариантов — среди дистракторов."""
@@ -28,7 +28,7 @@ def _(rng):
         lines.append(f"    item = await db.get({model}, item_id)")
         key = [len(lines), len(lines) + 1]
         lines += ["    return item"]
-        story = f"Эндпоинт отдаёт {res[:-1]} по id. Аутентификация есть, но пользователь видит и чужие записи, меняя id в адресе."
+        story = f"Проверяете API приложения умного дома: эндпоинт отдаёт {res[:-1]} по id. Аутентификация есть, но пользователь видит и чужие записи, меняя id в адресе."
     elif v == 1:
         lines = [f'@router.get("/{res}/{{item_id}}")', "async def get_item(item_id: int, user=Depends(current_user)):", f"    item = await db.get({model}, item_id)",
                  "    if item is None or item.owner_id != user.id:", "        raise NotFound()", "    return item", "", "",
@@ -38,7 +38,7 @@ def _(rng):
         lines.append(f"    rows = await db.list({model}, owner_id=owner_id)")
         key = len(lines)
         lines += ["    return rows"]
-        story = f"Список {res} фильтруется по владельцу. Аутентификация есть, но пользователь получает чужой список, подставив другое число в параметр."
+        story = f"Проверяете API приложения умного дома: список {res} фильтруется по владельцу. Аутентификация есть, но пользователь получает чужой список, подставив другое число в параметр."
     else:
         lines = [f'@router.delete("/{res}/{{item_id}}")', "async def delete_item(item_id: int, body: DeleteBody, user=Depends(current_user)):",
                  f"    item = await db.get({model}, item_id)", "    if item is None or item.owner_id != user.id:", "        raise Forbidden()"]
@@ -47,7 +47,7 @@ def _(rng):
         lines.append(f"    await db.delete({model}, body.id)")
         key = len(lines)
         lines += ["    return {\"ok\": True}"]
-        story = f"Удаление {res[:-1]} проверяет владельца, но пользователи жалуются, что у них пропадают записи, которые они не удаляли."
+        story = f"Удаление {res[:-1]} в приложении умного дома проверяет владельца, но пользователи жалуются, что у них пропадают записи, которые они не удаляли."
     return {"scene_title": "Чужие записи", "story": story, "prompt": "Нажмите на строку, из-за которой пользователь добирается до чужих записей.",
             "panel": {"type": "code", "lang": "python", "lines": lines, "caption": f"PR #{rng.randint(400, 899)} · «{res}»"}, "key": key}
 
@@ -60,13 +60,13 @@ def _(rng):
     lines = [f'target = request.args.get("{param}", "/")']
     if v == 0:
         lines += ['if target.startswith(("http://", "https://")):', '    target = "/"']
-        story = f"Проверку уже добавили, но ссылка на наш /login из рассылки после входа уводит на {host}."
+        story = f"Проверку уже добавили, но ссылка на наш /login из рассылки владельцам умных замков после входа уводит на {host}."
     elif v == 1:
         lines += ['if not target.startswith("https://example.com"):', '    target = "/"']
-        story = f"Разрешены только адреса нашего сайта, но ссылка из рассылки после входа уводит на example.com.{host}."
+        story = f"Разрешены только адреса нашего сайта, но ссылка из рассылки владельцам умных замков после входа уводит на example.com.{host}."
     else:
         lines += ["parts = urlsplit(target)", "if parts.netloc and parts.netloc not in ALLOWED_HOSTS:", '    target = "/"']
-        story = "Чужие хосты проверка отсекает, но ссылка на наш /login из рассылки после входа выполняет скрипт на нашей странице."
+        story = "Чужие хосты проверка отсекает, но ссылка на наш /login из рассылки владельцам умных замков после входа выполняет скрипт на нашей странице."
     # javascript: в Location серверного 302 браузер не исполняет — у варианта со скриптом переход делает сама страница
     lines.append('return render_template("after_login.html", next_url=target)  # там: location.href = {{ next_url|tojson }}' if v == 2 else
                  "return redirect(target)")
@@ -93,7 +93,7 @@ def _(rng):
         lines.append("    for k, v in data.items():")
         key = [len(lines), len(lines) + 1]
         lines += ["        setattr(me, k, v)", "    await db.commit()", "    return me"]
-        story = f"Пользователь патчит свой {model} произвольным телом запроса и выставляет себе {field}."
+        story = f"В облаке умного дома пользователь патчит свой {model} произвольным телом запроса и выставляет себе {field}."
     elif v == 1:
         lines = [f"class {model}Update(BaseModel):", "    display_name: str | None = None", "    phone: str | None = None", f"    {fname}"]
         key = len(lines)
@@ -129,7 +129,7 @@ def _(rng):
         lines.append(f'    path = os.path.join("/srv/{base}", name)')
         key = [len(lines), len(lines) + 1]
         lines += ["    return FileResponse(path)"]
-        story = "Ревью PR: файл отдаётся по имени из URL, имя подставляют в путь без проверки."
+        story = "Ревью PR в облаке умного дома: файл отдаётся по имени из URL, имя подставляют в путь без проверки."
     elif v == 1:
         lines = [f'@router.post("/{base}/import")', "async def import_archive(file: UploadFile):", f'    dest = Path("/srv/{base}") / uuid4().hex',
                  "    dest.mkdir()", '    with tarfile.open(fileobj=file.file, mode="r:gz") as tar:', "        tar.extractall(dest)"]
@@ -184,7 +184,7 @@ def _(rng):
     if v == 0:
         lines.append("    resp = await http.get(url, timeout=5)")
         key = len(lines)
-        story = f"Сервис сам ходит по ссылке, которую дал пользователь ({feat}). Через неё дотянулись до внутреннего адреса."
+        story = f"Облачный сервис умного дома сам ходит по ссылке, которую дал пользователь ({feat}). Через неё дотянулись до внутреннего адреса."
     elif v == 1:
         lines.append('    if "localhost" in url or "127.0.0.1" in url or "169.254.169.254" in url:')
         key = len(lines)
@@ -230,7 +230,7 @@ def _(rng):
                                "После выкладки сломался вход: откатить релиз и проверить проверку паролей"], v,
                          ["Сбой базы учётных записей: часть входов падает по таймауту, переключиться на реплику и проверить пул соединений",
                           "Истёк TLS-сертификат балансировщика: клиенты повторяют вход"])
-    return {"scene_title": "Шквал входов", "story": "Алерт SOC: число неуспешных входов резко выросло. Перед вами график за последние полчаса.", "prompt": "Что это и первое действие?",
+    return {"scene_title": "Шквал входов", "story": "Пока Рей роет клумбу, SOC шлёт алерт: число неуспешных входов в приложение умного дома резко выросло. Перед вами график за последние полчаса.", "prompt": "Что это и первое действие?",
             "panel": panel, "options": opts, "key": key}
 
 
@@ -258,7 +258,7 @@ def _(rng):
                                "Отдавать полную цепочку: добавить промежуточный сертификат в конфигурацию сервера"], v,
                          ["Оставить старые версии для старых клиентов и включить TLS_FALLBACK_SCSV — этого достаточно",
                           "Включить OCSP stapling — сканер перестанет предупреждать"])
-    return {"scene_title": "Отчёт сканера TLS", "story": f"Ночной скан периметра выдал предупреждения по {svc}.example.com.",
+    return {"scene_title": "Отчёт сканера TLS", "story": f"Ночной скан периметра облака умного дома выдал предупреждения по {svc}.example.com.",
             "prompt": "Что сделать?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -292,7 +292,7 @@ def _(rng):
                                "Выгрузка данных во внешнее облако: исходящий доступ узлов — только по белому списку, найти процесс и учётку"], v,
                          ["Сбой кэша резолвера: узел повторяет запросы, поднять TTL записей и перезапустить кэш",
                           "Телеметрия ОС: так шлёт данные агент обновлений, добавить адрес в исключения мониторинга"])
-    return {"scene_title": "Странный трафик", "story": f"Мониторинг сети поднял тревогу: реплика БД {host} ведёт себя необычно.",
+    return {"scene_title": "Странный трафик", "story": f"Пока вы выясняете, кто открыл дверь Рею, мониторинг сети поднял тревогу: реплика БД {host} ведёт себя необычно.",
             "prompt": "Что это и что делать?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -310,14 +310,14 @@ def _(rng):
         lines.append(f'    return jwt.decode(token, {keyvar}, algorithms=[header["alg"]])')
         key = len(lines)
         trick = rng.choice(["alg=none", "alg=HS256, подписанные открытым ключом сервиса", "alg=none и пустой подписью"])
-        story = f"Проверка токена берёт алгоритм из его же заголовка. Появились токены с {trick}, которые проходят {fn}."
+        story = f"Замок, который выпустил Рея, принимает команды с JWT. Проверка токена берёт алгоритм из его же заголовка. Появились токены с {trick}, которые проходят {fn}."
     elif v == 1:
         lines = [f"def {fn}(token: str) -> dict:", f'    return jwt.decode(token, {keyvar}, algorithms=["RS256"])', "", "",
                  "def current_user(request) -> User:", '    token = request.headers["Authorization"].removeprefix("Bearer ")',
                  '    claims = jwt.decode(token, options={"verify_signature": False})']
         key = len(lines)
         lines += ['    return users.get(claims["sub"])']
-        story = f"{fn} проверяет подпись правильно, но токен с чужим sub и произвольной подписью всё равно открывает чужой профиль."
+        story = f"API умного дома принимает JWT: {fn} проверяет подпись правильно, но токен с чужим sub и произвольной подписью всё равно открывает чужой профиль."
     else:
         lines = [f'JWT_SECRET = "{rng.choice(["secret", "changeme", "jwt-key"])}"']
         key = len(lines)
@@ -325,7 +325,7 @@ def _(rng):
         if rng.random() < 0.5:
             lines.append('    log.debug("decode", length=len(token))')
         lines.append('    return jwt.decode(token, JWT_SECRET, algorithms=["HS256"], audience="lk")')
-        story = f"{fn} фиксирует алгоритм и проверяет аудиторию, но аудит сумел подписать токен сам и пройти проверку."
+        story = f"API умного дома принимает JWT: {fn} фиксирует алгоритм и проверяет аудиторию, но аудит сумел подписать токен сам и пройти проверку."
     return {"scene_title": "Проверка JWT", "story": story, "prompt": "Нажмите на строку, из-за которой поддельный токен проходит проверку.",
             "panel": {"type": "code", "lang": "python", "lines": lines}, "key": key}
 
@@ -362,16 +362,16 @@ def _(rng):
             lines.append("    now = time.time()")
         lines.append("    return hashlib.md5(str(random.random()).encode()).hexdigest()")
         key = len(lines)
-        story = f"Токены {what} удаётся угадать — и по ним действуют за чужих пользователей."
+        story = f"Токены {what} в приложении умного дома удаётся угадать — и по ним действуют за чужих пользователей."
     elif v == 1:
         lines += ["    raw = f\"{user.id}:{int(time.time())}\"", "    return base64.urlsafe_b64encode(raw.encode()).decode()"]
         key = [len(lines) - 1, len(lines)]
-        story = f"Токены {what} удаётся угадать — и по ним действуют за чужих пользователей."
+        story = f"Токены {what} в приложении умного дома удаётся угадать — и по ним действуют за чужих пользователей."
     else:
         lines += ["    token = secrets.token_urlsafe(32)", "    store.save(user.id, sha256(token), ttl=900)", f'    log.info("{what} token issued", user=user.id, token=token)']
         key = len(lines)
         lines += ["    return token"]
-        story = f"Токены {what} генерируются криптостойко и хранятся хешами, но ими воспользовались люди с доступом к системе сбора логов."
+        story = f"Токены {what} в приложении умного дома генерируются криптостойко и хранятся хешами, но ими воспользовались люди с доступом к системе сбора логов."
     return {"scene_title": "Токен по ссылке", "story": story, "prompt": "Нажмите на строку, из-за которой токен попадает в чужие руки.",
             "panel": {"type": "code", "lang": "python", "lines": lines}, "key": key}
 
@@ -436,7 +436,7 @@ def _(rng):
                                "Это скачок часов сервера: события есть, но записаны с другой временной меткой",
                                "Пробела нет: буфер сохранил события и отправил их после восстановления"], v,
                          ["Пробел не важен: раз событий в журнале нет, в это время в системе ничего не происходило"])
-    return {"scene_title": "Дыра в логах", "story": f"Восстанавливаете хронологию инцидента: в аудит-логе {svc} разрыв по времени.",
+    return {"scene_title": "Дыра в логах", "story": f"Восстанавливаете хронологию инцидента в облаке умного дома: в аудит-логе {svc} разрыв по времени.",
             "prompt": "Как это трактовать?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -483,7 +483,7 @@ def _(rng):
                          ["Обфусцировать строки в сборке: без открытых строк ключи статическим анализом уже не достать",
                           "Перенести ключи из кода в файл ресурсов приложения — strings их там не увидит",
                           "Риска нет: бинарник подписан издателем"])
-    return {"scene_title": "Строки из бинарника", "story": f"Прогнали strings по релизной сборке {app}. Вот что нашлось.",
+    return {"scene_title": "Строки из бинарника", "story": f"Прогнали strings по релизной сборке {app} для умного дома. Вот что нашлось.",
             "prompt": "Что это значит и что делать?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -505,7 +505,7 @@ def _(rng):
     else:
         lang, lines = "kotlin", ["webView.settings.javaScriptEnabled = true", 'webView.addJavascriptInterface(NativeApi(context), "Native")',
                                  "webView.loadUrl(intent.getStringExtra(\"url\")!!)"]
-        story = "Страница, открытая по внешней ссылке во встроенном браузере приложения, вызвала нативные методы и прочитала данные пользователя."
+        story = "Страница, открытая по внешней ссылке во встроенном браузере приложения умного дома, вызвала нативные методы и прочитала данные пользователя."
     opts, key = _options(rng, [f"Проверку «{what}» на устройстве обходят правкой кода: сервер должен проверять это сам",
                                "Клиент доверяет любому сертификату: убрать «доверять всем» и проверять цепочку, для критичных хостов — пиннинг",
                                "Мост в нативный код доступен любой загруженной странице: в WebView только свои адреса, мост — только для них"], v,
@@ -535,7 +535,7 @@ def _(rng):
                          ["Переименовать путь во что-то неочевидное: не зная имени, его никто не вызовет",
                           "Закрыть проверкой заголовка User-Agent: запросы примет, только если он как у официального приложения",
                           "Оставить как есть: пользователи об этом не знают"])
-    return {"scene_title": "Отладка в релизе", "story": f"Сканер прошёлся по релизной сборке {ver} и нашёл остатки отладки.",
+    return {"scene_title": "Отладка в релизе", "story": f"Сканер прошёлся по релизной сборке {ver} приложения умного дома и нашёл остатки отладки.",
             "prompt": "Как правильно поступить?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -556,7 +556,7 @@ def _(rng):
         lines += ['    if row is None or row["revoked"]:', "        await revoke_family(h)  # повторное использование — отзываем всю цепочку",
                   "        raise Unauthorized()", '    pair = await issue_pair(row["user_id"])',
                   f'    await db.execute("UPDATE {tbl} SET revoked = true WHERE token_hash = $1", h)', "    return pair"]
-        story = (f"Ротация с обнаружением повторного использования: старый токен отзывается при обмене. "
+        story = (f"Приложение умного дома держит сессии на refresh-токенах. Ротация с обнаружением повторного использования: старый токен отзывается при обмене. "
                  f"В логах — {rng.randint(2, 4)} новые пары по одному старому токену за одну миллисекунду, а цепочка не отозвана.")
         prompt = "Нажмите на строку, которую нужно переписать, чтобы проверка и отзыв токена стали одной атомарной операцией."
     else:
@@ -617,7 +617,7 @@ def _(rng):
     secret = rng.choice(["NPM_TOKEN", "DEPLOY_KEY", "REGISTRY_PASSWORD"])
     v = _variant(rng, 3)
     if v == 0:
-        story = f"В ночной сборке на {runner} транзитивная зависимость {pkg} обновилась до {ver}. Через час в реестр зашли с нового адреса."
+        story = f"В ночной сборке приложения умного дома на {runner} транзитивная зависимость {pkg} обновилась до {ver}. Через час в реестр зашли с нового адреса."
         prompt = "Что делать в первую очередь?"
         lines = [_log(f"04:{m:02d}:01", runner, "INFO", f"npm ci: added {pkg}@{ver} (transitive, via build tooling)"),
                  _log(f"04:{m:02d}:07", runner, "WARN", f"postinstall {pkg}: outbound https to {_ip(rng)}"),
@@ -651,17 +651,17 @@ def _(rng):
     if v == 0:
         lines = [_log(f"{i + 1:02d}.0{rng.randint(1, 9)}", "bug-bounty", "WARN", f"IDOR в {s}: объект другого клиента по id, исправлено точечно") for i, s in enumerate(svcs)]
         lines.append(_log("сводка", "appsec", "INFO", f"за полгода {n} похожих отчётов; сервисов с прямым доступом к общей БД: {direct}"))
-        story = f"Мультитенантный SaaS: каждый сервис сам проверяет владельца объекта. IDOR находят снова и снова — это уже {n}-й отчёт."
+        story = f"Мультитенантный SaaS для управляющих компаний умных домов: каждый сервис сам проверяет владельца объекта. IDOR находят снова и снова — это уже {n}-й отчёт."
     elif v == 1:
         lines = [_log(f"{i + 1:02d}.0{rng.randint(1, 9)}", "bug-bounty", "WARN", f"{s}: файл другого клиента скачан по прямой ссылке /files/<id>") for i, s in enumerate(svcs)]
         lines.append(_log("сводка", "appsec", "INFO", f"за полгода {n} похожих отчётов; файлы всех сервисов отдаются из общего бакета по id без проверки прав"))
-        story = f"Мультитенантный SaaS: API проверяет клиента, но к чужим файлам добираются снова и снова — это уже {n}-й отчёт."
+        story = f"Мультитенантный SaaS для управляющих компаний умных домов: API проверяет клиента, но к чужим файлам добираются снова и снова — это уже {n}-й отчёт."
     else:
         lines = [_log(f"{i + 1:02d}.0{rng.randint(1, 9)}", "bug-bounty", "WARN", f"GraphQL: {s} → вложенное поле отдаёт записи другого клиента") for i, s in enumerate(svcs)]
         # слой данных и RLS уже есть — иначе ответ варианта 0 закрывал бы и этот случай; дыра в кэше загрузчика, до БД запрос не доходит
         lines.append(_log("сводка", "appsec", "INFO", f"за полгода {n} похожих отчётов; утечки только во вложенных полях под нагрузкой; "
                                                       "DataLoader один на процесс, кэш по id общий для всех запросов и клиентов"))
-        story = (f"Мультитенантный SaaS на GraphQL: фильтр tenant_id в слое данных и row-level security в БД уже есть, "
+        story = (f"Мультитенантный SaaS для управляющих компаний умных домов на GraphQL: фильтр tenant_id в слое данных и row-level security в БД уже есть, "
                  f"но чужие данные находят снова и снова — это уже {n}-й отчёт.")
     opts, key = _options(rng, ["Фильтр tenant_id из сессии — в общем слое доступа к данным, row-level security в БД вторым рубежом и тест «чужой клиент → отказ» на каждый эндпоинт",
                                "Закрыть бакет и отдавать файлы по короткоживущим подписанным ссылкам, которые выдаются только после проверки прав",
