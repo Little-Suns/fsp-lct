@@ -257,9 +257,9 @@ main { padding-left: max(var(--gut), env(safe-area-inset-left)); padding-right: 
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .stack-s { display: flex; flex-direction: column; gap: 8px; }
 
-.panel { background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); padding: 22px; min-width: 0; }
+.panel { background: var(--paper); border: 1px solid transparent; border-radius: var(--r); padding: 22px; min-width: 0; }  /* рамка прозрачная: край — край заливки, как у героя, квеста и плашек; в forced-colors рамку рисует система */
 .panel.tight { padding: 16px; }
-.panel.frame { border: 1px solid var(--blue-line); position: relative; }
+.panel.frame { position: relative; }
 .panel h2 + *, .panel h3 + * { margin-top: 12px; }
 .divider { height: 1px; background: var(--line-2); margin: 4px 0; }
 
@@ -395,15 +395,11 @@ a.chip.on { color: var(--blue-ink); }
 .trace circle { fill: currentColor; }
 @media (max-width: 1000px) { .trace { display: none; } }
 
-.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--blue-line); border-radius: var(--r); background: var(--paper); overflow: hidden; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid transparent; border-radius: var(--r); background: var(--paper); overflow: hidden; }
 .steps > div { padding: 22px; border-right: 1px solid var(--blue-line); display: flex; flex-direction: column; gap: 8px; }
 .steps > div:last-child { border-right: 0; }
 .steps .n { font-size: 12px; color: var(--blue-text); font-weight: 600; }
 @media (max-width: 820px) { .steps { grid-template-columns: 1fr; } .steps > div { border-right: 0; border-bottom: 1px solid var(--blue-line); } .steps > div:last-child { border-bottom: 0; } }
-
-.door { display: flex; flex-direction: column; gap: 14px; padding: 26px; border-radius: var(--r); background: var(--paper); border: 1px solid var(--line-2); cursor: pointer; text-align: left; transition: border-color .15s, transform .15s; }
-@media (hover: hover) { .door:hover { border-color: var(--blue); transform: translateY(-2px); } }
-.door .go { margin-top: auto; color: var(--blue-text); font-weight: 600; }
 
 /* ---------- квест ---------- */
 .quest { background: var(--dark); color: var(--on-dark); border-radius: 22px; overflow: hidden; overflow: clip; }  /* clip, а не hidden: внутри работает sticky */
@@ -480,8 +476,9 @@ a.chip.on { color: var(--blue-ink); }
 @media (max-height: 480px) and (orientation: landscape) { .quest-top, .quest-foot { position: static; box-shadow: none; } }
 
 /* ---------- карточки кандидатов / приглашений ---------- */
-.cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 20px; padding: 18px 20px; background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; transition: border-color .15s; text-align: left; width: 100%; }
-@media (hover: hover) { .cand:hover { border-color: var(--blue); } }
+.cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 20px; padding: 18px 20px; background: var(--paper); border: 1px solid transparent; border-radius: var(--r); cursor: pointer; transition: background .15s; text-align: left; width: 100%; }
+@media (hover: hover) { button.cand:hover { background: var(--mist); } }
+.panel .cand { background: var(--ground); }  /* карточка внутри панели (лотерея): без рамки её выделяет подложка */
 .cand .id { font-weight: 600; font-size: 15px; }
 .cand .score { text-align: right; }
 .cand .score b { font-size: 22px; font-weight: 600; color: var(--blue-text); display: block; line-height: 1; }
@@ -489,8 +486,8 @@ a.chip.on { color: var(--blue-ink); }
 .cand .facts b { display: block; font-size: 13px; font-weight: 500; color: var(--ink); }
 @media (max-width: 700px) { .cand .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-.inv { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 18px; background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; text-align: left; width: 100%; }
-@media (hover: hover) { .inv:hover { border-color: var(--blue); } }
+.inv { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 18px; background: var(--paper); border: 1px solid transparent; border-radius: var(--r); cursor: pointer; transition: background .15s; text-align: left; width: 100%; }
+@media (hover: hover) { button.inv:hover { background: var(--mist); } }
 .logo-sq { box-shadow: inset 0 0 0 1px var(--logo-ring); width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 16px; }
 .inv-st { align-items: flex-end; }
 .money { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -606,7 +603,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   button, a, .opt, .cand, .inv { touch-action: manipulation; }
 }
 /* отклик на нажатие: системная подсветка касания выключена, наведение — только с мышью */
-.btn:active, button.chip:active, a.chip:active, .seg button:active, .cand:active, .inv:active, .opt:active, .chat-peer:active, .door:active { opacity: .72; }
+.btn:active, button.chip:active, a.chip:active, .seg button:active, button.cand:active, button.inv:active, .opt:active, .chat-peer:active { opacity: .72; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .fade { animation: fade .25s ease-out; }
 .still .fade { animation: none; }  /* перерисовка того же экрана (rerender): без анимации появления */
@@ -914,7 +911,7 @@ const coBanners = () => repBanner() + unverifiedBanner();
 // плашка неподтверждённой компании (квота урезана, кандидаты видят предупреждение)
 const unverifiedBanner = () => D.co && !D.co.verified ? `<div class="alert warn" style="margin-bottom:16px"><span>!</span><span><b>Компания не прошла проверку.</b> Квота — ${D.co.quota ? D.co.quota.max : 3} приглашения в неделю; кандидаты видят «${D.co.domain_confirmed ? 'почта на домене подтверждена' : 'почта на домене не подтверждена'}»${D.co.inn_checksum_valid === false ? ' и «ИНН: контрольные цифры не сходятся»' : ''}. Укажите корректный ИНН и входите с почты на домене сайта компании. <button class="btn ghost small" data-go="/e/company">Данные компании</button></span></div>` : '';
 // инлайн-подтверждение вместо confirm(): показывается, когда S.confirm === key
-const confirmBox = (key, text, ok) => S.confirm === key ? `<div class="panel stack" role="alertdialog" aria-label="Подтверждение" style="border-color:var(--red)">
+const confirmBox = (key, text, ok) => S.confirm === key ? `<div class="panel stack" role="alertdialog" aria-label="Подтверждение" style="background:var(--red-soft)">
   <p class="small">${text}</p>
   <div class="row"><button class="btn danger" data-act="confirm-yes" data-k="${key}">${ok}</button><button class="btn ghost" data-act="confirm-no">Отмена</button></div></div>` : '';
 // после отзыва согласия на обработку бэкенд запрещает менять ПДн (403): только восстановить согласие, выгрузить или удалить
@@ -1598,7 +1595,7 @@ function inviteView() {
   let actions = '';
   if (inv.status === 'accepted') {
     const me = inv.company_sees || {};
-    actions = `<div class="panel stack" style="border-color:var(--ok)">
+    actions = `<div class="panel stack">
       <div class="alert ok"><span><b>Вы приняли приглашение.</b> Ваши контакты открыты компании.</span></div>
       <dl class="kv"><dt>Компания видит</dt><dd>${[me.name, me.email, me.tg].filter(Boolean).map(esc).join(', ')}</dd></dl>
     </div>${companyFeedback(inv)}`;
