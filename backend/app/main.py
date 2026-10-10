@@ -10,7 +10,7 @@ from app import catalog, config, deps
 from app.api_schemas import ERROR_RESPONSES
 from app.db import SessionLocal, init_db
 from app.integrations import fsp_id as fsp_id_client
-from app.routers import achievements, candidate, chat, employer, fsp_id, lottery, mock_fsp_id, quest, tasks, vacancies, validation
+from app.routers import achievements, ats, candidate, chat, employer, fsp_id, lottery, mock_ats, mock_fsp_id, quest, tasks, vacancies, validation
 from app.services import items, sandbox
 
 
@@ -62,8 +62,9 @@ async def security_headers(request: Request, call_next):
         r.headers.setdefault(k, v)
     return r
 
-for r in (deps, fsp_id, mock_fsp_id, candidate, employer, quest, achievements, lottery, validation, vacancies, tasks, chat):
+for r in (deps, fsp_id, mock_fsp_id, mock_ats, candidate, employer, quest, achievements, lottery, validation, vacancies, tasks, chat, ats):
     app.include_router(r.router)
+app.include_router(ats.keys_router)
 
 
 @app.get("/api/health")
@@ -81,6 +82,7 @@ def meta():
         "grade_th": catalog.GRADE_TH,
         "formats": catalog.FORMATS,
         "decline_reasons": catalog.DECLINE_REASONS,
+        "ats_mock": config.ATS_MOCK,
         "feedback": catalog.FEEDBACK,
         "company_feedback": catalog.COMPANY_FEEDBACK,
         "competencies": catalog.COMPETENCIES,

@@ -103,12 +103,13 @@ flowchart LR
         FE["index.html<br/>кабинеты кандидата и компании,<br/>/v, /org"]
     end
     subgraph API["Сервис api (FastAPI, 1 процесс uvicorn)"]
-        R["routers/<br/>auth, candidate, employer, quest,<br/>vacancies, tasks, chat, lottery,<br/>achievements, validation, fsp_id"]
-        S["services/<br/>matching, irt, items, bank, lottery,<br/>parsing, llm, ocr, profile_pdf,<br/>reputation, autocheck, sandbox, chat"]
+        R["routers/<br/>auth, candidate, employer, quest,<br/>vacancies, tasks, chat, lottery,<br/>achievements, validation, fsp_id, ats"]
+        S["services/<br/>matching, irt, items, bank, lottery,<br/>parsing, llm, ocr, profile_pdf,<br/>reputation, autocheck, sandbox, chat, ats"]
         I["integrations/<br/>codeforces, ctftime, hackathons,<br/>fsp_id, scoring, consent"]
         C["catalog.py<br/>справочники и правила рынка"]
         M["models.py + migrations/<br/>(SQLAlchemy, Alembic)"]
         MOCK["mock_fsp_id<br/>(только DEMO / FSP_ID_MOCK)"]
+        MOCKATS["mock_ats<br/>(только DEMO / ATS_MOCK)"]
     end
     DB[("PostgreSQL 16")]
     SB["Сервис sandbox<br/>nsjail: Python, TypeScript<br/>(внутренняя сеть)"]

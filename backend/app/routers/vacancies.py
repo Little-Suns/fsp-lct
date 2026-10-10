@@ -24,7 +24,7 @@ from app.db import get_db
 from app.deps import active_company, current_candidate, current_company, current_user
 from app.models import Application, AuditLog, Candidate, Company, Vacancy
 from app.routers.employer import MSK, Salary, company_trust, validate_fork
-from app.services import matching
+from app.services import ats, matching
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, mask_contacts
 
@@ -371,6 +371,8 @@ def set_application_status(application_id: int, body: AppStatusIn, co: Company =
     if body.status != "seen":
         a.responded_at = now
         a.decline_reason = body.reason if body.status == "declined" else None
+    ats.emit(db, co.id, "application.status", application_id=a.id, vacancy_id=a.vacancy_id, status=body.status,
+             reason=a.decline_reason if body.status == "declined" else None)
     if _shown(a):
         _reveal(db, co, [a])  # принятие открывает контакты: запись в журнале в той же транзакции, что и статус
     else:
@@ -460,6 +462,7 @@ def withdraw(application_id: int, c: Candidate = Depends(current_candidate), db:
     if a.status not in OPEN_APP:
         raise HTTPException(409, "Отозвать можно только отклик без ответа")
     a.status, a.responded_at = "withdrawn", _now()
+    ats.emit(db, a.vacancy.company_id, "application.withdrawn", application_id=a.id, vacancy_id=a.vacancy_id, status="withdrawn")
     db.commit()
     return _cand_row(a)
 
@@ -503,6 +506,8 @@ def apply(vacancy_id: int, body: ApplyIn, c: Candidate = Depends(current_candida
     a = Application(vacancy_id=v.id, candidate_id=c.id, note=(body.note or "").strip() or None, status="sent")
     db.add(a)
     try:
+        db.flush()  # id отклика нужен событию; дубль ловится здесь же
+        ats.emit(db, v.company_id, "application.created", application_id=a.id, vacancy_id=v.id, status="sent")
         db.commit()
     except IntegrityError:
         db.rollback()

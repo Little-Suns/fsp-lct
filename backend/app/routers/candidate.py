@@ -22,7 +22,7 @@ from app.integrations.consent import lock_candidate, set_external_consent
 from app.models import Application, AuditLog, Candidate, Company, ConsentEvent, Invitation, Message, QuestSession, RetiredPublicId, TaskSubmission, User
 from app.routers.employer import Salary, company_trust
 from app.routers.quest import reset_cap
-from app.services import matching, ocr, profile_pdf, reputation
+from app.services import ats, matching, ocr, profile_pdf, reputation
 from app.services.chat import may_talk, peers_linked
 from app.services.parsing import canon_skills, canon_terms, parse_cv
 
@@ -143,6 +143,8 @@ def _set_external(db: Session, c: Candidate, value: bool) -> None:
 def _withdraw_processing(db: Session, c: Candidate) -> None:
     """Отзыв согласия на обработку (вызывать под lock_candidate): снимает публикацию, отзывает внешние профили
     с удалением их данных, скрывает профиль."""
+    if c.consent_152:  # повторный отзыв событий не плодит
+        ats.revoke_access(db, c, "consent")  # компании с открытыми контактами узнают об отзыве
     _set_consent(db, c, "publish", False)
     _set_external(db, c, False)
     _set_consent(db, c, "processing", False)
@@ -380,6 +382,10 @@ def set_hidden(body: HiddenIn, c: Candidate = Depends(current_candidate), db: Se
     bad = [i for i in inns if not (i.isdigit() and len(i) in (10, 12))]
     if bad:
         raise HTTPException(422, f"ИНН — 10 или 12 цифр: {', '.join(bad)}")
+    new = set(inns) - set(c.hidden_from or [])
+    if new:
+        ids = set(db.scalars(select(Company.id).where(Company.inn.in_(new))))
+        ats.revoke_access(db, c, "hidden", ids)
     c.hidden_from = inns
     db.commit()
     known = {co.inn: co.name for co in db.scalars(select(Company).where(Company.inn.in_(inns)))} if inns else {}
@@ -475,6 +481,7 @@ def get_invite(invite_id: int, c: Candidate = Depends(current_candidate), db: Se
     inv = _own_invite(db, c, invite_id)
     if inv.status == "sent":
         inv.status, inv.seen_at = "seen", _now()
+        ats.emit(db, inv.company_id, "invitation.seen", invitation_id=inv.id, status="seen", reason=None)
         db.commit()
     return _detail(db, inv, c)
 
@@ -498,6 +505,7 @@ def accept(invite_id: int, c: Candidate = Depends(current_candidate), db: Sessio
     inv = _own_invite(db, c, invite_id, expire=False)
     if inv.status in matching.OPEN and inv.company.blocked_at:  # блок встал после отправки: истекает, причину кандидату не показываем
         inv.status = "expired"
+        ats.emit(db, inv.company_id, "invitation.expired", invitation_id=inv.id, status="expired", reason=None)
         db.commit()
         raise HTTPException(409, "Срок ответа истёк")
     inv = _respond(db, c, invite_id, expire=False)
@@ -506,6 +514,7 @@ def accept(invite_id: int, c: Candidate = Depends(current_candidate), db: Sessio
         db.rollback()
         raise HTTPException(409, "Срок ответа истёк")
     db.add(AuditLog(actor_user_id=c.user_id, action="contacts_revealed", subject_candidate_id=c.id, detail={"invitation_id": inv.id, "company_id": inv.company_id}))
+    ats.emit(db, inv.company_id, "invitation.accepted", invitation_id=inv.id, status="accepted", reason=None)
     db.commit()
     return _detail(db, inv, c)
 
@@ -516,6 +525,7 @@ def decline(invite_id: int, body: DeclineIn, c: Candidate = Depends(current_cand
         raise HTTPException(422, f"Причина отказа: одна из {', '.join(catalog.DECLINE_REASONS)}")
     inv = _respond(db, c, invite_id)
     inv.status, inv.decline_reason, inv.decline_comment = "declined", body.reason, body.comment
+    ats.emit(db, inv.company_id, "invitation.declined", invitation_id=inv.id, status="declined", reason=body.reason)
     db.commit()
     return _detail(db, inv, c)
 
@@ -610,6 +620,7 @@ def delete_me(c: Candidate = Depends(current_candidate), db: Session = Depends(g
     """Удаление аккаунта: кандидат (каскадом — достижения, приглашения, отклики, сообщения чата, решения, сессии теста) и пользователь.
     В журнале остаются только идентификаторы."""
     user = db.get(User, c.user_id) if c.user_id else None
+    ats.revoke_access(db, c, "deleted")  # до удаления: нужны принятые приглашения и отклики
     db.add(AuditLog(actor_user_id=c.user_id, action="account_deleted", subject_candidate_id=c.id, detail=None))
     db.add(RetiredPublicId(public_id=c.public_id))
     db.delete(c)
