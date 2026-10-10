@@ -8,7 +8,7 @@ JSON-запросы используют `Content-Type: application/json`; за�
 
 | Метод | Запрос | Успешный ответ |
 |---|---|---|
-| GET `/api/employer/search` | Фильтры `spec`, `track`, `grade`, `skills`, `fsp`, `cf`, `hackathon`, `format`, `city`, `q`; `page >= 1`, `limit` от 1 до 100 | `SearchResult`: `items`, `total`, `page`, `limit`, `skills`, `facets`, `cap` |
+| GET `/api/employer/search` | Фильтры `spec`, `track`, `grade`, `skills`, `fsp`, `cf`, `hackathon`, `format`, `city`, `q` (только ID кандидатов, например `A-1042`, — поиск по ID мимо фильтров); `page >= 1`, `limit` от 1 до 100 | `SearchResult`: `items`, `total`, `page`, `limit`, `skills`, `facets`, `cap`, `by_id` |
 | GET `/api/employer/needs/{need_id}/picks` | Своя потребность; `filters`, `variant` (`embed`, `rerank`, `full`), `limit` от 1 до 500 | `PicksResult`: потребность, карточки с объяснениями, категории, рынок, квота |
 | GET `/api/employer/candidates/{public_id}` | Публичный идентификатор; необязательный `need_id` своей потребности | `CandidateCard`: анонимная карточка, компетенции, объяснение соответствия; без имени и контактов |
 | POST `/api/employer/invites` | `candidate_id`, `role`, `salary_from`, `salary_to`, `format`, `description`; необязательные `need_id`, `task`, `task_id` (своё задание, которое кандидат откроет, иначе 422), `lottery_id` | `InviteResult`: `invite`, `warnings`, `quota` |
