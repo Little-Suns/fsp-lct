@@ -659,7 +659,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   button, a, .opt, .cand, .inv { touch-action: manipulation; }
 }
 /* ---------- Рей — джек-рассел-терьер (CSS-арт из span-ов) ----------
-   Сцена 10em × 7em, размер — font-size (по умолчанию 10px). Голова анфас на теле в профиль, морда влево;
+   Сцена 10em × 7em, размер — font-size (по умолчанию 10px). Голова анфас на теле в профиль, морда влево; шеи нет —
+   голова перекрывает скруглённый передний верх туловища (отдельная шея торчала из силуэта зобом или горбом);
    data-facing="right" зеркалит фигурку. Поза состояния — transform частей, движение — отдельные свойства
    translate / rotate / scale в анимации: они складываются с позой, и без анимации (prefers-reduced-motion) поза остаётся. */
 .ray { position: relative; display: inline-block; vertical-align: middle; flex: none; width: 10em; height: 7em; font-size: 10px; line-height: 1; }
@@ -673,7 +674,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ray__body { left: 1.6em; top: 2.1em; width: 4.2em; height: 1.85em; border-radius: .9em 1em .85em .9em / .9em .95em .9em .9em;
   background: radial-gradient(1.05em .8em at 84% 14%, var(--ray-patch) 96%, transparent 100%), var(--ray-fur);
   box-shadow: inset 0 -.28em 0 var(--ray-shade); }
-.ray__neck { left: 1.05em; top: 1.5em; width: 1.5em; height: 1.9em; border-radius: 50%; background: var(--ray-fur); transform: rotate(-20deg); }
 .ray__leg { top: 3.5em; width: .6em; height: 1.5em; border-radius: .3em .3em .28em .28em; background: var(--ray-fur); }
 .ray__leg--fl, .ray__leg--bl { background: var(--ray-shade); }
 .ray__leg--fr { left: 1.85em; }
@@ -702,8 +702,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* idle: сидит, осматривается, хвост покачивается */
 .ray--idle .ray__body { transform: rotate(24deg); animation: rayBreathe 3s ease-in-out infinite; }
-.ray--idle .ray__neck { transform: translate(.55em, -.75em) rotate(-8deg); }
-.ray--idle .ray__head { transform: translate(.5em, -.75em); animation: rayLook 6s ease-in-out infinite; }
+.ray--idle .ray__head { transform: translate(.6em, -.35em); animation: rayLook 6s ease-in-out infinite; }
 .ray--idle .ray__leg--fr { transform: translate(.45em, -1.05em) scaleY(1.7); }
 .ray--idle .ray__leg--fl { transform: translate(.35em, -1.05em) scaleY(1.7); }
 .ray--idle .ray__leg--br { transform: translate(-.1em, .85em) rotate(90deg) scaleY(.8); }
@@ -714,7 +713,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* run: галоп, уши назад, язык наружу, пыль из-под лап */
 .ray--run .ray__dog { animation: rayBob .45s ease-in-out infinite; }
 .ray--run .ray__body { transform: rotate(-3deg); }
-.ray--run .ray__head { transform: translateY(.1em) rotate(-4deg); }
+.ray--run .ray__head { transform: translate(.3em, .65em) rotate(-4deg); }
 .ray--run .ray__leg--fr, .ray--run .ray__leg--fl { animation: rayGallopF .45s ease-in-out infinite; }
 .ray--run .ray__leg--fl { animation-delay: -.05s; }
 .ray--run .ray__leg--br, .ray--run .ray__leg--bl { animation: rayGallopB .45s ease-in-out infinite; }
@@ -728,8 +727,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* wait: лежит, голова на лапах, ждёт; изредка шевелит ухом и хвостом */
 .ray--wait .ray__body, .ray--sleep .ray__body { transform: translateY(1em); }
-.ray--wait .ray__neck, .ray--sleep .ray__neck { transform: translateY(1.2em) rotate(-20deg); }
-.ray--wait .ray__head { transform: translate(-.35em, 1.55em); animation: raySigh 5s ease-in-out infinite; }
+.ray--wait .ray__head { transform: translate(-.2em, 1.7em); animation: raySigh 5s ease-in-out infinite; }
 .ray--wait .ray__leg--fr, .ray--sleep .ray__leg--fr { transform: translate(.1em, .95em) rotate(90deg); }
 .ray--wait .ray__leg--fl, .ray--sleep .ray__leg--fl { transform: translate(.3em, .85em) rotate(90deg); }
 .ray--wait .ray__leg--br, .ray--sleep .ray__leg--br { transform: translate(-.1em, 1.05em) rotate(90deg) scaleY(.75); }
@@ -739,7 +737,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* sleep: свернулся, глаза закрыты, хвост подобран, над головой «z» */
 .ray--sleep .ray__body { animation: rayBreathe 3.2s ease-in-out infinite; }
-.ray--sleep .ray__head { transform: translate(-.2em, 1.75em) rotate(-14deg); }
+.ray--sleep .ray__head { transform: translate(-.05em, 1.9em) rotate(-14deg); }
 .ray--sleep .ray__dog .ray__eye { transform: scaleY(.15); animation: none; }
 .ray--sleep .ray__ear { transform: rotate(12deg); }
 .ray--sleep .ray__tail { transform: translate(-.3em, 1.6em) rotate(105deg); }
@@ -749,7 +747,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* happy: подпрыгивает, виляет хвостом, сердечки */
 .ray--happy .ray__dog { animation: rayHop .8s ease-in-out infinite; }
-.ray--happy .ray__head { transform: rotate(-6deg); }
+.ray--happy .ray__head { transform: translate(.3em, .6em) rotate(-6deg); }
 .ray--happy .ray__tail { transform: rotate(10deg); animation: rayWag .22s ease-in-out infinite; }
 .ray--happy .ray__leg--fr, .ray--happy .ray__leg--fl { animation: rayTuckF .8s ease-in-out infinite; }
 .ray--happy .ray__leg--br, .ray--happy .ray__leg--bl { animation: rayTuckB .8s ease-in-out infinite; }
@@ -1070,7 +1068,7 @@ function ray(mood = 'idle', { facing = 'left', size, decorative } = {}) {
   const fx = { sleep: '<span class="ray__zzz"><span>z</span><span>z</span><span>z</span></span>', happy: '<span class="ray__hearts"><span>♥</span><span>♥</span></span>' }[mood] || '';
   return `<span class="ray ray--${mood}" data-facing="${facing}"${size ? ` style="font-size:${size}px"` : ''} ${decorative ? 'aria-hidden="true"' : `role="img" aria-label="${RAY[mood]}"`}>`
     + `<span class="ray__shadow"></span><span class="ray__actor">${mood === 'run' ? '<span class="ray__dust"><span></span><span></span><span></span></span>' : ''}`
-    + `<span class="ray__dog">${['tail', 'leg ray__leg--bl', 'leg ray__leg--fl', 'body', 'neck', 'leg ray__leg--br', 'leg ray__leg--fr'].map(part).join('')}`
+    + `<span class="ray__dog">${['tail', 'leg ray__leg--bl', 'leg ray__leg--fl', 'body', 'leg ray__leg--br', 'leg ray__leg--fr'].map(part).join('')}`
     + `<span class="ray__head">${['skull', 'eye ray__eye--l', 'eye ray__eye--r', 'tongue', 'muzzle', 'nose', 'ear ray__ear--l', 'ear ray__ear--r'].map(part).join('')}</span></span></span>`
     + `<span class="ray__fx">${fx}</span></span>`;
 }
