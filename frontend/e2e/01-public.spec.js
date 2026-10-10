@@ -85,9 +85,27 @@ test('адреса кабинетов: вход с ?next= и возврат, «�
   // шапка кабинета: подпись кабинета, логотип — в его дом, переключателя ролей нет
   await expect(page.locator('#cab')).toHaveText('Кабинет кандидата');
   await expect(page.locator('.brand')).toHaveAttribute('href', '/candidate');
-  // разделы кабинета — ссылки в порядке пути кандидата; «Профиль» — раздел кабинета, а не шаг регистрации
-  await expect(page.locator('nav.subnav a')).toHaveText(['Кабинет', 'Тест', 'Профиль', 'Вакансии', 'Мои отклики', /^Чат/, 'Задачи', 'Настройки и приватность']);
-  await page.locator('nav.subnav').getByRole('link', { name: 'Профиль' }).click();
+  // разделы кабинета — ссылки в порядке пути кандидата; личное (тест, профиль, настройки, выход) — в меню под круглой аватаркой
+  await expect(page.locator('nav.subnav a')).toHaveText(['Кабинет', 'Вакансии', 'Мои отклики', 'Задачи']);
+  await expect(page.locator('#me-menu')).toBeHidden();
+  await expect(page.locator('#me')).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('#me').click();
+  await expect(page.locator('#me')).toHaveAttribute('aria-expanded', 'true');
+  const menu = page.getByRole('navigation', { name: 'Меню профиля' });
+  await expect(menu.getByRole('link')).toHaveText(['Тест', 'Профиль', 'Настройки и приватность']);
+  await expect(menu.locator('a[aria-current="page"]')).toHaveText('Настройки и приватность');
+  await expect(menu.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await page.keyboard.press('Escape');  // Escape закрывает меню и возвращает фокус на аватарку
+  await expect(page.locator('#me-menu')).toBeHidden();
+  await expect(page.locator('#me')).toBeFocused();
+  await page.locator('#me').click();
+  await page.locator('#app').click({ position: { x: 5, y: 5 } });  // клик мимо меню закрывает его
+  await expect(page.locator('#me-menu')).toBeHidden();
+  // «Профиль» — раздел кабинета, а не шаг регистрации
+  await page.locator('#me').click();
+  await menu.getByRole('link', { name: 'Профиль' }).click();
+  await expect(page.locator('#app .crumbs b')).toHaveText('Профиль');
+  await expect(page.locator('#me-menu')).toBeHidden();
   await expect(page).toHaveURL(/\/candidate\/profile$/);
   await expect(page.getByText('Шаг 2 из 3')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Сохранить', exact: true })).toBeVisible();
@@ -122,7 +140,7 @@ test('адреса кабинетов: вход с ?next= и возврат, «�
   await expect(page).toHaveURL(/\/employer\/invites$/);
   await expect(page.getByRole('heading', { name: 'Приглашения' })).toBeVisible();
   await expect(page.locator('#cab')).toHaveText('Кабинет компании');
-  await expect(page.locator('nav.subnav a')).toHaveText(['Подборка', 'Поиск по банку', 'Приглашения', /^Чат/, 'Вакансии', 'Задания', 'Компания']);
+  await expect(page.locator('nav.subnav a')).toHaveText(['Подборка', 'Поиск по банку', 'Приглашения', 'Вакансии', 'Задания', 'Компания']);
   await open(page, '/employer/candidates/A-1042/nope');
   await expect(page.getByRole('heading', { name: 'Страница не найдена' })).toBeVisible();
   await expect(page.getByText('Такого адреса в кабинете компании нет')).toBeVisible();
@@ -159,7 +177,7 @@ test('шапка: без переключателя ролей и карты э�
     await open(page, p);
     await expect(page.getByRole('button', { name: /^Демо: войти как/ })).toHaveCount(0);
     await expect(page.locator('.brand')).toHaveAttribute('href', '/');
-    await expect(page.locator('#logout')).toBeHidden();
+    await expect(page.locator('#me')).toBeHidden();
   }
   await expect(page.getByText('Демо-вход работает только')).toHaveCount(0);
   // вход обеих ролей: на главной — «Продолжить в кабинете», логотип в кабинете — в его дом
@@ -168,6 +186,25 @@ test('шапка: без переключателя ролей и карты э�
   await page.locator('nav.subnav').getByRole('link', { name: 'Поиск по банку' }).click();
   await page.locator('.brand').click();
   await expect(page).toHaveURL(/\/employer$/);
+  // вошли в оба кабинета: в меню профиля — переключатель между ними, «Выйти» выходит только из текущего
+  await page.locator('#me').click();
+  await page.getByRole('link', { name: 'Перейти в кабинет кандидата' }).click();
+  await expect(page).toHaveURL(/\/candidate$/);
+  await expect(page.locator('#app .crumbs b')).toHaveText('Кабинет кандидата');
+  await page.locator('#me').click();
+  await expect(page.getByRole('link', { name: 'Перейти в кабинет компании' })).toBeVisible();
+  await page.getByRole('link', { name: 'Перейти в кабинет компании' }).click();
+  await expect(page).toHaveURL(/\/employer$/);
+  await expect(page.locator('#app .crumbs b')).toHaveText('Подборка');
+  await page.locator('#me').click();
+  await page.locator('#logout').click();  // из кабинета компании; кандидат остаётся
+  await expect(page).toHaveURL(/\/employer\/login$/);
+  await expect(page.locator('#me')).toBeHidden();
+  await open(page, '/candidate');
+  await page.locator('#me').click();
+  await expect(page.getByRole('link', { name: /Перейти в кабинет/ })).toHaveCount(0);  // второго входа нет — пункта нет
+  await page.keyboard.press('Escape');
+  await demo(page, 'e');
   await open(page, '/');
   await page.getByRole('region', { name: 'Кандидатам' }).getByRole('link', { name: 'Продолжить в кабинете кандидата' }).click();
   await expect(page.locator('#app .crumbs b')).toHaveText('Кабинет кандидата');

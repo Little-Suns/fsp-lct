@@ -30,7 +30,7 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       // шапка — одна строка: переключателя ролей нет (кабинет выбирается на главной), без входа «Выйти» нет
       expect((await box(page.locator('header.top'))).h).toBeLessThanOrEqual(64);
       await expect(page.getByRole('navigation', { name: 'Роль' })).toHaveCount(0);
-      await expect(page.locator('#logout')).toBeHidden();
+      await expect(page.locator('#me')).toBeHidden();
       // тема: в шапке — значок, подпись — в aria-label
       const theme = page.locator('#theme');
       await expect(theme).toHaveAttribute('aria-label', 'Тёмная тема');
@@ -66,16 +66,16 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
         await noHScroll(page, r);
       }
       // разделы — одна строка с прокруткой, активный раздел виден целиком
-      await open(page, '/candidate/settings');
+      await open(page, '/candidate/tasks');
       const nav = page.locator('nav.subnav');
       expect(await oneLine(nav.locator('.chip'))).toBe(true);
       const [n, on] = [await box(nav), await box(nav.locator('.chip.on'))];
       expect(on.left).toBeGreaterThanOrEqual(n.left);
       expect(on.right).toBeLessThanOrEqual(n.right);
-      // «Выйти» — в шапке рядом с темой, шапка осталась одной строкой
-      await expect(page.locator('#logout')).toBeVisible();
+      // аватарка меню профиля — в шапке рядом с темой, шапка осталась одной строкой
+      await expect(page.locator('#me')).toBeVisible();
       const mid = async sel => { const b = await box(page.locator(sel)); return b.top + b.h / 2; };  // элементы разной высоты — по центру
-      for (const sel of ['#theme', '#logout']) expect(Math.abs(await mid(sel) - await mid('header .brand'))).toBeLessThan(4);
+      for (const sel of ['#theme', '#me']) expect(Math.abs(await mid(sel) - await mid('header .brand'))).toBeLessThan(4);
       expect((await box(page.locator('header.top'))).h).toBeLessThanOrEqual(64);
 
       // вакансии: на телефоне и планшете (одна колонка) фильтры свёрнуты, список — сразу под ними
@@ -116,6 +116,14 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       for (const r of E_SCREENS) {
         await open(page, r);
         await noHScroll(page, r);
+      }
+      if (phone) {  // шесть разделов не помещаются: строка прокручивается, последний («Компания») — прокручен в видимую область
+        await open(page, '/employer/company');
+        const nav = page.locator('nav.subnav');
+        expect(await nav.evaluate(n => n.scrollLeft)).toBeGreaterThan(0);
+        const [n, on] = [await box(nav), await box(nav.locator('.chip.on'))];
+        expect(on.left).toBeGreaterThanOrEqual(n.left);
+        expect(on.right).toBeLessThanOrEqual(n.right);
       }
       // подборка: первая карточка — выше карты регионов и рекомендованных категорий (они под списком)
       await open(page, '/employer');
@@ -200,7 +208,7 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
       await expect(page.locator('#chat-list')).toBeVisible();
 
       if (phone) {
-        // непрочитанное у кандидата: цифра помещается в бейдж и в строке разделов, и в списке диалогов на узком экране.
+        // непрочитанное у кандидата: цифра помещается в бейдж в списке диалогов на узком экране, на кружке чата — красная точка.
         // Переписка «Ладога Пэй» ↔ A-1042 открывается принятием приглашения (в полном прогоне его уже принял 04-employer)
         await demo(page, 'c');
         await page.evaluate(async () => {
@@ -216,19 +224,36 @@ for (const [name, viewport] of [['телефон', { width: 375, height: 812 }],
         });
         await open(page, '/candidate/chat');
         const fits = el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight && el.clientWidth >= 18;
-        const badge = page.locator('nav.subnav').getByRole('link', { name: /^Чат/ }).locator('.unread');
-        await expect(badge).toHaveText(/^\d+$/);
-        expect(await badge.evaluate(fits)).toBe(true);
         expect(await page.locator('.chat-peer', { hasText: 'Ладога Пэй' }).locator('.unread').evaluate(fits)).toBe(true);
 
-        // новое сообщение приходит само (SSE) — бейдж в строке разделов обновляется, прокрутка строки не сбрасывается
-        await open(page, '/candidate/settings');
-        const nav = page.locator('nav.subnav'), before = Number(await badge.textContent());
-        const x = await nav.evaluate(n => n.scrollLeft);
-        expect(x).toBeGreaterThan(0);  // «Настройки и приватность» в конце строки — прокручено к ним
+        // кружок чата: красная точка при непрочитанном, кружок целиком на экране
+        await open(page, '/candidate/tasks');
+        const fab = page.locator('#chat-fab'), count = async () => Number(((await fab.getAttribute('aria-label')).match(/\d+/) || [0])[0]);
+        await expect(fab.locator('.dot')).toBeVisible();
+        const fb = await box(fab);
+        expect(fb.right).toBeLessThanOrEqual(viewport.width);
+        expect(fb.bottom).toBeLessThanOrEqual(viewport.height);
+        const before = await count();
+        // новое сообщение приходит само (SSE) — число в подписи кружка обновляется
         await page.evaluate(() => fetch('/api/chat/A-1042', { method: 'POST', headers: { Authorization: 'Bearer ' + localStorage.getItem('fsp.tok.e'), 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'И ещё: пришлю задачу заранее.' }) }));
-        await expect(badge).toHaveText(String(before + 1));
-        expect(Math.abs((await nav.evaluate(n => n.scrollLeft)) - x)).toBeLessThanOrEqual(1);
+        await expect.poll(count).toBe(before + 1);
+        // окно чата помещается в экран без горизонтальной прокрутки; «Раскрыть» ведёт на полный экран
+        await fab.click();
+        const dock = page.locator('#chat-dock');
+        await expect(dock.locator('.chat-peer', { hasText: 'Ладога Пэй' })).toBeVisible();
+        const dbx = await box(dock);
+        expect(dbx.left).toBeGreaterThanOrEqual(0);
+        expect(dbx.right).toBeLessThanOrEqual(viewport.width);
+        expect(dbx.top).toBeGreaterThanOrEqual(0);
+        expect(dbx.bottom).toBeLessThanOrEqual(viewport.height);
+        await noHScroll(page, 'окно чата');
+        await dock.locator('.chat-peer', { hasText: 'Ладога Пэй' }).click();
+        await expect(dock.locator('#dock-messages')).toContainText('пришлю задачу заранее');
+        expect((await box(dock.locator('#dock-input'))).bottom).toBeLessThanOrEqual(viewport.height);
+        await noHScroll(page, 'диалог в окне');
+        await dock.getByRole('button', { name: 'Раскрыть' }).click();
+        await expect(page).toHaveURL(/\/candidate\/chat\/\d+$/);
+        await expect(dock).toBeHidden();
       }
     });
   });
@@ -318,7 +343,13 @@ for (const [name, viewport] of [['узкий телефон', { width: 320, heig
       await page.getByLabel('Рабочая почта').press('Enter');
       await expect(toast(page)).toHaveText('Код отправлен на ' + email);
       await demo(page, 'c');
-      await expect(page.locator('#logout')).toBeVisible();  // «Выйти» помещается в шапку и на 320 px
+      await expect(page.locator('#me')).toBeVisible();  // аватарка помещается в шапку и на 320 px
+      await page.locator('#me').click();  // меню профиля открывается внутри экрана, «Выйти» достижим
+      const mb = await box(page.locator('#me-menu'));
+      expect(mb.left).toBeGreaterThanOrEqual(0);
+      expect(mb.right).toBeLessThanOrEqual(page.viewportSize().width);
+      await expect(page.locator('#logout')).toBeVisible();
+      await page.keyboard.press('Escape');
       for (const r of ['/candidate', '/candidate/vacancies', '/candidate/profile', '/candidate/test', '/candidate/settings']) {
         await open(page, r);
         await noHScroll(page, r);

@@ -198,7 +198,9 @@ test('профиль и результат теста демо-кандидат�
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(toast(page)).toHaveText('Профиль сохранён');
   await expect(page).toHaveURL(/\/candidate\/profile$/);  // раздел кабинета: остаёмся на месте
-  await expect(page.locator('nav.subnav .chip.on')).toHaveText('Профиль');
+  await page.locator('#me').click();
+  await expect(page.locator('#me-menu a[aria-current="page"]')).toHaveText('Профиль');  // личные разделы — в меню профиля
+  await page.keyboard.press('Escape');
 
   await open(page, '/candidate/test/result');
   await expect(page.getByText('Ваша категория')).toBeVisible();
@@ -384,11 +386,13 @@ test('новая редакция согласия: баннер, блокиро
 
 test('выход: из шапки и из настроек', async ({ page }) => {
   await demo(page, 'c');
+  await expect(page.locator('#me')).toBeVisible();
+  await page.locator('#me').click();
   await expect(page.locator('#logout')).toBeVisible();
   await page.locator('#logout').click();
   await expect(toast(page)).toHaveText('Вы вышли');
   await expect(page).toHaveURL(/\/candidate\/login$/);
-  await expect(page.locator('#logout')).toBeHidden();
+  await expect(page.locator('#me')).toBeHidden();
 
   await demo(page, 'c');
   await open(page, '/candidate/settings');

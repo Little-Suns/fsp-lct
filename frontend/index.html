@@ -189,7 +189,7 @@ p { margin: 0; }
 
 /* ---------- шапка ---------- */
 .top {
-  position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top);
+  position: sticky; top: 0; z-index: 45; padding-top: env(safe-area-inset-top);
   background: color-mix(in srgb, var(--paper) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line-2);
@@ -202,17 +202,33 @@ p { margin: 0; }
 #theme { margin-left: auto; }
 .topbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
 @media (hover: hover) { .topbtn:hover { border-color: var(--blue); color: var(--blue-text); } }
-/* телефон и планшет: шапка в одну строку — логотип, значок темы и «Выйти»; кабинет выбирается на главной (логотип вне кабинета → «Кандидатам» / «Компаниям») */
+/* меню профиля: круглая аватарка с инициалами справа в шапке, под ней — тест, профиль, настройки и выход */
+.me { position: relative; flex: none; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--blue-line); background: var(--blue-soft); color: var(--blue-text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; letter-spacing: .02em; padding: 0; }
+.avatar svg { width: 18px; height: 18px; }
+.avatar[aria-expanded="true"] { border-color: var(--blue); }
+@media (hover: hover) { .avatar:hover { border-color: var(--blue); } }
+.me-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; min-width: 240px; max-width: calc(100vw - 2 * var(--gut)); padding: 6px; display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-s); box-shadow: 0 8px 24px var(--shadow); }
+.me-menu[hidden] { display: none; }
+.me-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--line-2); margin-bottom: 4px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.me-head b { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-menu a, .me-menu button { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); text-decoration: none; font-size: 13px; cursor: pointer; }
+.me-menu a[aria-current] { background: var(--blue-soft); color: var(--blue-text); }
+@media (hover: hover) { .me-menu a:hover, .me-menu button:hover { background: var(--ground); } }
+.me-menu .me-out { border-top: 1px solid var(--line-2); border-radius: 0 0 6px 6px; margin-top: 4px; padding-top: 10px; }
+/* телефон и планшет: шапка в одну строку — логотип, значок темы и аватарка меню профиля; кабинет выбирается на главной (логотип вне кабинета → «Кандидатам» / «Компаниям») */
 @media (max-width: 900px) {
   .top-in { flex-wrap: nowrap; height: 56px; padding-top: 0; padding-bottom: 0; gap: 12px; }
   .brand { min-width: 0; gap: 10px; }
   .brand img { height: 26px; }
   .brand .prod { padding-left: 10px; white-space: nowrap; }
   .topbtn { min-height: 40px; padding: 8px 14px; }
+  .avatar { width: 40px; height: 40px; }
+  .me-menu a, .me-menu button { padding: 12px 10px; font-size: 14px; }
   .top #theme { padding: 6px 12px; font-size: 17px; line-height: 1; }  /* только значок ☾ / ☀, подпись — в aria-label */
   .on-wide { display: none; }
 }
-@media (max-width: 430px) { .brand .prod span { display: none; } }  /* подпись под названием (кабинет) не помещается рядом с темой и «Выйти»: кабинет видно по крошкам */
+@media (max-width: 430px) { .brand .prod span { display: none; } }  /* подпись под названием (кабинет) не помещается рядом с темой и аватаркой: кабинет видно по крошкам */
 @media (max-width: 360px) { .brand .prod { display: none; } }  /* самый узкий телефон: только логотип ФСП */
 @media (max-height: 480px) and (orientation: landscape) { .top { position: static; } }  /* телефон боком: шапка не съедает и без того низкий экран */
 
@@ -259,6 +275,19 @@ main { padding-left: max(var(--gut), env(safe-area-inset-left)); padding-right: 
   .msg { max-width: 88%; }
 }
 @media (max-width: 560px) { .chat { --chat-gap: 76px; } }
+/* кружок чата в правом нижнем углу и мини-окно над ним; красная точка — есть непрочитанные */
+.fab { position: fixed; z-index: 40; right: max(16px, env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); width: 56px; height: 56px; padding: 0; border-radius: 50%; border: 0; background: var(--blue); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 20px var(--shadow); }
+.fab[hidden], .dock[hidden], .fab .dot[hidden] { display: none; }
+.fab svg { width: 26px; height: 26px; }
+.fab .dot { position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--red); border: 2px solid var(--paper); }
+.dock { position: fixed; z-index: 41; right: max(16px, env(safe-area-inset-right)); bottom: calc(88px + env(safe-area-inset-bottom)); width: 380px; height: min(520px, calc(100dvh - 168px - env(safe-area-inset-bottom) - env(safe-area-inset-top)));  /* не заходит под шапку */ display: flex; flex-direction: column; padding: 12px 14px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-s); box-shadow: 0 12px 36px var(--shadow); }
+.dock-head { padding-bottom: 10px; border-bottom: 1px solid var(--line-2); gap: 8px; flex-wrap: nowrap; }
+.dock-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-head .btn { flex: none; }
+.dock-list { flex: 1; overflow-y: auto; align-content: start; padding-top: 8px; }
+.dock .chat-msgs { min-height: 0; }
+.dock .row > .btn { flex: none; }
+@media (max-width: 560px) { .dock { left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); top: calc(64px + env(safe-area-inset-top)); bottom: calc(8px + env(safe-area-inset-bottom)); width: auto; height: auto; } }
 @media (max-width: 900px) { .g2, .g3, .side, .side-l { grid-template-columns: minmax(0, 1fr); } .g2.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* телефон и планшет: боковая колонка списка (фильтры, квота, карта) раскладывается вокруг списка —
    нужное для выбора (.m-before) — над ним, справочное — под ним, чтобы список не уезжал на пару экранов вниз */
@@ -606,7 +635,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .panel.tight { padding: 14px; }
   /* кнопки в строке действий заполняют её: крупная цель для пальца, без рваного края; поля рядом с кнопками — тоже */
   .row:not(.sb) > .btn { flex: 1 1 auto; }
-  .chat-box .row > .btn { flex: none; }
+  .chat-box .row > .btn, .dock .row > .btn { flex: none; }
   .row > .input { flex: 1 1 140px; max-width: none !important; }
   .stack > .input, .stack-s > .input { max-width: none !important; }
   .row > .seg { flex: 1 1 auto; }
@@ -783,11 +812,19 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
       <div class="prod">ФСП Карьера<span id="cab">обратный найм в ИТ</span></div>
     </a>
     <button class="topbtn" id="theme" data-act="theme"></button>
-    <button class="topbtn" id="logout" data-act="logout" hidden>Выйти</button>
+    <div class="me" id="me-wrap" hidden>
+      <button class="avatar" id="me" data-act="me-menu" aria-expanded="false" aria-controls="me-menu"></button>
+      <nav class="me-menu" id="me-menu" aria-label="Меню профиля" hidden></nav>
+    </div>
   </div>
 </header>
 
 <main id="app"></main>
+<button class="fab" id="chat-fab" data-act="chat-fab" aria-haspopup="dialog" aria-expanded="false" aria-controls="chat-dock" aria-label="Чат" title="Чат" hidden>
+  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>
+  <span class="dot" hidden></span>
+</button>
+<section class="dock" id="chat-dock" role="dialog" aria-label="Чат" hidden></section>
 <div id="toast" class="toast" hidden></div>
 <div id="loader" class="loader" role="status"></div>
 
@@ -809,7 +846,7 @@ let ME_ERR = false;  // /me не загрузился (сеть, 5xx): экра�
 let ACH = null;    // /api/achievements
 let GRADE_TH = [{ g: 'Junior', t: -0.5 }, { g: 'Middle', t: 0.5 }, { g: 'Senior', t: 1.5 }, { g: 'Lead', t: 2.3 }];
 const D = {};      // данные текущего экрана
-let UNREAD = 0;    // непрочитанные сообщения чата (бейдж в разделах)
+let UNREAD = 0;    // непрочитанные сообщения чата (красная точка на кружке чата)
 const loadPen = l => l >= CAP ? .3 : 1 - .15 * l;
 const NEED_TEXT = 'Ищем бэкендера на Python в команду платежей. Нужен опыт с PostgreSQL и Kafka, хорошо бы Kubernetes. Уровень — мидл, до 300 на руки. Гибрид, Москва.';
 
@@ -915,6 +952,9 @@ function fail(e) { toast(e && e.message ? e.message : 'Ошибка'); }
 // сброс токена и данных одной роли: выход, 401, смена пользователя
 function clearSide(role) {
   setTok(role, null);
+  if (CD.side === role) dockClose();
+  CD.draft = {};
+  UNREAD = 0;
   // согласия 152-ФЗ с экрана регистрации — только того, кто входит сейчас: следующий человек во вкладке ставит их сам
   if (role === 'c') { ME = null; ME_ERR = false; ACH = null; Object.assign(S.signup, { c152: false, publish: false }); Object.assign(S, { quest: null, finish: null, pf: null, cv: null, confirm: null, questInvite: null, target: null, cfCode: null, applyNote: '', answer: '' }); }
   else { delete D.co; delete D.coName; delete D.company; Object.assign(S, { needId: null, needObj: null, needs: [], lot: null, inviteForm: null, vform: null, tform: null, plan: null, need: { text: '', parsed: null }, appDecline: null }); S.filters.clear(); }
@@ -1065,24 +1105,47 @@ const badgeChips = c => (c.badges || (c.fsp ? [{ source: 'fsp', title: c.fsp }] 
   + (c.cf ? `<span class="chip ok">CF ${Math.round(c.cf)}</span>` : '');
 
 // разделы кабинета: одна строка чипов под хлебными крошками; ссылки — раздел открывается и в новой вкладке
+// личное кандидата (тест, профиль, настройки) — не в строке, а в меню профиля под аватаркой в шапке (ME_NAV)
 const NAV = {
-  c: [['/c/home', 'Кабинет'], ['/c/result', 'Тест'], ['/c/profile', 'Профиль'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/chat', 'Чат'], ['/c/tasks', 'Задачи'], ['/c/settings', 'Настройки и приватность']],
-  e: [['/e/picks', 'Подборка'], ['/e/search', 'Поиск по банку'], ['/e/pipeline', 'Приглашения'], ['/e/chat', 'Чат'], ['/e/vacancies', 'Вакансии'], ['/e/tasks', 'Задания'], ['/e/company', 'Компания']],
+  c: [['/c/home', 'Кабинет'], ['/c/vacancies', 'Вакансии'], ['/c/applications', 'Мои отклики'], ['/c/tasks', 'Задачи']],
+  e: [['/e/picks', 'Подборка'], ['/e/search', 'Поиск по банку'], ['/e/pipeline', 'Приглашения'],['/e/vacancies', 'Вакансии'], ['/e/tasks', 'Задания'], ['/e/company', 'Компания']],
 };
 const NAV_OF = { '/c/invite': '/c/home', '/c/vacancy': '/c/vacancies', '/c/task': '/c/tasks', '/c/quest': '/c/result', '/e/vacancy': '/e/vacancies', '/e/task': '/e/tasks', '/e/need': '/e/picks', '/e/invite': '/e/pipeline' };
 // ссылка на экран: href — настоящий адрес (Ctrl/⌘-клик — новая вкладка), data-go — ключ для перехода без перезагрузки
 const href = k => `href="${esc(pathOf(k))}" data-go="${esc(k)}"`;
+const navCur = () => { const base = route().split('/').slice(0, 3).join('/'); return NAV_OF[base] || base; };
 function subnav(side) {
-  const r = route(), base = r.split('/').slice(0, 3).join('/'), cur = NAV_OF[base] || base;
-  return `<nav class="chips subnav" aria-label="Разделы">${NAV[side].map(([p, l]) => `<a class="chip ${p === cur ? 'on' : ''}" ${href(p)}${p === cur ? ' aria-current="page"' : ''}>${l}${p.endsWith('/chat') && UNREAD > 0 ? ` <span class="unread">${UNREAD}</span>` : ''}</a>`).join('')}</nav>`;
+  const cur = navCur();
+  return `<nav class="chips subnav" aria-label="Разделы">${NAV[side].map(([p, l]) => `<a class="chip ${p === cur ? 'on' : ''}" ${href(p)}${p === cur ? ' aria-current="page"' : ''}>${l}</a>`).join('')}</nav>`;
 }
-// перерисовка разделов (бейдж чата) без сброса прокрутки строки на телефоне
-function redrawNav(side) {
-  const nav = document.querySelector('nav.subnav');
-  if (!nav) return;
-  const x = nav.scrollLeft;
-  nav.outerHTML = subnav(side);
-  document.querySelector('nav.subnav').scrollLeft = x;
+// меню профиля в шапке: аватарка с инициалами (кандидат — по имени, компания — по названию), под ней — личные разделы и «Выйти»
+const ME_NAV = { c: [['/c/result', 'Тест'], ['/c/profile', 'Профиль'], ['/c/settings', 'Настройки и приватность']], e: [] };
+const initials = s => (s || '').replace(/[«»"']/g, '').split(/\s+/).filter(w => /^\p{L}/u.test(w) && !/^(ООО|ОАО|ПАО|ЗАО|АО|ИП)$/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+let meAt = '', meHtml = '';  // экран, на котором меню последний раз рисовали: на другом экране оно закрыто, перерисовка того же — не закрывает
+function meMenu(role) {
+  const wrap = document.getElementById('me-wrap'), btn = document.getElementById('me'), menu = document.getElementById('me-menu');
+  wrap.hidden = !role;
+  if (!role || meAt !== route()) meOpen(false);
+  meAt = route();
+  if (!role) { menu.innerHTML = meHtml = ''; return; }
+  const name = role === 'c' ? ME && ME.name : D.coName, sub = role === 'c' ? ME && ME.id : 'Кабинет компании';
+  const ini = initials(name);
+  const av = ini ? `<span aria-hidden="true">${esc(ini)}</span>` : '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>';
+  const cur = navCur(), other = role === 'c' ? 'e' : 'c';
+  const items = ME_NAV[role].map(([p, l]) => `<a ${href(p)}${p === cur ? ' aria-current="page"' : ''}>${l}</a>`).join('')
+    + (TOK[other] ? `<a ${href(other === 'e' ? '/e/picks' : '/c/home')}>Перейти в кабинет ${other === 'e' ? 'компании' : 'кандидата'}</a>` : '');  // вошли в оба кабинета — переключатель
+  const html = av + ' ' + (name ? `<div class="me-head"><b>${esc(name)}</b>${sub ? `<span class="small muted">${esc(sub)}</span>` : ''}</div>` : '')
+    + items + `<button class="${items ? 'me-out' : ''}" id="logout" data-act="logout">Выйти</button>`;
+  if (html === meHtml) return;
+  meHtml = html;
+  btn.innerHTML = av;
+  btn.setAttribute('aria-label', 'Меню профиля' + (name ? ': ' + name : ''));
+  menu.innerHTML = html.slice(av.length + 1);
+}
+function meOpen(on) {
+  const btn = document.getElementById('me');
+  document.getElementById('me-menu').hidden = !on;
+  btn.setAttribute('aria-expanded', on);
 }
 // строка разделов прокручивается: активный раздел — посередине (страница по вертикали не двигается)
 function centerNav() {
@@ -2378,26 +2441,44 @@ V['/e/picks'] = () => {
 const chatPeerOf = () => { const m = route().match(/^\/[ce]\/chat\/([^/]+)$/); return m ? decodeURIComponent(m[1]) : null; };
 const onChat = () => /^\/[ce]\/chat(\/|$)/.test(route());
 const chatSide = () => route().startsWith('/c') ? 'c' : 'e';
-const chatMe = () => chatSide() === 'c' ? 'candidate' : 'employer';
+const chatMe = side => side === 'c' ? 'candidate' : 'employer';
 const COARSE = matchMedia('(pointer: coarse)');  // сенсорный экран без мыши: телефон, планшет
 const chatBtn = (side, peer, cls = 'btn ghost small') => peer == null ? '' : `<button class="${cls}" data-go="/${side}/chat/${esc(encodeURIComponent(peer))}">Написать в чат</button>`;
 const WHEN = s => new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-function chatMessages() {
-  const d = D.chatDetail, me = chatMe();
+// Чат показывается дважды: полным экраном (хранилище — D) и мини-окном над кружком (хранилище — CD, переживает смену экрана).
+// Функции получают хранилище s: у обоих поля chatDetail и chatContacts; id и действия окна — с приставкой dock-, экрана — chat-.
+const CD = { open: false, side: '', peer: null, chatDetail: null, chatContacts: null, seq: 0, draft: {} };  // draft: несохранённый текст по собеседнику
+const pfx = s => s === CD ? 'dock' : 'chat';
+const chatPeer = s => s === CD ? CD.peer : chatPeerOf();
+const chatSum = s => ((s.chatContacts && s.chatContacts.contacts) || []).reduce((n, c) => n + c.unread_count, 0);
+
+function chatMessages(s, side) {
+  const d = s.chatDetail, me = chatMe(side);
   if (!d.messages.length) return '<div class="muted small" style="text-align:center;margin:auto">Здесь будет история переписки</div>';
-  return (d.more ? '<button class="btn ghost small" style="align-self:center" data-act="chat-more">Показать ранее</button>' : '') + d.messages.map(m => `
+  return (d.more ? `<button class="btn ghost small" style="align-self:center" data-act="${pfx(s)}-more">Показать ранее</button>` : '') + d.messages.map(m => `
     <div class="msg ${m.sender === me ? 'me' : ''}"><p>${esc(m.text)}</p><time>${WHEN(m.created_at)}${m.sender === me ? (m.read_at ? ' <span title="прочитано">✓✓</span>' : ' <span title="доставлено">✓</span>') : ''}</time></div>`).join('');
 }
 
-function chatList() {
-  const peer = chatPeerOf(), d = D.chatDetail, side = chatSide();
-  let list = (D.chatContacts && D.chatContacts.contacts) || [];
+function chatList(s, side) {
+  const peer = chatPeer(s), d = s.chatDetail, dock = s === CD;
+  let list = (s.chatContacts && s.chatContacts.contacts) || [];
   if (peer != null && d && !list.some(c => String(c.peer_id) === peer)) list = [{ peer_id: peer, peer_name: d.peer.name, unread_count: 0, last_message: null }, ...list];
-  return list.map(c => `<button class="chat-peer ${String(c.peer_id) === peer ? 'on' : ''}" data-go="/${side}/chat/${esc(encodeURIComponent(c.peer_id))}">
-      <span class="stack-s" style="min-width:0;flex:1"><b>${esc(c.peer_name)}</b><span class="small muted">${c.last_message ? (c.last_message.sender === chatMe() ? 'Вы: ' : '') + esc(c.last_message.text) : 'Нет сообщений'}</span></span>
+  return list.map(c => `<button class="chat-peer ${String(c.peer_id) === peer ? 'on' : ''}" ${dock ? `data-act="dock-open" data-peer="${esc(c.peer_id)}"` : `data-go="/${side}/chat/${esc(encodeURIComponent(c.peer_id))}"`}>
+      <span class="stack-s" style="min-width:0;flex:1"><b>${esc(c.peer_name)}</b><span class="small muted">${c.last_message ? (c.last_message.sender === chatMe(side) ? 'Вы: ' : '') + esc(c.last_message.text) : 'Нет сообщений'}</span></span>
       ${c.unread_count ? `<span class="unread">${c.unread_count}</span>` : ''}
     </button>`).join('') || '<span class="small muted">Диалогов пока нет. Писать можно после принятия приглашения или когда компания примет ваш отклик.</span>';
+}
+
+// поле ввода или причина, почему писать нельзя
+function chatForm(s, side) {
+  const d = s.chatDetail, p = pfx(s);
+  if (!d.can_write) return `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`;
+  return `<div class="row" style="margin-top:12px;align-items:flex-end">
+        <textarea id="${p}-input" class="input" style="flex:1;min-height:44px;resize:none" maxlength="2000" placeholder="Сообщение" enterkeyhint="${COARSE.matches ? 'enter' : 'send'}"></textarea>
+        <button class="btn primary" data-act="${p}-send">Отправить</button>
+      </div>
+      <span class="hint" style="margin-top:6px">${COARSE.matches ? 'Отправить — кнопкой, Enter — перенос строки' : 'Enter — отправить, Shift+Enter — перенос строки'}</span>`;
 }
 
 function chatView(side) {
@@ -2408,44 +2489,54 @@ function chatView(side) {
   const box = d ? `
     <div class="panel tight chat-box">
       <div class="row chat-head">${back}<b>${esc(d.peer.name)}</b></div>
-      <div id="chat-messages" class="chat-msgs">${chatMessages()}</div>
-      ${d.can_write ? `<div class="row" style="margin-top:12px;align-items:flex-end">
-        <textarea id="chat-input" class="input" style="flex:1;min-height:44px;resize:none" maxlength="2000" placeholder="Сообщение" enterkeyhint="${COARSE.matches ? 'enter' : 'send'}"></textarea>
-        <button class="btn primary" data-act="chat-send">Отправить</button>
-      </div>
-      <span class="hint" style="margin-top:6px">${COARSE.matches ? 'Отправить — кнопкой, Enter — перенос строки' : 'Enter — отправить, Shift+Enter — перенос строки'}</span>` : `<p class="small muted" style="margin-top:12px">Писать больше нельзя: ${side === 'c' ? 'приглашение или отклик закрыты, либо вы отозвали согласие или скрыли профиль от этой компании' : 'приглашение или отклик закрыты, либо кандидат отозвал согласие или скрыл профиль'}. История остаётся доступной.</p>`}
+      <div id="chat-messages" class="chat-msgs">${chatMessages(D, side)}</div>
+      ${chatForm(D, side)}
     </div>` : `<div class="panel chat-box chat-empty" style="align-items:center;justify-content:center">${peer != null ? back : ''}<span class="muted">${peer != null ? 'Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.' : 'Выберите диалог в списке'}</span></div>`;
   return `
   ${crumbs(head)}
   ${subnav(side)}
   <div class="chat fade ${peer != null ? 'has-peer' : ''}">
-    <div class="panel tight stack-s chat-list" id="chat-list">${chatList()}</div>
+    <div class="panel tight stack-s chat-list" id="chat-list">${chatList(D, side)}</div>
     ${box}
   </div>`;
 }
 V['/c/chat'] = () => chatView('c');
 V['/e/chat'] = () => chatView('e');
 
-function drawChat(stick = true) {
-  const box = document.getElementById('chat-messages');
-  if (!box || !D.chatDetail) return;
+function drawChat(s, side, stick = true) {
+  const box = document.getElementById(pfx(s) + '-messages');
+  if (!box || !s.chatDetail) return;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  box.innerHTML = chatMessages();
+  box.innerHTML = chatMessages(s, side);
   if (stick || atBottom) box.scrollTop = box.scrollHeight;
 }
-function drawChatSide() {
-  UNREAD = ((D.chatContacts && D.chatContacts.contacts) || []).reduce((n, c) => n + c.unread_count, 0);
-  const l = document.getElementById('chat-list');
-  if (l) l.innerHTML = chatList();
-  redrawNav(chatSide());
+function drawChatSide(s, side) {
+  UNREAD = chatSum(s);
+  const l = document.getElementById(pfx(s) + '-list');
+  if (l) l.innerHTML = chatList(s, side);
+  paintFab();
+}
+
+// общее для экрана и окна: загрузка диалога (null — недоступен), отметка «прочитано», слияние свежей страницы переписки
+const fetchDialog = (peer, side) => api('GET', '/api/chat/' + encodeURIComponent(peer), undefined, side).catch(e => { if (e.status === 403 || e.status === 404) return null; throw e; });
+const markRead = async (dt, peer, side) => {
+  if (dt && dt.messages.some(m => m.sender !== chatMe(side) && !m.read_at)) await api('POST', '/api/chat/' + encodeURIComponent(peer) + '/read', undefined, side);
+};
+// true, если список сообщений или отметки «прочитано» изменились; старые страницы («Показать ранее») остаются
+function mergeMsgs(d, dt) {
+  const first = dt.messages.length ? dt.messages[0].id : Infinity, sig = a => a.map(m => m.id + (m.read_at ? 'r' : '')).join();
+  const merged = [...d.messages.filter(m => m.id < first), ...dt.messages];
+  const changed = sig(merged) !== sig(d.messages);
+  if (changed) d.messages = merged;
+  return changed;
 }
 
 async function loadChat(peer) {
-  const me = chatMe();
-  D.chatDetail = peer ? await api('GET', '/api/chat/' + encodeURIComponent(peer)).catch(e => { if (e.status === 403 || e.status === 404) return null; throw e; }) : null;
-  if (D.chatDetail && D.chatDetail.messages.some(m => m.sender !== me && !m.read_at)) await api('POST', '/api/chat/' + encodeURIComponent(peer) + '/read');
+  const side = chatSide();
+  D.chatDetail = peer ? await fetchDialog(peer, side) : null;
+  await markRead(D.chatDetail, peer, side);
   D.chatContacts = await api('GET', '/api/chat/contacts');
-  UNREAD = D.chatContacts.contacts.reduce((n, c) => n + c.unread_count, 0);
+  UNREAD = chatSum(D);
 }
 
 // опрос раз в несколько секунд: подтягивает новые сообщения и отметки «прочитано», не трогая поле ввода
@@ -2455,21 +2546,19 @@ async function pollChat() {
   if (!onChat() || document.hidden || $app.hasAttribute('aria-busy')) return;
   if (chatBusy) { chatAgain = true; return; }
   chatBusy = true;
-  const my = seq, peer = chatPeerOf(), d = D.chatDetail, me = chatMe();
+  const my = seq, peer = chatPeerOf(), d = D.chatDetail, side = chatSide();
   try {
     const dt = peer != null && d ? await api('GET', '/api/chat/' + encodeURIComponent(peer)) : null;
     if (my !== seq || !onChat()) return;
-    if (dt && dt.messages.some(m => m.sender !== me && !m.read_at)) await api('POST', '/api/chat/' + encodeURIComponent(peer) + '/read');
+    await markRead(dt, peer, side);
     const cs = await api('GET', '/api/chat/contacts');
     if (my !== seq || !onChat()) return;
     D.chatContacts = cs;
     if (dt && D.chatDetail === d) {
       if (dt.can_write !== d.can_write) { d.can_write = dt.can_write; rerender(); }
-      const first = dt.messages.length ? dt.messages[0].id : Infinity, sig = a => a.map(m => m.id + (m.read_at ? 'r' : '')).join();
-      const merged = [...d.messages.filter(m => m.id < first), ...dt.messages];
-      if (sig(merged) !== sig(d.messages)) { d.messages = merged; drawChat(false); }
+      if (mergeMsgs(d, dt)) drawChat(D, side, false);
     }
-    drawChatSide();
+    drawChatSide(D, side);
   } catch (e) {
     // доступ закрыт посреди сессии (отозвано согласие, профиль скрыт): убираем уже загруженное
     if ((e.status === 403 || e.status === 404) && my === seq && onChat() && D.chatDetail === d) { D.chatDetail = null; rerender(); }
@@ -2479,19 +2568,133 @@ async function pollChat() {
   }
 }
 
+// ---- мини-окно чата над кружком: список диалогов или переписка; открыто, пока его не закрыли, не вышли или не открыли экран чата ----
+// все запросы окна идут с явной ролью CD.side: оно может пережить переключение кабинета, пока идёт ответ
+const dockEl = () => document.getElementById('chat-dock');
+const dockStale = my => my !== CD.seq || !CD.open;  // окно закрыли или сменили диалог, пока шёл запрос
+const dockDraft = () => { const i = document.getElementById('dock-input'); if (i && CD.peer != null) CD.draft[CD.peer] = i.value; };  // черновик живёт по собеседнику
+function dockClose() {
+  if (!CD.open) return;
+  dockDraft();
+  Object.assign(CD, { open: false, side: '', peer: null, chatDetail: null, chatContacts: null, seq: CD.seq + 1 });
+  dockEl().hidden = true;
+  dockEl().innerHTML = '';
+  paintFab();
+}
+// шапка и тело; поле ввода пересобирается вместе с телом, поэтому набранное и фокус переносим
+function drawDock() {
+  const el = dockEl(), d = CD.chatDetail, side = CD.side;
+  dockDraft();
+  const inp = document.getElementById('dock-input'), focus = inp && document.activeElement === inp, caret = inp && inp.selectionStart;
+  el.innerHTML = `
+    <div class="row dock-head">
+      ${CD.peer != null ? '<button class="btn ghost small" data-act="dock-back" aria-label="К списку диалогов">←</button>' : ''}<b>${CD.peer != null ? esc(d ? d.peer.name : 'Диалог') : 'Чат'}</b>
+      <button class="btn ghost small" data-act="dock-expand">Раскрыть</button>
+      <button class="btn ghost small" data-act="dock-close" aria-label="Закрыть чат">×</button>
+    </div>
+    ${CD.peer == null ? `<div class="stack-s dock-list" id="dock-list">${chatList(CD, side)}</div>`
+      : d ? `<div id="dock-messages" class="chat-msgs">${chatMessages(CD, side)}</div>${chatForm(CD, side)}`
+      : '<span class="muted small" style="padding:12px 0">Диалог недоступен: нет связи с этим собеседником или кандидат отозвал согласие.</span>'}`;
+  el.hidden = false;
+  const box = document.getElementById('dock-messages');
+  if (box) box.scrollTop = box.scrollHeight;
+  const now = document.getElementById('dock-input');
+  if (now && CD.draft[CD.peer]) now.value = CD.draft[CD.peer];
+  if (now && focus) { now.focus(); now.setSelectionRange(caret, caret); }
+}
+async function dockOpen(peer) {
+  dockDraft();
+  const my = ++CD.seq, side = CD.side;
+  CD.peer = peer;
+  CD.chatDetail = null;
+  try {
+    if (peer != null) {  // диалог: счётчик через unread, contacts у работодателя пишет раскрытие в AuditLog
+      CD.chatDetail = await fetchDialog(peer, side);
+      if (dockStale(my)) return;
+      await markRead(CD.chatDetail, peer, side);
+      const u = await api('GET', '/api/chat/unread', undefined, side);
+      if (dockStale(my)) return;
+      UNREAD = u.unread_count;
+    } else {
+      const cs = await api('GET', '/api/chat/contacts', undefined, side);
+      if (dockStale(my)) return;
+      CD.chatContacts = cs;
+      UNREAD = chatSum(CD);
+    }
+  } catch (e) { if (!dockStale(my)) { fail(e); dockClose(); } return; }
+  drawDock();
+  paintFab();
+  // фокус не должен падать на body: поле ввода (не на сенсорном экране — клавиатура), иначе первый диалог или «×»
+  const t = (!COARSE.matches && document.getElementById('dock-input')) || dockEl().querySelector('.chat-peer, [data-act="dock-close"]');
+  t.focus();
+}
+// push или возврат на вкладку. Список — через contacts; открытый диалог — сам диалог и счётчик через unread
+// (contacts у работодателя пишет раскрытие в AuditLog, зря не зовём); поле ввода не перерисовывается
+let dockBusy = false, dockAgain = false;
+async function pollDock() {
+  if (dockBusy) { dockAgain = true; return; }
+  dockBusy = true;
+  const my = CD.seq, peer = CD.peer, d = CD.chatDetail, side = CD.side;
+  try {
+    if (peer == null) {
+      const cs = await api('GET', '/api/chat/contacts', undefined, side);
+      if (dockStale(my)) return;
+      CD.chatContacts = cs;
+      drawChatSide(CD, side);
+    } else {
+      const dt = d ? await api('GET', '/api/chat/' + encodeURIComponent(peer), undefined, side) : null;
+      if (dockStale(my)) return;
+      await markRead(dt, peer, side);
+      const u = await api('GET', '/api/chat/unread', undefined, side);
+      if (dockStale(my)) return;
+      UNREAD = u.unread_count;
+      if (dt && CD.chatDetail === d) {
+        const wr = dt.can_write !== d.can_write;
+        d.can_write = dt.can_write;
+        if (mergeMsgs(d, dt)) drawChat(CD, side, false);
+        if (wr) drawDock();
+      }
+      paintFab();
+    }
+  } catch (e) {
+    // доступ закрыт посреди сессии (отозвано согласие, профиль скрыт): имя и переписка из окна убираются
+    if ((e.status === 403 || e.status === 404) && !dockStale(my) && CD.chatDetail === d && d) { CD.chatDetail = null; drawDock(); }
+  } finally {
+    dockBusy = false;
+    if (dockAgain) { dockAgain = false; if (CD.open) pollDock(); }
+  }
+}
+
+// кружок чата: виден в кабинете после входа (кандидат — с профилем, компания — с данными), кроме экрана чата, входа и теста;
+// непрочитанные — красная точка, число — в подписи
+function fabOn() {
+  const r = route(), role = roleOf(r);
+  return !!(role && TOK[role] && !OPEN(r) && !onChat() && !r.startsWith('/c/quest/go') && (role === 'c' ? ME : D.co));
+}
+function paintFab() {
+  const fab = document.getElementById('chat-fab'), txt = UNREAD > 0 ? `Чат, непрочитанных: ${UNREAD}` : 'Чат';
+  fab.hidden = !fabOn();
+  fab.setAttribute('aria-label', txt);
+  fab.title = txt;
+  fab.setAttribute('aria-expanded', CD.open);
+  fab.querySelector('.dot').hidden = UNREAD <= 0;
+}
+
 // Push: сервер шлёт «data: new», когда у участника появилось новое; клиент после этого перечитывает данные обычными GET.
 let chatCtl = null, chatStreamSide = null;
 function chatStop() { if (chatCtl) chatCtl.abort(); chatCtl = chatStreamSide = null; }
 async function chatNudge() {
   if (document.hidden) return;
   if (onChat()) return pollChat();
+  if (CD.open) return pollDock();
   const side = chatSide();
   if (!TOK[side] || !/^\/[ce]\//.test(route())) return;
   try {
     UNREAD = (await api('GET', '/api/chat/unread')).unread_count;
-    if (route().startsWith('/' + side)) redrawNav(side);
-  } catch { /* бейдж не критичен */ }
+    paintFab();
+  } catch { /* точка не критична */ }
 }
+
 async function chatStream(side) {
   chatStop();
   const ctl = chatCtl = new AbortController();
@@ -2517,26 +2720,29 @@ async function chatStream(side) {
   }
 }
 
-async function chatSend() {
-  const el = document.getElementById('chat-input'), peer = chatPeerOf(), text = el ? el.value.trim() : '';
+async function chatSend(s = D) {
+  const dock = s === CD, side = dock ? CD.side : chatSide(), my = CD.seq;
+  const el = document.getElementById(pfx(s) + '-input'), peer = chatPeer(s), text = el ? el.value.trim() : '';
   if (!text || peer == null) return;
-  const m = await api('POST', '/api/chat/' + encodeURIComponent(peer), { text });
-  if (chatPeerOf() !== peer) return;
+  const m = await api('POST', '/api/chat/' + encodeURIComponent(peer), { text }, side);
+  if (dock ? dockStale(my) || CD.peer !== peer || !s.chatDetail : chatPeerOf() !== peer || !s.chatDetail) return;  // доступ мог закрыться во время отправки
   el.value = '';
-  D.chatDetail.messages.push(m);
-  drawChat();
-  D.chatContacts = await api('GET', '/api/chat/contacts');
-  drawChatSide();
+  delete CD.draft[peer];
+  s.chatDetail.messages.push(m);
+  drawChat(s, side);
+  if (dock) return;  // в окне список не виден, а contacts у работодателя пишет раскрытие в AuditLog
+  s.chatContacts = await api('GET', '/api/chat/contacts');
+  if (onChat()) drawChatSide(s, side);
 }
 
-async function chatMore() {
-  const d = D.chatDetail, peer = chatPeerOf();
+async function chatMore(s = D) {
+  const d = s.chatDetail, peer = chatPeer(s), side = s === CD ? CD.side : chatSide();
   if (!d || !d.messages.length) return;
-  const r = await api('GET', `/api/chat/${encodeURIComponent(peer)}?before_id=${d.messages[0].id}`);
-  if (D.chatDetail !== d) return;
-  const box = document.getElementById('chat-messages'), h = box.scrollHeight;
+  const r = await api('GET', `/api/chat/${encodeURIComponent(peer)}?before_id=${d.messages[0].id}`, undefined, side);
+  if (s.chatDetail !== d) return;
+  const box = document.getElementById(pfx(s) + '-messages'), h = box.scrollHeight;
   d.messages = [...r.messages, ...d.messages]; d.more = r.more;
-  drawChat(false);
+  drawChat(s, side, false);
   box.scrollTop = box.scrollHeight - h;
 }
 
@@ -3249,7 +3455,7 @@ async function load(r) {
 }
 
 /* ===================== рендер и события ===================== */
-let timerId, seq = 0;
+let timerId, seq = 0, expandFocus = null, renderedAt = '';  // expandFocus: {peer} после «Раскрыть» — перенести черновик и фокус на экран чата
 const PARAM_VIEWS = [['/c/chat/', () => chatView('c')], ['/e/chat/', () => chatView('e')], ['/c/invite/', inviteView], ['/c/vacancy/', cVacancyView], ['/c/task/', cTaskView], ['/e/cand/', candView], ['/e/invite/', inviteFormView], ['/e/vacancy/', eVacancyView], ['/e/task/', eTaskView]];
 function render() {
   const r = route();
@@ -3264,6 +3470,13 @@ function render() {
   $app.innerHTML = html;
   busy(false);
   centerNav();
+  if (expandFocus && onChat()) {  // после «Раскрыть»: черновик окна — в поле экрана, фокус не падает на body (на сенсорном экране — не в поле: клавиатура)
+    const { peer } = expandFocus, inp = document.getElementById('chat-input');
+    expandFocus = null;
+    if (inp && peer != null && CD.draft[peer]) inp.value = CD.draft[peer];
+    const t = (!COARSE.matches && inp) || [...document.querySelectorAll('.chat-back, .chat-peer')].find(e => e.offsetParent);
+    if (t) t.focus();
+  }
   const cm = document.getElementById('chat-messages');
   if (cm) cm.scrollTop = cm.scrollHeight;
   const role = roleOf(r);
@@ -3271,7 +3484,10 @@ function render() {
   const home = role && TOK[role] ? (role === 'c' ? '/c/home' : '/e/picks') : '/', brand = document.querySelector('.brand');
   brand.dataset.go = home; brand.setAttribute('href', pathOf(home));
   document.getElementById('cab').textContent = role ? (role === 'c' ? 'Кабинет кандидата' : 'Кабинет компании') : 'обратный найм в ИТ';
-  document.getElementById('logout').hidden = !role || !TOK[role];
+  meMenu(role && TOK[role] ? role : '');
+  if (CD.open && (CD.side !== role || !fabOn())) dockClose(); else paintFab();  // окно живёт в своём кабинете и только там, где виден кружок (не на экране чата, входа и теста)
+  if (CD.open && CD.peer != null && renderedAt !== r) pollDock();  // другой экран — окно перечитывает открытый диалог (доступ мог закрыться, пока было не видно); список не трогаем: contacts у работодателя пишет раскрытие в AuditLog
+  renderedAt = r;
   if ((role === 'c' || role === 'e') && TOK[role]) { if (chatStreamSide !== role) chatStream(role); } else chatStop();
   startTimer();
   petArm();
@@ -3315,6 +3531,7 @@ async function show(keep) {
     await load(r);
     if (my === seq) ME_ERR = false;
   } catch (e) {
+    expandFocus = null;
     if (my === seq) { ME_ERR = side === 'c' && !!e.noMe && e.status !== 401; fail(e); }
     if (e.status === 401) { if (my === seq && r === route()) busy(false); return; }
   }
@@ -3422,6 +3639,12 @@ const paintTheme = () => {
 darkMq.addEventListener('change', paintTheme);
 
 const ACT = {
+  'me-menu': () => meOpen(document.getElementById('me-menu').hidden),
+  'chat-fab': () => { if (CD.open) return dockClose(); Object.assign(CD, { open: true, side: roleOf(route()) }); paintFab(); return dockOpen(null); },
+  'dock-open': (a, d) => dockOpen(d.peer),
+  'dock-back': () => dockOpen(null),
+  'dock-close': () => { dockClose(); document.getElementById('chat-fab').focus(); },
+  'dock-expand': () => { const { side, peer } = CD; dockClose(); expandFocus = { peer }; go('/' + side + '/chat' + (peer != null ? '/' + encodeURIComponent(peer) : '')); },
   theme: () => { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; LS.set('fsp.theme', t); paintTheme(); },
   fold: (a, d) => {
     S.fold[d.k] = !S.fold[d.k];
@@ -3810,13 +4033,16 @@ const ACT = {
   },
 };
 
-Object.assign(ACT, { 'chat-send': chatSend, 'chat-more': chatMore });
+Object.assign(ACT, { 'chat-send': () => chatSend(D), 'chat-more': () => chatMore(D), 'dock-send': () => chatSend(CD), 'dock-more': () => chatMore(CD) });
 // ponytail: SSE живёт в памяти одного процесса (Hub в services/chat.py); при нескольких воркерах — Redis pub/sub.
 document.addEventListener('visibilitychange', () => { if (!document.hidden) chatNudge(); });
 const ENTER = { 'su-mail': 'otp-send', 'su-otp': 'otp-verify', 'es-mail': 'eotp-send', 'es-otp': 'eotp-verify', 'vf-q': 'vf-apply', 'vf-city': 'vf-apply', 'sf-q': 'sf-apply', 'sf-skills': 'sf-apply', 'sf-city': 'sf-apply', 'need-skill': 'need-add-ok' };
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !document.getElementById('me-menu').hidden) { meOpen(false); document.getElementById('me').focus(); return; }
+  const ae = document.activeElement;
+  if (e.key === 'Escape' && CD.open && !dockEl().hidden && (ae === document.body || dockEl().contains(ae) || ae.id === 'chat-fab')) { dockClose(); document.getElementById('chat-fab').focus(); return; }  // поля страницы и редактор кода получают Escape сами
   if (e.key === 'Enter' && !e.isComposing && ENTER[e.target.id]) { const b = document.querySelector(`[data-act="${ENTER[e.target.id]}"]`); if (b) { e.preventDefault(); b.click(); } }
-  if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey && !e.isComposing && (!COARSE.matches || e.ctrlKey || e.metaKey)) { e.preventDefault(); document.querySelector('[data-act="chat-send"]').click(); }
+  if ((e.target.id === 'chat-input' || e.target.id === 'dock-input') && e.key === 'Enter' && !e.shiftKey && !e.isComposing && (!COARSE.matches || e.ctrlKey || e.metaKey)) { e.preventDefault(); document.querySelector(`[data-act="${e.target.id.replace('input', 'send')}"]`).click(); }
   if (e.target.id === 'code-ed') {
     // редактор кода: Tab — отступ; Esc, затем Tab — обычный переход фокуса (клавиатура не запирается в поле)
     if (e.key === 'Escape') { S.edEsc = true; return; }
@@ -3830,6 +4056,7 @@ document.addEventListener('paste', e => { if (e.target.id === 'code-ed') S.qPast
 addEventListener('popstate', () => show());
 
 document.addEventListener('click', e => {
+  if (!e.target.closest('#me-wrap') || e.target.closest('#me-menu a')) meOpen(false);  // клик мимо меню профиля или по его разделу закрывает меню
   const g = e.target.closest('[data-go]');
   const a = e.target.closest('[data-act]');
   // ссылка с Ctrl/⌘/Shift — браузер сам откроет новую вкладку или окно; обычный клик — переход без перезагрузки
