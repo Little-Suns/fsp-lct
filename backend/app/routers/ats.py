@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import BigInteger, Text, cast, func, select, tuple_
 from sqlalchemy.orm import Session, selectinload
 
-from app import catalog, deps
+from app import deps
 from app.db import get_db
 from app.models import Application, ApiKey, AtsLink, AuditLog, Candidate, Company, Invitation, OutboxEvent, Vacancy
 from app.routers import employer, vacancies
@@ -169,28 +169,12 @@ def extend_vacancy(external_id: str = Path(min_length=1, max_length=128), ka: tu
 
 @router.post("/applications/{application_id}/status")
 def application_status(application_id: int, body: vacancies.AppStatusIn, ka: tuple = Depends(_auth("applications:write")), db: Session = Depends(get_db)):
-    co = ka[1]
-    a = db.get(Application, application_id)
-    if a and a.vacancy.company_id == co.id and a.status == body.status and body.status in vacancies.EMPLOYER_MOVES:
-        # повтор того же статуса — не ошибка: ATS ретраит запросы. Причину проверяем как при первом вызове
-        if body.status == "declined":
-            if body.reason not in catalog.DECLINE_REASONS:
-                raise HTTPException(422, f"Причина отказа: одна из {', '.join(catalog.DECLINE_REASONS)}")
-            if body.reason != a.decline_reason:
-                raise HTTPException(409, "Отклик уже отклонён с другой причиной")
-        if vacancies._shown(a):
-            vacancies._reveal(db, co, [a])  # контакты отдаём только с записью в журнале (идемпотентно)
-        return vacancies._employer_row(a, a.vacancy)
-    return vacancies.set_application_status(application_id, body, co, db)
+    return vacancies.move_application(application_id, body, ka[1], db, idempotent=True)
 
 
 @router.post("/invites/{invite_id}/feedback")
 def invite_feedback(invite_id: int, body: employer.FeedbackIn, ka: tuple = Depends(_auth("invites:write")), db: Session = Depends(get_db)):
-    co = ka[1]
-    inv = db.get(Invitation, invite_id)
-    if inv and inv.company_id == co.id and inv.status == "accepted" and inv.feedback == body.value:
-        return employer._row(inv)  # повтор той же отметки
-    return employer.feedback(invite_id, body, co, db)
+    return employer.set_feedback(invite_id, body, ka[1], db, idempotent=True)
 
 
 # ---------- лента событий ----------

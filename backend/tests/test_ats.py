@@ -342,6 +342,32 @@ def test_invite_feedback_race(client):
     assert client.post(f"/api/ats/v1/invites/{inv_id}/feedback", json={"value": "hired"}, headers=h).status_code == 200  # повтор через API
 
 
+def test_idempotent_retry_race(client):
+    """Два одинаковых параллельных запроса через ATS API — оба 200: сравнение «уже стоит» идёт после блокировки."""
+    h = _kh(_all_keys(client))
+    cid = _new_cand(31)
+    aid = _new_app(cid, "sent")
+    call = lambda: client.post(f"/api/ats/v1/applications/{aid}/status", json={"status": "accepted"}, headers=h)  # noqa: E731
+    with ThreadPoolExecutor(2) as ex:
+        rs = [f.result() for f in [ex.submit(call) for _ in range(2)]]
+    assert [r.status_code for r in rs] == [200, 200] and {r.json()["status"] for r in rs} == {"accepted"}
+    assert len(_audit(aid)) == 1
+
+    cid = _new_cand(32)
+    with SessionLocal() as db:
+        inv = Invitation(company_id=ID["co"], candidate_id=cid, role="Гонка", salary_from=240000, salary_to=300000, format="Гибрид",
+                         status="accepted", sent_at=NOW, expires_at=NOW + timedelta(days=7))
+        db.add(inv)
+        db.commit()
+        inv_id = inv.id
+    call = lambda: client.post(f"/api/ats/v1/invites/{inv_id}/feedback", json={"value": "hired"}, headers=h)  # noqa: E731
+    with ThreadPoolExecutor(2) as ex:
+        rs = [f.result() for f in [ex.submit(call) for _ in range(2)]]
+    assert [r.status_code for r in rs] == [200, 200] and {r.json()["feedback"] for r in rs} == {"hired"}
+    with SessionLocal() as db:
+        assert db.get(Candidate, cid).employer_confirmed == 1
+
+
 # ---------- лента событий ----------
 
 

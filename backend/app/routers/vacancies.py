@@ -358,6 +358,11 @@ class AppStatusIn(BaseModel):
 
 @router.post("/applications/{application_id}/status")
 def set_application_status(application_id: int, body: AppStatusIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
+    return move_application(application_id, body, co, db)
+
+
+def move_application(application_id: int, body: AppStatusIn, co: Company, db: Session, idempotent: bool = False) -> dict:
+    """idempotent (ATS-ретраи): тот же статус — 200 с текущим состоянием; сравнение после блокировок, иначе параллельный повтор получит 409."""
     if body.status not in EMPLOYER_MOVES:
         raise HTTPException(422, f"Статус: один из {', '.join(EMPLOYER_MOVES)}")
     if body.status == "declined" and body.reason not in catalog.DECLINE_REASONS:
@@ -370,6 +375,15 @@ def set_application_status(application_id: int, body: AppStatusIn, co: Company =
     if lock_candidate(db, a.candidate_id) is None:
         db.rollback()
         raise HTTPException(404, "Отклик не найден")
+    if idempotent and a.status == body.status:
+        if body.status == "declined" and body.reason != a.decline_reason:
+            db.rollback()
+            raise HTTPException(409, "Отклик уже отклонён с другой причиной")
+        if _shown(a):
+            _reveal(db, co, [a])  # контакты отдаём только с записью в журнале (идемпотентно)
+        else:
+            db.rollback()
+        return _employer_row(a, a.vacancy)
     if a.status not in EMPLOYER_MOVES[body.status]:
         raise HTTPException(409, f"Нельзя перевести отклик из «{a.status}» в «{body.status}»")
     now = _now()

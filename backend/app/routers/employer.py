@@ -741,6 +741,11 @@ class FeedbackIn(BaseModel):
 
 @router.post("/invites/{invite_id}/feedback")
 def feedback(invite_id: int, body: FeedbackIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
+    return set_feedback(invite_id, body, co, db)
+
+
+def set_feedback(invite_id: int, body: FeedbackIn, co: Company, db: Session, idempotent: bool = False) -> dict:
+    """idempotent (ATS-ретраи): та же отметка — 200; сравнение после блокировок, иначе параллельный повтор получит 409."""
     if body.value not in catalog.FEEDBACK:
         raise HTTPException(422, f"Отметка: одна из {', '.join(catalog.FEEDBACK)}")
     # порядок блокировок «кандидат → приглашение», как в delete_me и accept: без блокировки узнаём, чьё приглашение
@@ -757,6 +762,8 @@ def feedback(invite_id: int, body: FeedbackIn, co: Company = Depends(active_comp
         raise HTTPException(409, "Отметка доступна после принятия приглашения")
     if inv.feedback:
         db.rollback()
+        if idempotent and inv.feedback == body.value:
+            return _row(inv)
         raise HTTPException(409, "Отметка уже поставлена")
     inv.feedback = body.value
     if body.value in ("confirmed", "hired"):
