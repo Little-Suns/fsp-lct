@@ -48,9 +48,9 @@ test('Рей в тесте: вводная, бег после ответа, ож
   const pet = page.locator('#qpet');
   await expect(pet.getByRole('img', { name: IDLE })).toBeVisible();
 
-  // минута без действий — лежит и ждёт, ещё две — спит; любое действие — снова сидит; прокрутка колесом — тоже действие.
-  // Часы страницы ушли вперёд: таймер задания на нуле, ответы ниже засчитываются как просроченные — здесь это нормально
+  // минута без действий — лежит и ждёт, ещё две — спит; любое действие — снова сидит; прокрутка колесом — тоже действие
   await page.clock.fastForward('01:01');
+  // часы страницы ушли вперёд: таймер задания на нуле, ответы ниже засчитываются как просроченные — здесь это нормально
   await expect(pet.getByRole('img', { name: WAIT })).toBeVisible();
   await page.mouse.wheel(0, 40);
   await expect(pet.getByRole('img', { name: IDLE })).toBeVisible();
@@ -102,6 +102,10 @@ test('Рей в тесте: вводная, бег после ответа, ож
 });
 
 test('загрузка экрана: бегущий Рей с «Загрузка…», экран помечен aria-busy; иконка вкладки — Рей', async ({ page }) => {
+  // главная: шаг «Тест-квест» — про день с Реем, сам Рей рядом с заголовком декоративный (текст уже о нём)
+  await open(page, '/');
+  await expect(page.getByText('Один день с вашим джек-расселом Реем')).toBeVisible();
+  await expect(page.locator('.steps .ray[aria-hidden="true"]')).toBeVisible();
   await demo(page, 'c');
   const icon = await page.locator('link[rel=icon]').getAttribute('href');
   expect(icon).toBe('/assets/ray.svg');
