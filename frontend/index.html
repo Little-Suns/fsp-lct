@@ -319,6 +319,9 @@ a.chip.on { color: var(--blue-ink); }
 .chip .x { opacity: .6; }
 .chip { max-width: 100%; }
 @media (max-width: 400px) { .chip { white-space: normal; } }  /* длинная плашка («почта на домене не подтверждена») переносится, а не вылезает за край */
+/* чип-строка списка (потребности и категории подборки): название переносится, число или дата справа — целиком, внутри чипа */
+.chip.wide { width: 100%; justify-content: space-between; white-space: normal; text-align: left; }
+.chip.wide > :last-child { flex: none; white-space: nowrap; }
 .subnav { margin-bottom: 16px; }
 /* телефон и планшет: разделы кабинета — одна строка с прокруткой во всю ширину экрана, активный раздел виден */
 @media (max-width: 900px) {
@@ -2138,15 +2141,15 @@ V['/e/picks'] = () => {
       <div class="panel tight stack-s">
         <span class="label">Рекомендованные категории</span>
         ${cats.map((c, i) => { const lbl = [c.spec, c.track, c.grade].filter(Boolean).join(' · ');
-          return c.current ? `<button class="chip on" style="justify-content:space-between;width:100%" aria-current="true">${esc(lbl)} <b class="num">${c.count}</b></button>`
-            : `<div class="row" style="gap:6px;flex-wrap:nowrap"><button class="chip" style="justify-content:space-between;flex:1;min-width:0;white-space:normal;text-align:left" data-act="need-cat-new" data-i="${i}" title="${esc(c.note || 'Соседняя категория')}">${esc(lbl)} <b class="num">${c.count}</b></button>`
+          return c.current ? `<button class="chip on wide" aria-current="true">${esc(lbl)} <b class="num">${c.count}</b></button>`
+            : `<div class="row" style="gap:6px;flex-wrap:nowrap"><button class="chip wide" style="flex:1;min-width:0" data-act="need-cat-new" data-i="${i}" title="${esc(c.note || 'Соседняя категория')}">${esc(lbl)} <b class="num">${c.count}</b></button>`
               + `<button class="btn ghost small" style="flex:none" data-act="cat-search" data-spec="${esc(c.spec)}" data-track="${esc(c.track || '')}" data-grade="${esc(c.grade)}" data-msg="${esc(c.note || '')}" aria-label="Искать в банке: ${esc(lbl)}">Поиск</button></div>`; }).join('')}
         ${warnCat ? `<span class="hint">${esc(warnCat.note)}</span>` : ''}
         <span class="hint">Категория — новая потребность с теми же навыками и вилкой; «Поиск» — кандидаты этой категории в банке</span>
       </div>
       <div class="panel tight stack-s" id="needs">
         <span class="label">Потребности · ${S.needs.length}</span>
-        ${S.needs.map(x => `<button class="chip ${x.id === n.id ? 'on' : ''}" style="justify-content:space-between;width:100%" ${x.id === n.id ? 'aria-current="true"' : `data-act="need-pick" data-id="${x.id}"`}>${esc(roleTitle(x))} · ${esc(x.grade)} <span class="small muted">${DAYMON(x.created_at)}</span></button>`).join('')}
+        ${S.needs.map(x => `<button class="chip wide ${x.id === n.id ? 'on' : ''}" ${x.id === n.id ? 'aria-current="true"' : `data-act="need-pick" data-id="${x.id}"`}>${esc(roleTitle(x))} · ${esc(x.grade)} <span class="small muted">${DAYMON(x.created_at)}</span></button>`).join('')}
       </div>
       <div class="panel tight stack-s m-before">
         <span class="label">Фильтры</span>
