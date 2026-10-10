@@ -98,6 +98,8 @@ test('Рей в тесте: вводная, бег после ответа, ож
   expect((await fin).ok()).toBe(true);
   await expect(page.getByText('Ваша категория')).toBeVisible();
   await expect(ray(page, HAPPY)).toBeVisible();
+  // светлый фон карточки: у белого силуэта тонкий тёмный контур (--ray-outline)
+  await expect(ray(page, HAPPY).locator('.ray__dog')).toHaveCSS('filter', /drop-shadow\(rgba\(27, 28, 33, 0\.42\) 1px 0px 0px\)/);
   await expect(page.locator('#qpet')).toHaveCount(0);
 });
 
@@ -142,6 +144,10 @@ test.describe('тёмная тема, телефон, без анимации', 
     expect(st.anim).toBe('none');           // prefers-reduced-motion: без анимации
     expect(st.pose).not.toBe('none');       // но сидит: поза осталась
     expect(st.fur).toBe('rgb(242, 238, 231)');  // --ray-fur тёмной темы
+    // на тёмном контур не нужен: --ray-outline прозрачный и на результате (фон --paper тёмной темы)
+    await open(page, '/candidate/test/result');
+    await expect(ray(page, HAPPY).locator('.ray__dog')).toHaveCSS('filter', /drop-shadow\(rgba\(0, 0, 0, 0\) 1px 0px 0px\)/);
+    await open(page, '/candidate/test');
     await noHScroll(page, 'вводная теста');
     await open(page, '/candidate/test/result');
     await expect(ray(page, HAPPY)).toBeVisible();
