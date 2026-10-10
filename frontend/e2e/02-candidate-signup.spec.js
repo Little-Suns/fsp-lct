@@ -47,10 +47,10 @@ async function answerAll(page, checks = false) {
       await expect(page.getByText('Отмечена строка 2.')).toBeVisible();
       if (await page.locator('#rv-comment').count()) await page.locator('#rv-comment').fill('Гонка: нет блокировки строки при повторе.');
     }
-    if (checks && answered === 0) {  // таймер сцены идёт; с сюжетом у сцены — часы смены
+    if (checks && answered === 0) {  // таймер сцены идёт; с сюжетом у сцены — часы истории
       const t = await page.locator('#timer span').textContent();
       await expect(page.locator('#timer span')).not.toHaveText(t, { timeout: 3000 });
-      await expect(page.locator('.story .t')).toHaveText('02:14');  // первая сцена — начало смены Backend (items.STORY)
+      await expect(page.locator('.story .t')).toHaveText('02:14');  // первая сцена — начало истории Backend (items.STORY)
     }
     if (checks && answered === 1) {  // сюжет можно выключить посреди теста — задание и его условие те же, без часов и заголовка сцены
       const cond = await page.locator('.story').textContent();
@@ -132,7 +132,7 @@ test('без согласия на обработку ПДн профиль не
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
   expect((await saved).request().postDataJSON()).toMatchObject({ consent_152: true, consent_publish: false });
   await expect(page).toHaveURL(/\/candidate\/test$/);
-  await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '02:14: Рей сбежал, а карта GPS-ошейника пустая' })).toBeVisible();
 });
 
 test('кандидат: регистрация → профиль и PDF → тест на грейд → вердикт и история → настройки → выгрузка → удаление', async ({ page }) => {
@@ -206,7 +206,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(toast(page)).toHaveText('Профиль сохранён');
 
   // тест-квест: вводная, выбор грейда, сюжет
-  await expect(page.getByRole('heading', { name: '02:14, пейджер: падает приём платежей' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '02:14: Рей сбежал, а карта GPS-ошейника пустая' })).toBeVisible();
   await page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Middle' }).click();
   await expect(page.getByRole('group', { name: 'Грейд теста' }).getByRole('button', { name: 'Middle' })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('switch', { name: /Сюжет включён/ }).click();
@@ -234,7 +234,7 @@ test('кандидат: регистрация → профиль и PDF → т�
   await expect(page.locator('#tmo')).toBeHidden();
   expect(await answerAll(page)).toBe(5);
   await expect(page.getByText('Экспресс-тест · Все задания пройдены · 5 из 5')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Смена сдана' })).toBeVisible();  // финал сюжета Backend (items.STORY)
+  await expect(page.getByRole('heading', { name: 'Рей дома, сервис жив' })).toBeVisible();  // финал сюжета Backend (items.STORY)
   const exFin = api(page, 'POST', '/api/quest/finish');
   await page.getByRole('button', { name: 'Посмотреть категорию' }).click();
   expect(await (await exFin).json()).toMatchObject({ applied: true, express: true, mode: 'express', assessment_label: 'экспресс-оценка' });
