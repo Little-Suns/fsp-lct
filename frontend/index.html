@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#FFFFFF">
 <title>ФСП Карьера</title>
-<link rel="icon" href="/assets/mark.png">
+<link rel="icon" href="/assets/ray.svg" type="image/svg+xml">  <!-- вкладка — мордочка Рея; иконка приложения на домашнем экране — знак ФСП -->
 <!-- на телефоне стенд добавляется на домашний экран как приложение: манифест и иконка -->
 <link rel="manifest" href="/assets/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -62,6 +62,18 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-fg: #FFFFFF;
   --shadow: rgba(27,28,33,.12);
   --logo-filter: none;
+  /* Рей: белая шерсть, рыжие пятна, чёрный нос; контур (--ray-edge) — чтобы белый пёс не терялся на белом */
+  --ray-fur: #FFFFFF;
+  --ray-shade: #E2DCD2;
+  --ray-patch: #C27A3A;
+  --ray-patch-2: #93531F;
+  --ray-nose: #1B1C21;
+  --ray-tongue: #EF7A8C;
+  --ray-heart: #E8506B;
+  --ray-ground: rgba(27,28,33,.14);
+  --ray-edge: rgba(27,28,33,.45);
+  --ray-dust: rgba(124,125,135,.45);
+  --ray-fx: var(--ink-3);
   color-scheme: light;
 
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -102,6 +114,12 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-fg: #1B1C21;
   --shadow: rgba(0,0,0,.5);
   --logo-filter: invert(1) hue-rotate(180deg);  /* логотип с тёмными буквами */
+  --ray-fur: #F2EEE7;    /* не слепит на тёмном */
+  --ray-shade: #CBC2B4;
+  --ray-patch: #CC8646;
+  --ray-patch-2: #A3612B;
+  --ray-ground: rgba(0,0,0,.5);
+  --ray-edge: rgba(0,0,0,.6);
   color-scheme: dark;
 } }
 :root[data-theme="dark"] {
@@ -135,6 +153,12 @@ try { const th = localStorage.getItem("fsp.theme"); if (th === "light" || th ===
   --toast-fg: #1B1C21;
   --shadow: rgba(0,0,0,.5);
   --logo-filter: invert(1) hue-rotate(180deg);  /* логотип с тёмными буквами */
+  --ray-fur: #F2EEE7;    /* не слепит на тёмном */
+  --ray-shade: #CBC2B4;
+  --ray-patch: #CC8646;
+  --ray-patch-2: #A3612B;
+  --ray-ground: rgba(0,0,0,.5);
+  --ray-edge: rgba(0,0,0,.6);
   color-scheme: dark;
 }
 
@@ -605,6 +629,142 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .input, select.input, textarea.input, .code-ed { font-size: 16px; }
   button, a, .opt, .cand, .inv { touch-action: manipulation; }
 }
+/* ---------- Рей — джек-рассел-терьер (CSS-арт из span-ов) ----------
+   Сцена 10em × 7em, размер — font-size (по умолчанию 10px). Голова анфас на теле в профиль, морда влево;
+   data-facing="right" зеркалит фигурку. Поза состояния — transform частей, движение — отдельные свойства
+   translate / rotate / scale в анимации: они складываются с позой, и без анимации (prefers-reduced-motion) поза остаётся. */
+.ray { position: relative; display: inline-block; vertical-align: middle; flex: none; width: 10em; height: 7em; font-size: 10px; line-height: 1; }
+.ray span { position: absolute; display: block; }
+.ray__actor { inset: 0; }
+.ray[data-facing="right"] .ray__actor { transform: scaleX(-1); }
+.ray__shadow { left: 2.2em; right: 1.8em; bottom: .75em; height: .55em; border-radius: 50%; background: var(--ray-ground); }
+.ray__dog { left: 1.5em; bottom: 1em; width: 7em; height: 5em; filter: drop-shadow(0 0 .04em var(--ray-edge)) drop-shadow(0 0 .04em var(--ray-edge)); }
+.ray__dog span { transform-origin: 50% 0; }
+.ray__body { left: 1.6em; top: 2.1em; width: 4.2em; height: 1.85em; border-radius: .9em 1em .85em .9em / .9em .95em .9em .9em;
+  background: radial-gradient(1.05em .8em at 84% 14%, var(--ray-patch) 96%, transparent 100%), var(--ray-fur);
+  box-shadow: inset 0 -.28em 0 var(--ray-shade); }
+.ray__neck { left: 1.05em; top: 1.5em; width: 1.5em; height: 1.9em; border-radius: 50%; background: var(--ray-fur); transform: rotate(-20deg); }
+.ray__leg { top: 3.5em; width: .6em; height: 1.5em; border-radius: .3em .3em .28em .28em; background: var(--ray-fur); }
+.ray__leg--fl, .ray__leg--bl { background: var(--ray-shade); }
+.ray__leg--fr { left: 1.85em; }
+.ray__leg--fl { left: 2.4em; }
+.ray__leg--bl { left: 4.5em; }
+.ray__leg--br { left: 4.95em; width: .75em; border-radius: .5em .5em .28em .28em; }
+/* короткий бодрый хвост торчком */
+.ray__dog .ray__tail { left: 5.5em; top: 1.3em; width: .46em; height: 1.05em; border-radius: 50% 50% 35% 35% / 40% 40% 25% 25%; background: var(--ray-fur); transform-origin: 50% 100%; transform: rotate(24deg); }
+/* голова крупнее тела (font-size), маска: рыжая шапка с ушами и вокруг глаз, белая полоса посередине */
+.ray__head { left: -.1em; top: -.15em; width: 2.7em; height: 2.6em; font-size: 1.12em; }
+.ray__dog .ray__head { transform-origin: 60% 85%; }
+.ray__skull { left: .3em; top: .35em; width: 2.1em; height: 1.85em; border-radius: 48% 48% 42% 42% / 52% 52% 48% 48%;
+  background: radial-gradient(.2em 1.05em at 50% 1.3em, var(--ray-fur) 94%, transparent 100%),
+    radial-gradient(1.3em 1.15em at 50% 20%, var(--ray-patch) 96%, transparent 100%), var(--ray-fur); }
+.ray__dog .ray__eye { top: .95em; width: .3em; height: .3em; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff 0 18%, var(--ray-nose) 22%); transform-origin: 50% 50%; }
+.ray__eye--l { left: .8em; }
+.ray__eye--r { left: 1.6em; }
+.ray__muzzle { left: .72em; top: 1.38em; width: 1.26em; height: .88em; border-radius: 46% 46% 50% 50% / 45% 45% 55% 55%; background: var(--ray-fur); box-shadow: inset 0 -.1em 0 var(--ray-shade); }
+.ray__tongue { left: 1.22em; top: 1.95em; width: .26em; height: .4em; border-radius: 0 0 50% 50%; background: var(--ray-tongue); opacity: 0; }
+.ray__nose { left: 1.07em; top: 1.42em; width: .56em; height: .38em; border-radius: 45% 45% 50% 50% / 40% 40% 60% 60%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.55) 0 12%, var(--ray-nose) 20%); }
+.ray__ear { top: .2em; width: 1.05em; height: .95em; background: var(--ray-patch-2); }
+.ray__dog .ray__ear--l { left: 0; clip-path: polygon(10% 30%, 90% 0, 45% 100%); transform-origin: 70% 10%; }
+.ray__dog .ray__ear--r { left: 1.65em; clip-path: polygon(10% 0, 90% 30%, 55% 100%); transform-origin: 30% 10%; }
+.ray--run .ray__tongue, .ray--happy .ray__tongue { opacity: 1; }
+.ray__dog .ray__eye { animation: rayBlink 4s linear infinite; }
+
+/* idle: сидит, осматривается, хвост покачивается */
+.ray--idle .ray__body { transform: rotate(24deg); animation: rayBreathe 3s ease-in-out infinite; }
+.ray--idle .ray__neck { transform: translate(.55em, -.75em) rotate(-8deg); }
+.ray--idle .ray__head { transform: translate(.5em, -.75em); animation: rayLook 6s ease-in-out infinite; }
+.ray--idle .ray__leg--fr { transform: translate(.45em, -1.05em) scaleY(1.7); }
+.ray--idle .ray__leg--fl { transform: translate(.35em, -1.05em) scaleY(1.7); }
+.ray--idle .ray__leg--br { transform: translate(-.1em, .85em) rotate(90deg) scaleY(.8); }
+.ray--idle .ray__leg--bl { transform: translate(-.2em, .85em) rotate(90deg) scaleY(.7); }
+.ray--idle .ray__tail { transform: translate(-.45em, .8em) rotate(20deg); animation: raySway 1.6s ease-in-out infinite; }
+.ray--idle .ray__ear { animation: rayTwitch 6s ease-in-out infinite; }
+
+/* run: галоп, уши назад, язык наружу, пыль из-под лап */
+.ray--run .ray__dog { animation: rayBob .45s ease-in-out infinite; }
+.ray--run .ray__body { transform: rotate(-3deg); }
+.ray--run .ray__head { transform: translateY(.1em) rotate(-4deg); }
+.ray--run .ray__leg--fr, .ray--run .ray__leg--fl { animation: rayGallopF .45s ease-in-out infinite; }
+.ray--run .ray__leg--fl { animation-delay: -.05s; }
+.ray--run .ray__leg--br, .ray--run .ray__leg--bl { animation: rayGallopB .45s ease-in-out infinite; }
+.ray--run .ray__leg--bl { animation-delay: -.05s; }
+.ray--run .ray__tail { transform: rotate(50deg); animation: rayWag .3s ease-in-out infinite; }
+.ray--run .ray__ear { transform: rotate(-25deg); animation: rayFlap .45s ease-in-out infinite; }
+.ray--run .ray__ear--r { transform: rotate(25deg); }
+.ray__dust span { left: 7.4em; bottom: .9em; width: .8em; height: .8em; border-radius: 50%; background: var(--ray-dust); opacity: 0; animation: rayDust .9s ease-out infinite; }
+.ray__dust span:nth-child(2) { animation-delay: -.3s; }
+.ray__dust span:nth-child(3) { animation-delay: -.6s; }
+
+/* wait: лежит, голова на лапах, ждёт; изредка шевелит ухом и хвостом */
+.ray--wait .ray__body, .ray--sleep .ray__body { transform: translateY(1em); }
+.ray--wait .ray__neck, .ray--sleep .ray__neck { transform: translateY(1.2em) rotate(-20deg); }
+.ray--wait .ray__head { transform: translate(-.35em, 1.55em); animation: raySigh 5s ease-in-out infinite; }
+.ray--wait .ray__leg--fr, .ray--sleep .ray__leg--fr { transform: translate(.1em, .95em) rotate(90deg); }
+.ray--wait .ray__leg--fl, .ray--sleep .ray__leg--fl { transform: translate(.3em, .85em) rotate(90deg); }
+.ray--wait .ray__leg--br, .ray--sleep .ray__leg--br { transform: translate(-.1em, 1.05em) rotate(90deg) scaleY(.75); }
+.ray--wait .ray__leg--bl, .ray--sleep .ray__leg--bl { transform: translate(-.1em, .95em) rotate(90deg) scaleY(.7); }
+.ray--wait .ray__tail { transform: translate(.1em, 1.4em) rotate(75deg); animation: raySway 4s ease-in-out infinite; }
+.ray--wait .ray__ear { animation: rayTwitch 5s ease-in-out infinite; }
+
+/* sleep: свернулся, глаза закрыты, хвост подобран, над головой «z» */
+.ray--sleep .ray__body { animation: rayBreathe 3.2s ease-in-out infinite; }
+.ray--sleep .ray__head { transform: translate(-.2em, 1.75em) rotate(-14deg); }
+.ray--sleep .ray__dog .ray__eye { transform: scaleY(.15); animation: none; }
+.ray--sleep .ray__ear { transform: rotate(12deg); }
+.ray--sleep .ray__tail { transform: translate(-.3em, 1.6em) rotate(105deg); }
+.ray__zzz span { top: .6em; left: 1.6em; animation: rayZ 3.2s ease-out infinite; }
+.ray__zzz span:nth-child(2) { animation-delay: -1.07s; }
+.ray__zzz span:nth-child(3) { animation-delay: -2.13s; }
+
+/* happy: подпрыгивает, виляет хвостом, сердечки */
+.ray--happy .ray__dog { animation: rayHop .8s ease-in-out infinite; }
+.ray--happy .ray__head { transform: rotate(-6deg); }
+.ray--happy .ray__tail { transform: rotate(10deg); animation: rayWag .22s ease-in-out infinite; }
+.ray--happy .ray__leg--fr, .ray--happy .ray__leg--fl { animation: rayTuckF .8s ease-in-out infinite; }
+.ray--happy .ray__leg--br, .ray--happy .ray__leg--bl { animation: rayTuckB .8s ease-in-out infinite; }
+.ray--happy .ray__ear { animation: rayFlap .4s ease-in-out infinite; }
+.ray__fx .ray__hearts span { top: .5em; left: 3.6em; color: var(--ray-heart); font-size: 1.4em; animation: rayHeart 1.6s ease-out infinite; }
+.ray__fx .ray__hearts span:nth-child(2) { top: 1.2em; left: 5em; font-size: 1em; animation-delay: -.8s; }
+.ray__fx, .ray__dust, .ray__zzz, .ray__hearts { inset: 0; pointer-events: none; }
+.ray__fx span { opacity: 0; font-family: var(--sans); font-weight: 700; color: var(--ray-fx); }
+.ray[data-facing="right"] .ray__zzz span { left: auto; right: 1.6em; }
+.ray[data-facing="right"] .ray__fx .ray__hearts span { left: auto; right: 3.6em; }
+.ray[data-facing="right"] .ray__fx .ray__hearts span:nth-child(2) { right: 5em; }
+
+@media (prefers-reduced-motion: reduce) {  /* анимации гасит общее правило ниже; остаются поза и первый «z» / сердечко */
+  .ray__fx span:first-child { opacity: 1; }
+  .ray__dust { display: none; }
+}
+@keyframes rayBlink { 0%, 92%, 100% { scale: 1; } 95% { scale: 1 .1; } }
+@keyframes rayBreathe { 0%, 100% { scale: 1; } 50% { scale: 1.02 1.05; } }
+@keyframes rayLook { 0%, 30%, 65%, 95%, 100% { rotate: 0deg; } 40%, 55% { rotate: 9deg; } 75%, 85% { rotate: -7deg; } }
+@keyframes rayTwitch { 0%, 60%, 66%, 72%, 100% { rotate: 0deg; } 63%, 69% { rotate: -14deg; } }
+@keyframes raySway { 0%, 100% { rotate: 0deg; } 50% { rotate: -14deg; } }
+@keyframes rayWag { 0%, 100% { rotate: -14deg; } 50% { rotate: 14deg; } }
+@keyframes rayBob { 0%, 100% { translate: 0 0; } 50% { translate: 0 -.3em; } }
+@keyframes rayGallopF { 0%, 100% { rotate: 45deg; } 50% { rotate: -30deg; } }
+@keyframes rayGallopB { 0%, 100% { rotate: -40deg; } 50% { rotate: 35deg; } }
+@keyframes rayFlap { 0%, 100% { rotate: 0deg; } 50% { rotate: -12deg; } }
+@keyframes rayDust { from { opacity: .8; translate: 0 0; scale: .4; } to { opacity: 0; translate: 1.6em -.6em; scale: 1.3; } }
+@keyframes raySigh { 0%, 70%, 100% { translate: 0 0; } 80% { translate: 0 -.12em; } }
+@keyframes rayZ { from { opacity: 0; translate: 0 0; scale: .6; } 20% { opacity: 1; } to { opacity: 0; translate: -.8em -1.6em; scale: 1.2; } }
+@keyframes rayHop { 0%, 100% { translate: 0 0; scale: 1.05 .95; } 15%, 75% { translate: 0 0; scale: 1; } 45% { translate: 0 -1.2em; scale: .98 1.03; } }
+@keyframes rayTuckF { 0%, 15%, 75%, 100% { rotate: 0deg; } 45% { rotate: 50deg; } }
+@keyframes rayTuckB { 0%, 15%, 75%, 100% { rotate: 0deg; } 45% { rotate: -45deg; } }
+@keyframes rayHeart { from { opacity: 0; translate: 0 0; scale: .5; } 25% { opacity: 1; } to { opacity: 0; translate: 0 -2em; scale: 1.1; } }
+/* где живёт Рей: тёмная сцена теста, задание (у заголовка; на телефоне скрыт — не мешает чтению), лоадер */
+.quest { --ray-ground: rgba(0,0,0,.45); --ray-edge: transparent; --ray-fx: var(--on-dark-2); }
+.qpet { margin: -14px -6px -14px -12px; }
+/* вводная теста: на широком экране Рей сидит справа от текста, крупно; уже — маленький, рядом с подписью сюжета */
+.ray-intro .ray { font-size: 9px; }
+@media (min-width: 1100px) { .ray-intro { position: absolute; top: clamp(24px, 5vw, 52px); left: calc(100% + 40px); } .ray-intro .ray { font-size: 16px; } }
+@media (max-width: 640px) { .qpet { display: none; } }
+.ray-end { margin-left: auto; }
+/* загрузка экрана дольше мгновения: бегущий Рей под шапкой; пустой — не виден */
+.loader { position: fixed; z-index: 55; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+  padding: 4px 16px 4px 6px; background: var(--paper); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: 0 8px 30px var(--shadow); font-size: 13px; color: var(--ink-2); }
+.loader:empty { display: none; }
 /* отклик на нажатие: системная подсветка касания выключена, наведение — только с мышью */
 .btn:active, button.chip:active, a.chip:active, .seg button:active, button.cand:active, button.inv:active, .opt:active, .chat-peer:active { opacity: .72; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -628,6 +788,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 <main id="app"></main>
 <div id="toast" class="toast" hidden></div>
+<div id="loader" class="loader" role="status"></div>
 
 <script>
 /* ===================== данные: API бэкенда ===================== */
@@ -653,7 +814,7 @@ const NEED_TEXT = 'Ищем бэкендера на Python в команду п�
 
 const S = {
   story: true,
-  quest: null, qAns: null, codeMark: null, qComment: '', qItem: null, qShownAt: 0, finish: null,
+  quest: null, qPet: 'idle', qAns: null, codeMark: null, qComment: '', qItem: null, qShownAt: 0, finish: null,
   qLang: 'python', qCode: {}, qRun: null, qPasted: 0, edEsc: false,   // задача на код: язык, черновики по языкам, запуск на примерах, вставлено символов
   signup: { email: '', otp: '', sent: false, c152: false, publish: false },
   esignup: { email: '', otp: '', sent: false },
@@ -859,6 +1020,31 @@ function toast(msg) {
   t.textContent = msg; t.hidden = false;
   clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2800);
 }
+
+/* Рей — джек-рассел-терьер, талисман теста: CSS-арт, стили — .ray* (поза — модификатор .ray--<mood>) */
+const RAY = { idle: 'Рей сидит и осматривается', run: 'Рей бежит', wait: 'Рей лежит и ждёт', sleep: 'Рей спит', happy: 'Рей радуется' };
+// facing — куда смотрит морда, size — px на 1em (сцена 10em × 7em, по умолчанию 10px), decorative — рядом уже есть текст о том же
+function ray(mood = 'idle', { facing = 'left', size, decorative } = {}) {
+  const part = c => `<span class="ray__${c}"></span>`;
+  const fx = { sleep: '<span class="ray__zzz"><span>z</span><span>z</span><span>z</span></span>', happy: '<span class="ray__hearts"><span>♥</span><span>♥</span></span>' }[mood] || '';
+  return `<span class="ray ray--${mood}" data-facing="${facing}"${size ? ` style="font-size:${size}px"` : ''} ${decorative ? 'aria-hidden="true"' : `role="img" aria-label="${RAY[mood]}"`}>`
+    + `<span class="ray__shadow"></span><span class="ray__actor">${mood === 'run' ? '<span class="ray__dust"><span></span><span></span><span></span></span>' : ''}`
+    + `<span class="ray__dog">${['tail', 'leg ray__leg--bl', 'leg ray__leg--fl', 'body', 'neck', 'leg ray__leg--br', 'leg ray__leg--fr'].map(part).join('')}`
+    + `<span class="ray__head">${['skull', 'eye ray__eye--l', 'eye ray__eye--r', 'tongue', 'muzzle', 'nose', 'ear ray__ear--l', 'ear ray__ear--r'].map(part).join('')}</span></span></span>`
+    + `<span class="ray__fx">${fx}</span></span>`;
+}
+// Рей в задании теста: бежит, пока отправляется ответ и грузится следующее задание, и ещё чуть-чуть после;
+// минута без действий — ложится ждать, три — засыпает. Верность ответа фронт не знает, реакция от неё не зависит
+const PET = { run: 1200, wait: 60_000, sleep: 180_000 };
+let petT, petRunT;
+const qpet = () => `<span class="qpet" id="qpet">${ray(S.qPet, { size: 5.5 })}</span>`;
+function setPet(m) { S.qPet = m; const el = document.getElementById('qpet'); if (el) el.outerHTML = qpet(); }
+function petArm() {
+  clearTimeout(petT);
+  if (!document.getElementById('qpet')) { S.qPet = 'idle'; return; }  // ушли из задания — в следующий раз Рей снова сидит
+  petT = setTimeout(() => { setPet('wait'); petT = setTimeout(() => setPet('sleep'), PET.sleep - PET.wait); }, PET.wait);
+}
+for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => { if (S.qPet === 'wait' || S.qPet === 'sleep') setPet('idle'); petArm(); }, true);
 
 const trace = (cls, w, h, d, dots) => `<svg class="trace ${cls}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}"/>${dots.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.5"/>`).join('')}</svg>`;
 
@@ -1287,7 +1473,7 @@ V['/c/quest'] = () => {
   <div class="quest fade" style="position:relative">
     ${trace('', 300, 180, 'M10 170 V60 a40 40 0 0 1 40 -40 H290', [[10, 170], [290, 20]]).replace('class="trace "', 'class="trace" style="right:24px;bottom:24px;opacity:.6;color:#6A5CFF"')}
     <div style="padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;gap:20px;max-width:760px;position:relative">
-      <span class="label" style="color:var(--on-dark-2)">${esc([ME && ME.spec, ME && ME.track].filter(Boolean).join(' · '))} · сюжет «${esc(plot)}»</span>
+      <div class="row" style="gap:12px 16px;align-items:flex-end"><span class="ray-intro">${ray('idle')}</span><span class="label" style="color:var(--on-dark-2)">${esc([ME && ME.spec, ME && ME.track].filter(Boolean).join(' · '))} · сюжет «${esc(plot)}»</span></div>
       <h1 style="color:#fff">${esc(head)}</h1>
       <p class="prose" style="color:var(--on-dark-2)">${esc(about)} Каждая сцена — отдельное задание, сложность подстраивается под ваши ответы.</p>
       <dl class="kv" style="color:var(--on-dark)">
@@ -1347,6 +1533,7 @@ function sceneView() {
   if (!q) return `<div class="panel">Не удалось загрузить задание. <button class="btn ghost small" data-go="/c/quest">К вводной</button></div>`;
   if (q.done || !q.item) return `
   <div class="quest fade" style="padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;gap:18px;align-items:flex-start">
+    ${ray('happy', { size: 9 })}
     <span class="label" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'Экспресс-тест · ' : ''}Все задания пройдены · ${q.progress.n} из ${q.progress.total}</span>
     <h2 style="color:#fff">${S.story ? esc(questStory().finale) : 'Тест закончен'}</h2>
     <p class="prose" style="color:var(--on-dark-2)">Траектория была адаптивной: после каждого ответа пересчитывали θ и SE и подбирали следующее задание. Тест останавливается, когда погрешность достаточно мала.</p>
@@ -1372,7 +1559,7 @@ function sceneView() {
   ${crumbs([['Тест-квест', '/c/quest'], [(S.story ? 'Сцена ' : 'Задание ') + n]])}
   <div class="quest fade">
     <div class="quest-top">
-      <b class="qt-title">${S.story ? esc(it.scene_title) : 'Задание ' + n}</b>
+      ${qpet()}<b class="qt-title">${S.story ? esc(it.scene_title) : 'Задание ' + n}</b>
       <div class="pr" aria-label="Прогресс">${Array.from({ length: total }, (_, i) => `<i class="${i + 1 < n ? 'on' : i + 1 === n ? 'cur' : ''}"></i>`).join('')}</div>
       <span class="qt-comp" style="color:var(--on-dark-2)">${q.mode === 'express' ? 'экспресс · ' : ''}${esc(it.competency)}</span>
       <button class="switch" role="switch" aria-checked="${S.story}" data-act="story"><i></i> сюжет</button>
@@ -1468,6 +1655,7 @@ V['/c/result'] = () => {
           <div class="stat"><span class="label">Перцентиль ${R.percentile_scope === 'spec' ? 'в специализации' : 'в категории'}</span><b>${R.percentile ?? '—'}</b></div>
           <div class="stat"><span class="label">Общий θ</span><b class="num">${R.theta.toFixed(2)} <span class="muted" style="font-size:16px">± ${R.se.toFixed(2)}</span></b></div>
           <div class="stat"><span class="label">Время</span><b class="num">${R.minutes ?? '—'} <span class="muted" style="font-size:16px">мин</span></b></div>
+          <span class="ray-end">${ray('happy', { size: 9, facing: 'right' })}</span>
         </div>
         <p class="prose small">${R.percentile != null ? `Вы сильнее ${R.percentile} % кандидатов ${R.percentile_scope === 'spec' ? 'специализации' : 'категории'}. ` : ''}${R.strong.length ? `Сильные стороны — ${esc(low(R.strong))}. Слабее — ${esc(low(R.weak))}.` : ''}</p>
       </div>
@@ -2784,7 +2972,7 @@ V['/v'] = () => {
     <div class="stack-s"><h2>Валидация подбора и теста</h2><span class="small muted">${ds ? `${ds.candidates ?? '—'} синтетических кандидатов · ${ds.needs} потребностей · с достижениями ${ds.with_achievements != null && ds.with_achievements <= 1 ? PCT(ds.with_achievements) : ds.with_achievements ?? '—'} · с Codeforces ${ds.with_cf != null && ds.with_cf <= 1 ? PCT(ds.with_cf) : ds.with_cf ?? '—'} · ${ds.gold_experts != null ? `${ds.gold_experts} «золотых» пар с экспертами${ds.kappa != null ? `, κ Коэна = ${DEC(ds.kappa)}` : ''}` : 'разметка экспертов: нет'}` : 'Синтетический датасет: кандидаты, потребности, достижения'}</span></div>
     <div class="row" style="gap:10px">
       <span class="demo-tag">${R ? `синтетика · прогон ${DATE(R.generated_at)}` : 'прогон не запускался'}</span>
-      ${META && META.demo ? `<button class="btn dark" data-act="valrun" ${S.valBusy ? 'disabled' : ''}>${S.valBusy ? 'Считаем… до минуты' : R ? 'Пересчитать' : 'Запустить прогон'}</button>` : ''}
+      ${META && META.demo ? `<button class="btn dark" data-act="valrun" ${S.valBusy ? 'disabled' : ''}>${S.valBusy ? ray('run', { size: 3, decorative: true }) + 'Считаем… до минуты' : R ? 'Пересчитать' : 'Запустить прогон'}</button>` : ''}
       <a class="btn ghost small" ${href('/org')}>Организатору: импорт протоколов →</a>
     </div>
   </div>
@@ -3084,6 +3272,7 @@ function render() {
   document.getElementById('logout').hidden = !role || !TOK[role];
   if ((role === 'c' || role === 'e') && TOK[role]) { if (chatStreamSide !== role) chatStream(role); } else chatStop();
   startTimer();
+  petArm();
 }
 // перерисовка того же экрана: без анимации появления, с сохранением прокрутки, фокуса и ввода полей, которых нет в capture()
 const KEEP_INPUTS = ['cf-h', 'ctf-id', 'ctf-role', 'hid-inns'];
@@ -3105,7 +3294,15 @@ function rerender() {
 
 // смена экрана: без входа — на экран входа своей роли; загрузка данных, рендер
 // пока грузится следующий экран, прежний неактивен (inert): клик по устаревшей кнопке не уйдёт с параметрами старого экрана
-function busy(on) { $app.inert = on; on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy'); }
+// загрузка дольше 300 мс — под шапкой бежит Рей с «Загрузка…» (#loader — role=status: появление текста объявляется скринридером)
+let loaderT;
+function busy(on) {
+  $app.inert = on; on ? $app.setAttribute('aria-busy', 'true') : $app.removeAttribute('aria-busy');
+  const l = document.getElementById('loader');
+  clearTimeout(loaderT);
+  if (on) loaderT = setTimeout(() => { l.innerHTML = `${ray('run', { size: 5 })}<span>Загрузка…</span>`; }, 300);
+  else l.textContent = '';
+}
 async function show(keep) {
   const r = route(), my = ++seq, y = scrollY;
   const side = r.split('/')[1];
@@ -3423,14 +3620,18 @@ const ACT = {
     const body = it.kind === 'code'
       ? { item_id: it.id, lang, code: S.qCode[lang] != null ? S.qCode[lang] : it.code.templates[lang], pasted: S.qPasted, ms: Date.now() - S.qShownAt }
       : { item_id: it.id, response: it.kind === 'choice' ? S.qAns : S.codeMark, comment: it.comment ? S.qComment : null, ms: Date.now() - S.qShownAt };
-    try { S.quest = await api('POST', '/api/quest/answer', body); }
-    catch (e) {
-      if (e.status !== 503 || it.kind !== 'code') throw e;
-      toast(e.message);  // песочница недоступна: задание не засчитано, сервер уже выдал следующее
-      S.quest = await api('GET', '/api/quest/current');
-    }
-    S.qAt = Date.now();
-    render(); scrollTo(0, 0);
+    setPet('run');  // Рей бежит за следующим заданием — одинаково при любом ответе
+    clearTimeout(petRunT);
+    try {
+      try { S.quest = await api('POST', '/api/quest/answer', body); }
+      catch (e) {
+        if (e.status !== 503 || it.kind !== 'code') throw e;
+        toast(e.message);  // песочница недоступна: задание не засчитано, сервер уже выдал следующее
+        S.quest = await api('GET', '/api/quest/current');
+      }
+      S.qAt = Date.now();
+      render(); scrollTo(0, 0);
+    } finally { petRunT = setTimeout(() => { if (S.qPet === 'run') setPet('idle'); }, PET.run); }
   },
   'ask-lower': () => { S.confirm = 'acceptLower'; rerender(); },
   async finish() {
@@ -3490,7 +3691,7 @@ const ACT = {
     if (first) go('/e/need'); else rerender();
   },
   async parse(a) {
-    a.textContent = 'Разбираю…';
+    a.innerHTML = ray('run', { size: 2.4, decorative: true }) + 'Разбираю…';
     S.need.parsed = await api('POST', '/api/employer/needs/parse', { text: S.need.text });
     S.plan = null; S.needCat = null; rerender();
   },

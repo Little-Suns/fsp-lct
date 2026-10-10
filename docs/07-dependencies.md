@@ -74,6 +74,7 @@ Locust тянет за собой gevent 26.9.0 (MIT), flask 3.1.3 (BSD-3-Clause
 |---|---|---|
 | Шрифт JetBrains Mono (Regular, Medium, SemiBold, Bold, woff2) | SIL Open Font License 1.1 (`OFL.txt` рядом) | `frontend/assets/fonts/` |
 | Логотип, иконки, иллюстрации (`logo.svg`, `mark.png`, `icon-*.png` и т. п.) | фирменный стиль и логотип — из брендбука ФСП, предоставленного организатором (ТЗ, п. 4) | `frontend/assets/` |
+| Иконка вкладки `ray.svg` (мордочка Рея) и сам Рей — CSS-арт в `index.html` (`.ray*`) | нарисованы для проекта, стороннего кода нет | `frontend/assets/ray.svg`, `frontend/index.html` |
 
 `frontend/package.json` нужен только для e2e-тестов (Playwright) и замера покрытия JS; в образ `api` попадают лишь `index.html` и `assets/` (`.dockerignore` отсекает `node_modules`, `e2e`, отчёты). Требование к Node — `>=22` (`engines`).
 
