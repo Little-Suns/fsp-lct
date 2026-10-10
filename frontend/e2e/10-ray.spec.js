@@ -37,13 +37,23 @@ test('Рей в тесте: вводная, бег после ответа, ож
   await page.getByLabel('Минимальная зарплата на руки').fill('150000');
   await page.getByRole('button', { name: 'Сохранить и перейти к тесту' }).click();
 
-  // вводная: Рей сидит
+  // вводная: Рей сидит; на нижней границе широкой вёрстки (1100 px) — справа от текста, внутри карточки теста
   await expect(ray(page, IDLE)).toBeVisible();
+  await page.setViewportSize({ width: 1100, height: 800 });
+  const [r, q] = await Promise.all([ray(page, IDLE), page.locator('.quest')].map(l => l.evaluate(e => e.getBoundingClientRect().right)));
+  expect(r).toBeLessThanOrEqual(q);
+  await noHScroll(page, 'вводная на 1100 px');
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole('button', { name: 'Экспресс-тест для знакомства (3–5 мин)' }).click();
   const pet = page.locator('#qpet');
   await expect(pet.getByRole('img', { name: IDLE })).toBeVisible();
 
-  // минута без действий — лежит и ждёт, ещё две — спит; любое действие — снова сидит
+  // минута без действий — лежит и ждёт, ещё две — спит; любое действие — снова сидит; прокрутка колесом — тоже действие.
+  // Часы страницы ушли вперёд: таймер задания на нуле, ответы ниже засчитываются как просроченные — здесь это нормально
+  await page.clock.fastForward('01:01');
+  await expect(pet.getByRole('img', { name: WAIT })).toBeVisible();
+  await page.mouse.wheel(0, 40);
+  await expect(pet.getByRole('img', { name: IDLE })).toBeVisible();
   await page.clock.fastForward('01:01');
   await expect(pet.getByRole('img', { name: WAIT })).toBeVisible();
   await page.clock.fastForward('02:00');

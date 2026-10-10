@@ -1044,7 +1044,8 @@ function petArm() {
   if (!document.getElementById('qpet')) { S.qPet = 'idle'; return; }  // ушли из задания — в следующий раз Рей снова сидит
   petT = setTimeout(() => { setPet('wait'); petT = setTimeout(() => setPet('sleep'), PET.sleep - PET.wait); }, PET.wait);
 }
-for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => { if (S.qPet === 'wait' || S.qPet === 'sleep') setPet('idle'); petArm(); }, true);
+// действие — касание, клавиша или прокрутка колесом (читать длинное условие — тоже действие)
+for (const ev of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(ev, () => { if (S.qPet === 'wait' || S.qPet === 'sleep') setPet('idle'); petArm(); }, { capture: true, passive: true });
 
 const trace = (cls, w, h, d, dots) => `<svg class="trace ${cls}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}"/>${dots.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.5"/>`).join('')}</svg>`;
 
