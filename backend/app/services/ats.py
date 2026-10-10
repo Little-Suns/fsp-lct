@@ -42,20 +42,28 @@ def emit(db: Session, company_id: int, type: str, **payload) -> None:
     assert type in EVENTS, type
     # Курсор ленты — id события, а id выдаются не в порядке коммитов: событие с меньшим id, закоммиченное позже, ATS бы потерял.
     # Блокировка до INSERT (id берётся при flush) на время транзакции выстраивает коммиты событий компании в порядке id.
-    # Порядок блокировок везде один: строки (FOR UPDATE) → эта; компании в revoke_access и expire_invites — по возрастанию.
+    # Порядок блокировок везде один: строки (FOR UPDATE, в том числе удаляемые каскадом) → эта; компании в emit_revoked и
+    # expire_invites — по возрастанию. Поэтому delete_me шлёт события после db.delete + flush.
     db.execute(select(func.pg_advisory_xact_lock(LOCK_NS, company_id)))
     db.add(OutboxEvent(company_id=company_id, type=type, payload=payload))
 
 
-def revoke_access(db: Session, c: Candidate, why: str, company_ids: set[int] | None = None) -> None:
-    """candidate.access_revoked компаниям, которым были открыты контакты (принятое приглашение или отклик).
-    why: consent | deleted | hidden. company_ids — сузить (скрытие от конкретных компаний). Вызывать до удаления кандидата."""
+def access_companies(db: Session, c: Candidate, company_ids: set[int] | None = None) -> set[int]:
+    """Компании, которым открыты контакты кандидата (принятое приглашение или отклик). company_ids — сузить."""
     inv = select(Invitation.company_id).where(Invitation.candidate_id == c.id, Invitation.status == "accepted")
     app = select(Vacancy.company_id).join(Application, Application.vacancy_id == Vacancy.id).where(
         Application.candidate_id == c.id, Application.status == "accepted"
     )
     ids = set(db.scalars(inv)) | set(db.scalars(app))
-    if company_ids is not None:
-        ids &= company_ids
+    return ids if company_ids is None else ids & company_ids
+
+
+def emit_revoked(db: Session, ids: set[int], public_id: str, why: str) -> None:
+    """candidate.access_revoked компаниям из ids (по возрастанию). why: consent | deleted | hidden."""
     for cid in sorted(ids):
-        emit(db, cid, "candidate.access_revoked", public_id=c.public_id, why=why)
+        emit(db, cid, "candidate.access_revoked", public_id=public_id, why=why)
+
+
+def revoke_access(db: Session, c: Candidate, why: str, company_ids: set[int] | None = None) -> None:
+    """access_companies + emit_revoked. При удалении кандидата не годится: там события после удаления строк (см. delete_me)."""
+    emit_revoked(db, access_companies(db, c, company_ids), c.public_id, why)

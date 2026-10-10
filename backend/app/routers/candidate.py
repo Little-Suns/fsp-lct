@@ -620,11 +620,12 @@ def delete_me(c: Candidate = Depends(current_candidate), db: Session = Depends(g
     """Удаление аккаунта: кандидат (каскадом — достижения, приглашения, отклики, сообщения чата, решения, сессии теста) и пользователь.
     В журнале остаются только идентификаторы."""
     user = db.get(User, c.user_id) if c.user_id else None
-    ats.revoke_access(db, c, "deleted")  # до удаления: нужны принятые приглашения и отклики
+    revoked, public_id = ats.access_companies(db, c), c.public_id  # до удаления: нужны принятые приглашения и отклики
     db.add(AuditLog(actor_user_id=c.user_id, action="account_deleted", subject_candidate_id=c.id, detail=None))
     db.add(RetiredPublicId(public_id=c.public_id))
     db.delete(c)
     db.flush()
+    ats.emit_revoked(db, revoked, public_id, "deleted")  # после удаления строк: порядок «строки → advisory», как в set_application_status
     if user:
         db.delete(user)
     db.commit()

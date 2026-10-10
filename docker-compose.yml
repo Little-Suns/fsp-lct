@@ -40,6 +40,8 @@ services:
       FSP_ID_CLIENT_SECRET: ${FSP_ID_CLIENT_SECRET:-}
       FSP_ID_MOCK: ${FSP_ID_MOCK:-}
       FSP_ID_IDPS: ${FSP_ID_IDPS:-}
+      # демо-приёмник Mock ATS /mock-ats: 1 — включить без DEMO, 0 — выключить при DEMO=1; пусто — по DEMO
+      ATS_MOCK: ${ATS_MOCK:-}
       # LLM: none — только правила (стенд жюри: без GPU и ключей); ollama — локальная модель на хосте (ollama serve);
       # yandexgpt / gigachat — российские облачные (ключи ниже). Пустые значения = пресет провайдера, см. README
       LLM_PROVIDER: ${LLM_PROVIDER:-none}

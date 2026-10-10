@@ -742,12 +742,15 @@ class FeedbackIn(BaseModel):
 def feedback(invite_id: int, body: FeedbackIn, co: Company = Depends(active_company), db: Session = Depends(get_db)):
     if body.value not in catalog.FEEDBACK:
         raise HTTPException(422, f"Отметка: одна из {', '.join(catalog.FEEDBACK)}")
-    inv = db.get(Invitation, invite_id)
+    inv = db.scalar(select(Invitation).where(Invitation.id == invite_id).with_for_update().execution_options(populate_existing=True))  # параллельные отметки по очереди
     if not inv or inv.company_id != co.id:
+        db.rollback()
         raise HTTPException(404, "Приглашение не найдено")
     if inv.status != "accepted":
+        db.rollback()
         raise HTTPException(409, "Отметка доступна после принятия приглашения")
     if inv.feedback:
+        db.rollback()
         raise HTTPException(409, "Отметка уже поставлена")
     inv.feedback = body.value
     if body.value in ("confirmed", "hired"):

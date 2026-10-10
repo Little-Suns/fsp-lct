@@ -316,6 +316,25 @@ def test_invite_feedback(client):
         assert db.get(Candidate, ID["c1"]).employer_confirmed == 1  # повтор счётчик не удвоил
 
 
+def test_invite_feedback_race(client):
+    """Две параллельные отметки по одному приглашению: employer_confirmed растёт один раз, второй запрос — 409."""
+    cid = _new_cand(30)
+    with SessionLocal() as db:
+        inv = Invitation(company_id=ID["co"], candidate_id=cid, role="Гонка", salary_from=240000, salary_to=300000, format="Гибрид",
+                         status="accepted", sent_at=NOW, expires_at=NOW + timedelta(days=7))
+        db.add(inv)
+        db.commit()
+        inv_id = inv.id
+    h = _kh(_all_keys(client))
+    call = lambda: client.post(f"/api/employer/invites/{inv_id}/feedback", json={"value": "hired"}, headers=H["e"])  # noqa: E731
+    with ThreadPoolExecutor(2) as ex:
+        codes = sorted(f.result().status_code for f in [ex.submit(call) for _ in range(2)])
+    assert codes == [200, 409]
+    with SessionLocal() as db:
+        assert db.get(Candidate, cid).employer_confirmed == 1
+    assert client.post(f"/api/ats/v1/invites/{inv_id}/feedback", json={"value": "hired"}, headers=h).status_code == 200  # повтор через API
+
+
 # ---------- лента событий ----------
 
 
@@ -391,7 +410,7 @@ def test_events_invitation_privacy(client):
     d = item()
     assert d["invitation"] == {"id": ID["inv"], "role": "Backend (Python)", "salary_from": 240000, "salary_to": 300000,
                                "status": "accepted", "feedback": "hired"}
-    assert d["candidate"]["public_id"] == "T-0001" and d["candidate"]["spec"] == "Backend" and "email" not in d["candidate"]
+    assert d["candidate"] == {"public_id": "T-0001"}  # без карточки: её отдаёт /api/employer/candidates/{public_id} по своим правилам
     assert d["contacts"] == {"name": "Тест Имя1", "email": "cand1@example.ru", "tg": "@cand1"}
 
     _set_cand(ID["c1"], hidden_from=[INN])

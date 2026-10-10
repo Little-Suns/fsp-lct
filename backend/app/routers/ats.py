@@ -233,7 +233,7 @@ def _enrich(db: Session, co: Company, events: list[OutboxEvent]) -> list[dict]:
                 c = i.candidate
                 d["invitation"] = {"id": i.id, "role": i.role, "salary_from": i.salary_from, "salary_to": i.salary_to,
                                    "status": i.status, "feedback": i.feedback}
-                d["candidate"] = {"public_id": c.public_id, **(matching.card(c) if visible(c) else {})}
+                d["candidate"] = {"public_id": c.public_id}  # карточка — через /api/employer/candidates/{public_id} с её правилами видимости
                 if i.status == "accepted" and may_talk(c, co):
                     d["contacts"] = {"name": c.name, "email": c.email, "tg": c.tg}
         out.append({"id": e.id, "type": e.type, "at": e.at, "data": d})

@@ -64,3 +64,53 @@ test('ключ API: выпуск, один показ, лента событий
   const after = await page.request.get('/api/ats/v1/events', { headers: { 'X-Api-Key': body.key } });
   expect(after.status()).toBe(401);
 });
+
+test('Mock ATS: ключ → вакансия из ATS → отклик → событие без контактов → приглашение → контакты', async ({ page }) => {
+  await demo(page, 'e');
+  await open(page, '/employer/company');
+  const panel = page.locator('#ats');
+  await panel.locator('#ak-name').fill('e2e-mock-ats');
+  for (const s of ['vacancies:write', 'applications:read', 'applications:write']) await panel.locator(`input[data-scope="${s}"]`).check();
+  const issued = api(page, 'POST', '/api/employer/api-keys');
+  await panel.getByRole('button', { name: 'Выпустить ключ' }).click();
+  const { key } = await (await issued).json();
+  const { token: empToken } = await (await page.request.post('/api/auth/demo/employer')).json();
+
+  await page.goto('/mock-ats');
+  await expect(page.locator('#vac select[name=format] option')).not.toHaveCount(0);  // справочники подгрузились
+  await page.locator('#key').fill(key);
+  await page.locator('#connect').click();
+  await expect(page.locator('#state')).toContainText('Подключено');
+
+  // вакансия из «ATS»: ответ API и запись в кабинете компании
+  const title = 'Mock ATS e2e ' + Date.now();
+  await page.locator('#vac [name=external_id]').fill('mock-' + Date.now());
+  await page.locator('#vac [name=title]').fill(title);
+  const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/api/ats/v1/vacancies/'));
+  await page.locator('#vac').getByRole('button', { name: 'Опубликовать' }).click();
+  const vac = await (await put).json();
+  expect(vac.id).toBeGreaterThan(0);
+  await expect(page.locator('#vres')).toContainText('Опубликовано: вакансия #' + vac.id);
+  {
+    const mine = await (await page.request.get('/api/vacancies/mine', { headers: { Authorization: 'Bearer ' + empToken } })).json();
+    expect((mine.items || mine).some(v => v.id === vac.id && v.title === title)).toBe(true);
+  }
+
+  // демо-кандидат (Орлов: тест пройден, в лимите откликов ~6 из APPLICATIONS_PER_WEEK) откликается; спек идёт до 13-grade-integrity, сбрасывающего его тест
+  const cand = await page.request.post('/api/auth/demo/candidate');
+  const { token } = await cand.json();
+  const applied = await page.request.post(`/api/vacancies/${vac.id}/apply`, { headers: { Authorization: 'Bearer ' + token }, data: {} });
+  expect(applied.status()).toBe(200);
+
+  // событие отклика видно в ленте без контактов
+  const ev = page.locator('#feed .ev', { hasText: 'Новый отклик' }).filter({ hasText: title });
+  await expect(ev).toBeVisible({ timeout: 10_000 });
+  await expect(ev.locator('.contacts')).toHaveCount(0);
+  await expect(page.getByText('d.orlov@example.ru')).toHaveCount(0);
+
+  // приглашение на интервью — контакты приходят событием статуса
+  const st = page.waitForResponse(r => r.request().method() === 'POST' && /\/applications\/\d+\/status$/.test(r.url()));
+  await ev.getByRole('button', { name: 'Пригласить на интервью' }).click();
+  expect((await st).ok()).toBe(true);
+  await expect(page.locator('#feed .contacts')).toContainText('d.orlov@example.ru', { timeout: 10_000 });
+});
