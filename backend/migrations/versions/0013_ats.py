@@ -49,13 +49,13 @@ def upgrade() -> None:
     op.create_table('outbox_events',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('company_id', sa.Integer(), nullable=False),
+    sa.Column('txid', sa.BigInteger(), server_default=sa.text('pg_current_xact_id()::text::bigint'), nullable=False),
     sa.Column('type', sa.String(length=40), nullable=False),
     sa.Column('payload', sa.JSON(), nullable=False),
     sa.Column('at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index('ix_outbox_company_id', 'outbox_events', ['company_id', 'id'], unique=False)
+    op.create_index('ix_outbox_company_id', 'outbox_events', ['company_id', 'txid', 'id'], unique=False)
 
 
 def downgrade() -> None:

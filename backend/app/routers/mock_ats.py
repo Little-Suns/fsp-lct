@@ -58,7 +58,7 @@ const API = "/api/ats/v1", LABEL = {
   "invitation.expired": "Приглашение истекло", "candidate.access_revoked": "Кандидат закрыл доступ к контактам"};
 const REASON = __REASON__;
 const $ = id => document.getElementById(id);
-let cursor = 0, timer = null, key = "", gen = 0;  // gen — поколение подключения: ответ старого ключа в новую ленту не попадает
+let cursor = "0", timer = null, key = "", gen = 0;  // gen — поколение подключения: ответ старого ключа в новую ленту не попадает
 try { key = sessionStorage.getItem("ats_key") || ""; } catch (e) {}
 $("key").value = key;
 
@@ -134,7 +134,7 @@ async function poll() {
   polling = true;
   const g = gen;
   try {
-    const j = await call("GET", "/events?limit=100&after=" + cursor, undefined, key);
+    const j = await call("GET", "/events?limit=100&after=" + encodeURIComponent(cursor), undefined, key);
     if (g !== gen) return;  // за время запроса подключили другой ключ
     $("err").textContent = ""; $("state").textContent = "Подключено, курсор " + j.next;
     for (const e of j.items) $("feed").prepend(render(e));
@@ -145,7 +145,7 @@ async function poll() {
 $("connect").onclick = () => {
   key = $("key").value.trim();
   try { sessionStorage.setItem("ats_key", key); } catch (e) {}
-  gen++; polling = false; cursor = 0; $("feed").textContent = ""; clearInterval(timer);
+  gen++; polling = false; cursor = "0"; $("feed").textContent = ""; clearInterval(timer);
   for (const k in byCand) delete byCand[k];
   revoked.clear();
   poll(); timer = setInterval(poll, 3000);

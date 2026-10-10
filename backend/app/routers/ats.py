@@ -6,12 +6,13 @@
 кабинета (согласие, «скрыть от», блок компании), поэтому отозванное согласие и удалённый кандидат не утекают из старых событий.
 """
 
+import re
 import secrets
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import BigInteger, Text, cast, func, select, tuple_
 from sqlalchemy.orm import Session, selectinload
 
 from app import catalog, deps
@@ -240,14 +241,30 @@ def _enrich(db: Session, co: Company, events: list[OutboxEvent]) -> list[dict]:
     return out
 
 
+def _cursor(after: str) -> tuple[int, int]:
+    """Курсор ленты «txid.id» (непрозрачная строка из next); «0» — с начала."""
+    if after == "0":
+        return 0, 0
+    if not re.fullmatch(r"\d{1,19}\.\d{1,19}", after):
+        raise HTTPException(422, "Курсор after — строка из поля next предыдущего ответа (или 0 для чтения с начала)")
+    txid, eid = after.split(".")
+    return int(txid), int(eid)
+
+
 @router.get("/events")
-def events(after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+def events(after: str = Query("0", max_length=40), limit: int = Query(100, ge=1, le=500),
            ka: tuple = Depends(_auth(*ats.READ_SCOPES)), db: Session = Depends(get_db)):
     k, co = ka
-    matching.expire_invites(db, company_id=co.id)  # истечение ленивое: без этого ATS не получит invitation.expired
+    cur = _cursor(after)
+    matching.expire_invites(db, company_id=co.id)  # истечение ленивое: без этого ATS не получит invitation.expired; коммитит — события уже в базе
     types = [t for t, s in ats.EVENTS.items() if s is None or s in k.scopes]
+    # Лента отдаёт только события завершённых транзакций: у любой ещё идущей транзакции xid >= xmin снимка, поэтому её события
+    # лягут после курсора (txid, id), когда закоммитятся, и ATS их не пропустит, хотя id у них может быть меньше уже отданных.
+    # ponytail: долгая посторонняя транзакция в базе задерживает (не теряет) события всех компаний; вебхуки/доставщик — table.md.
+    xmin = cast(cast(func.pg_snapshot_xmin(func.pg_current_snapshot()), Text), BigInteger)
     rows = db.scalars(
-        select(OutboxEvent).where(OutboxEvent.company_id == co.id, OutboxEvent.id > after, OutboxEvent.type.in_(types))
-        .order_by(OutboxEvent.id).limit(limit)
+        select(OutboxEvent).where(OutboxEvent.company_id == co.id, OutboxEvent.txid < xmin,
+                                  tuple_(OutboxEvent.txid, OutboxEvent.id) > tuple_(*cur), OutboxEvent.type.in_(types))
+        .order_by(OutboxEvent.txid, OutboxEvent.id).limit(limit)
     ).all()
-    return {"items": _enrich(db, co, rows), "next": rows[-1].id if rows else after}
+    return {"items": _enrich(db, co, rows), "next": f"{rows[-1].txid}.{rows[-1].id}" if rows else after}

@@ -22,6 +22,7 @@ from sqlalchemy.orm import object_session, Session, selectinload
 from app import catalog
 from app.db import get_db
 from app.deps import active_company, current_candidate, current_company, current_user
+from app.integrations.consent import lock_candidate
 from app.models import Application, AuditLog, Candidate, Company, Vacancy
 from app.routers.employer import MSK, Salary, company_trust, validate_fork
 from app.services import ats, matching
@@ -363,6 +364,11 @@ def set_application_status(application_id: int, body: AppStatusIn, co: Company =
         raise HTTPException(422, f"Причина отказа: одна из {', '.join(catalog.DECLINE_REASONS)}")
     a = _lock(db, Application, application_id)  # кандидат может отзывать отклик параллельно
     if not a or a.vacancy.company_id != co.id:
+        raise HTTPException(404, "Отклик не найден")
+    # порядок «отклик → кандидат», как в delete_me: отзыв согласия/скрытие держат кандидата и считают получателей access_revoked,
+    # принятие не должно раскрыть контакты по старому согласию мимо события
+    if lock_candidate(db, a.candidate_id) is None:
+        db.rollback()
         raise HTTPException(404, "Отклик не найден")
     if a.status not in EMPLOYER_MOVES[body.status]:
         raise HTTPException(409, f"Нельзя перевести отклик из «{a.status}» в «{body.status}»")

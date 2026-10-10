@@ -102,6 +102,13 @@ def _emit(co_id: int, type: str, **payload) -> int:
         return db.scalar(select(OutboxEvent.id).order_by(OutboxEvent.id.desc()))
 
 
+def _cur(ev_id: int, before: bool = False) -> str:
+    """Курсор «txid.id» после события (before — прямо перед ним: следующий запрос отдаст и само событие)."""
+    with SessionLocal() as db:
+        txid = db.scalar(select(OutboxEvent.txid).where(OutboxEvent.id == ev_id))
+    return f"{txid}.{ev_id - 1 if before else ev_id}"
+
+
 def _set_cand(cid: int, **kw) -> None:
     with SessionLocal() as db:
         c = db.get(Candidate, cid)
@@ -345,14 +352,14 @@ def test_events_cursor_and_filters(client):
     c = _emit(ID["co"], "candidate.access_revoked", public_id="T-0001", why="consent")
     d = _emit(ID["co2"], "invitation.seen", invitation_id=ID["inv_open"], status="seen", reason=None)
     j = _events(client, after=base)
-    assert [e["id"] for e in j["items"]] == [a, b, c] and j["next"] == c  # чужая компания не видна, порядок возрастающий
+    assert [e["id"] for e in j["items"]] == [a, b, c] and j["next"] == _cur(c)  # чужая компания не видна, порядок возрастающий
     assert [e["type"] for e in j["items"]] == ["application.created", "invitation.seen", "candidate.access_revoked"]
     assert j["items"][0]["at"]
     page = _events(client, after=base, limit=2)
-    assert [e["id"] for e in page["items"]] == [a, b] and page["next"] == b
-    assert _events(client, after=b, limit=2)["items"][0]["id"] == c
-    empty = _events(client, after=c)
-    assert empty == {"items": [], "next": c}
+    assert [e["id"] for e in page["items"]] == [a, b] and page["next"] == _cur(b)
+    assert _events(client, after=_cur(b), limit=2)["items"][0]["id"] == c
+    empty = _events(client, after=_cur(c))
+    assert empty == {"items": [], "next": _cur(c)}
 
     apps_only = _issue(client, ["applications:read"])["key"]
     types = {e["type"] for e in _events(client, apps_only, after=base)["items"]}
@@ -361,8 +368,34 @@ def test_events_cursor_and_filters(client):
     assert {e["type"] for e in _events(client, invs_only, after=base)["items"]} == {"invitation.seen", "candidate.access_revoked"}
     other = _issue(client, ["applications:read", "invites:read"], who="e2")["key"]
     assert [e["id"] for e in _events(client, other, after=base)["items"]] == [d]  # у компании 2 только её событие
-    for bad in ({"limit": 0}, {"limit": 501}, {"after": -1}):
+    for bad in ({"limit": 0}, {"limit": 501}, {"after": "-1"}, {"after": "abc"}, {"after": "1.2.3"}, {"after": "5"}):
         assert client.get("/api/ats/v1/events", params=bad, headers=_kh(_all_keys(client))).status_code == 422
+
+
+def test_events_cursor_skips_unfinished_transactions(client):
+    """Событие незавершённой транзакции не отдаётся и не двигает курсор; после коммита отдаётся с прежним курсором,
+    даже если его id меньше уже отданного (порядок id и порядок коммитов расходятся)."""
+    from sqlalchemy import text
+    base = _events(client)["next"]
+    with SessionLocal() as first, SessionLocal() as late:
+        first.execute(text("select pg_current_xact_id()"))  # xid первой транзакции — раньше, чем у второй
+        late.execute(text("select pg_current_xact_id()"))
+        ats.emit(late, ID["co"], "invitation.seen", invitation_id=ID["inv_open"], status="seen", reason=None)
+        late.flush()  # id меньше, чем у события первой транзакции
+        ats.emit(first, ID["co"], "invitation.declined", invitation_id=ID["inv_open"], status="declined", reason=None)
+        first.flush()
+        assert _events(client, after=base) == {"items": [], "next": base}  # обе транзакции ещё идут
+        low = late.scalar(select(OutboxEvent.id).where(OutboxEvent.type == "invitation.seen").order_by(OutboxEvent.id.desc()))
+        high = first.scalar(select(OutboxEvent.id).where(OutboxEvent.type == "invitation.declined").order_by(OutboxEvent.id.desc()))
+        assert low < high
+        first.commit()
+        j = _events(client, after=base)  # первая завершилась: её xid меньше xmin (вторая ещё идёт) — событие отдаётся
+        assert [e["id"] for e in j["items"]] == [high] and j["next"] == _cur(high)
+        assert _events(client, after=j["next"]) == {"items": [], "next": j["next"]}  # событие второй транзакции не видно
+        late.commit()
+        k = _events(client, after=j["next"])  # прежний курсор: событие с меньшим id не потеряно
+        assert [e["id"] for e in k["items"]] == [low] and k["next"] == _cur(low)
+        assert _events(client, after=base)["items"][0]["id"] == high  # с начала — по порядку (txid, id)
 
 
 def test_events_application_privacy(client):
@@ -370,7 +403,7 @@ def test_events_application_privacy(client):
     with SessionLocal() as db:  # привязываем вакансию заявки к external_id, чтобы он попал в событие
         db.add(AtsLink(company_id=ID["co"], entity="vacancy", external_id="APP-VAC", internal_id=ID["v"]))
         db.commit()
-    item = lambda: next(e for e in _events(client, after=ev - 1)["items"] if e["id"] == ev)["data"]  # noqa: E731
+    item = lambda: next(e for e in _events(client, after=_cur(ev, before=True))["items"] if e["id"] == ev)["data"]  # noqa: E731
 
     # отклик принят в тесте выше: контакты видны, как в кабинете
     d = item()
@@ -400,13 +433,13 @@ def test_events_application_privacy(client):
     assert item()["contacts"] is not None
 
     gone = _emit(ID["co"], "application.withdrawn", application_id=999999, vacancy_id=999999, status="withdrawn")
-    d = next(e for e in _events(client, after=gone - 1)["items"])["data"]  # отклика и вакансии нет — событие всё равно отдаётся
+    d = next(e for e in _events(client, after=_cur(gone, before=True))["items"])["data"]  # отклика и вакансии нет — событие всё равно отдаётся
     assert d["candidate"] is None and d["contacts"] is None and d["vacancy"] == {"id": 999999, "title": None, "external_id": None}
 
 
 def test_events_invitation_privacy(client):
     ev = _emit(ID["co"], "invitation.accepted", invitation_id=ID["inv"], status="accepted", reason=None)
-    item = lambda: next(e for e in _events(client, after=ev - 1)["items"] if e["id"] == ev)["data"]  # noqa: E731
+    item = lambda: next(e for e in _events(client, after=_cur(ev, before=True))["items"] if e["id"] == ev)["data"]  # noqa: E731
     d = item()
     assert d["invitation"] == {"id": ID["inv"], "role": "Backend (Python)", "salary_from": 240000, "salary_to": 300000,
                                "status": "accepted", "feedback": "hired"}
@@ -430,10 +463,10 @@ def test_events_invitation_privacy(client):
 
     # приглашение не принято — контактов нет; удалённое приглашение — только payload
     ev2 = _emit(ID["co"], "invitation.seen", invitation_id=ID["inv_open"], status="seen", reason=None)
-    d = next(e for e in _events(client, after=ev2 - 1)["items"])["data"]
+    d = next(e for e in _events(client, after=_cur(ev2, before=True))["items"])["data"]
     assert d["contacts"] is None and d["invitation"]["status"] == "sent"
     ev3 = _emit(ID["co"], "invitation.expired", invitation_id=999999, status="expired", reason=None)
-    r = client.get("/api/ats/v1/events", params={"after": ev3 - 1}, headers=_kh(_all_keys(client)))
+    r = client.get("/api/ats/v1/events", params={"after": _cur(ev3, before=True)}, headers=_kh(_all_keys(client)))
     d = r.json()["items"][0]["data"]
     assert d == {"invitation_id": 999999, "status": "expired", "reason": None, "invitation": None, "candidate": None, "contacts": None}
     assert "Тест" not in r.text and "example.ru" not in r.text
@@ -457,7 +490,7 @@ def test_events_deleted_candidate_has_no_pd(client):
     with SessionLocal() as db:
         db.delete(db.get(Candidate, cid))  # приглашения удаляются каскадом вместе с кандидатом
         db.commit()
-    r = client.get("/api/ats/v1/events", params={"after": ev - 1}, headers=_kh(_all_keys(client)))
+    r = client.get("/api/ats/v1/events", params={"after": _cur(ev, before=True)}, headers=_kh(_all_keys(client)))
     items = r.json()["items"]
     assert [e["id"] for e in items] == [ev, emit_revoked]
     assert items[0]["data"]["candidate"] is None and items[0]["data"]["contacts"] is None
@@ -522,7 +555,7 @@ def test_feed_logs_contacts_reveal_once(client):
     cid = _new_cand(21, consent_152=False)
     aid = _new_app(cid, "accepted")
     ev = _emit(ID["co"], "application.created", application_id=aid, vacancy_id=ID["v"], status="sent")
-    item = lambda: next(e for e in _events(client, after=ev - 1)["items"] if e["id"] == ev)["data"]  # noqa: E731
+    item = lambda: next(e for e in _events(client, after=_cur(ev, before=True))["items"] if e["id"] == ev)["data"]  # noqa: E731
     audit = lambda: len(_audit(aid))  # noqa: E731
     assert item()["contacts"] is None and audit() == 0
     _set_cand(cid, consent_152=True)

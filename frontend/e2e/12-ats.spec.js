@@ -39,7 +39,7 @@ test('ключ API: выпуск, один показ, лента событий
   expect(ev.status()).toBe(200);
   const feed = await ev.json();
   expect(Array.isArray(feed.items)).toBe(true);
-  expect(typeof feed.next).toBe('number');
+  expect(typeof feed.next).toBe('string');
   // без ключа и с чужим — 401
   expect((await page.request.get('/api/ats/v1/events')).status()).toBe(401);
   expect((await page.request.get('/api/ats/v1/events', { headers: { 'X-Api-Key': 'fsp_wrong' } })).status()).toBe(401);

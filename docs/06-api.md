@@ -161,7 +161,7 @@
 | POST | `/api/ats/v1/vacancies/{external_id}/close`, `/extend` | ключ, `vacancies:write` | Закрыть, продлить; закрыть можно и заблокированной компании (сужает показ), продлить нельзя | 401, 403, 404, 409 |
 | POST | `/api/ats/v1/applications/{id}/status` | ключ, `applications:write` | `{status, reason}`; повтор того же статуса (для `declined` — с той же причиной) — 200, другая причина — 409 | 401, 403, 404, 409, 422 |
 | POST | `/api/ats/v1/invites/{id}/feedback` | ключ, `invites:write` | Отметка по принятому приглашению; повтор — 200 | 401, 403, 404, 409 |
-| GET | `/api/ats/v1/events` | ключ, `applications:read` или `invites:read` | `after` (курсор), `limit` 1..500 → `{items: [{id, type, at, data}], next}`; `data.candidate`: в откликах — анонимная карточка, в приглашениях — только `{public_id}`; контакты в `data` — только когда их видел бы кабинет, первая выдача пишет `contacts_revealed`; перед чтением истёкшие приглашения компании переводятся в `expired` | 401, 403 |
+| GET | `/api/ats/v1/events` | ключ, `applications:read` или `invites:read` | `after` (курсор — строка `<txid>.<id>` из `next`, `0` — с начала; иначе 422; отдаются только события завершённых транзакций), `limit` 1..500 → `{items: [{id, type, at, data}], next: "<txid>.<id>"}`; `data.candidate`: в откликах — анонимная карточка, в приглашениях — только `{public_id}`; контакты в `data` — только когда их видел бы кабинет, первая выдача пишет `contacts_revealed`; перед чтением истёкшие приглашения компании переводятся в `expired` | 401, 403, 422 |
 
 В демо (`ATS_MOCK`) страница `/mock-ats` показывает ленту и отвечает через этот API.
 

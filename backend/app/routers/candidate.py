@@ -149,7 +149,7 @@ def _withdraw_processing(db: Session, c: Candidate) -> None:
     _set_consent(db, c, "processing", False)
     c.status = "off"
     if was_on:
-        ats.revoke_access(db, c, "consent")  # компании с открытыми контактами узнают об отзыве; в конце: после advisory новых блокировок строк нет
+        ats.revoke_access(db, c, "consent")  # компании с открытыми контактами узнают об отзыве
 
 
 def _consents(db: Session, c: Candidate) -> dict:
@@ -378,6 +378,9 @@ def set_notif(body: NotifIn, c: Candidate = Depends(current_candidate), db: Sess
 
 @router.patch("/hidden-from")
 def set_hidden(body: HiddenIn, c: Candidate = Depends(current_candidate), db: Session = Depends(get_db)):
+    c = lock_candidate(db, c.id)  # получателей access_revoked считаем под блокировкой: принятие отклика не проскочит мимо события
+    if c is None:
+        raise HTTPException(404, "Кандидат не найден")
     _require_152(c)
     inns = list(dict.fromkeys(i.strip() for i in body.inns if i.strip()))
     bad = [i for i in inns if not (i.isdigit() and len(i) in (10, 12))]
@@ -387,7 +390,7 @@ def set_hidden(body: HiddenIn, c: Candidate = Depends(current_candidate), db: Se
     c.hidden_from = inns
     if new:
         ids = set(db.scalars(select(Company.id).where(Company.inn.in_(new))))
-        ats.revoke_access(db, c, "hidden", ids)  # emit сбросит c.hidden_from до блокировки ленты
+        ats.revoke_access(db, c, "hidden", ids)
     db.commit()
     known = {co.inn: co.name for co in db.scalars(select(Company).where(Company.inn.in_(inns)))} if inns else {}
     return {"hidden_from": inns, "companies": [{"inn": i, "name": known.get(i)} for i in inns]}
@@ -639,6 +642,6 @@ def delete_me(c: Candidate = Depends(current_candidate), db: Session = Depends(g
     if user:
         db.delete(user)
     db.flush()
-    ats.emit_revoked(db, revoked, public_id, "deleted")  # после удаления строк: порядок «строки → advisory», как в set_application_status
+    ats.emit_revoked(db, revoked, public_id, "deleted")  # после удаления строк: получатели посчитаны под блокировкой кандидата
     db.commit()
     return {"deleted": True}

@@ -11786,9 +11786,9 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
+              "type": "string",
+              "maxLength": 40,
+              "default": "0",
               "title": "After"
             }
           },
