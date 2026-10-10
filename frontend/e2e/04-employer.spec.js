@@ -241,6 +241,9 @@ test('Ладога: подборка и фильтры, карточка с об
   await expect(page.getByRole('button', { name: 'Без перегрузки' })).not.toHaveClass(/on/);
   await expect.poll(() => ids(page)).toEqual(before);
   await expect(page.locator('#needs button.chip.on')).toContainText('Backend-разработчик (Python)');
+  // чипы боковой колонки (потребности, категории): длинное название переносится, дата и число не вылезают за чип
+  const spill = els => els.filter(el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().right > el.getBoundingClientRect().right + 0.5; }).map(el => el.textContent.trim());
+  expect(await page.locator('aside button.chip').evaluateAll(spill)).toEqual([]);
 
   // карточка демо-кандидата по потребности: объяснение, подтверждённые навыки, сигнал решённой задачи
   await open(page, `/employer/candidates/A-1042?need=${ladNeed}`);
