@@ -43,7 +43,9 @@ def emit(db: Session, company_id: int, type: str, **payload) -> None:
     # Курсор ленты — id события, а id выдаются не в порядке коммитов: событие с меньшим id, закоммиченное позже, ATS бы потерял.
     # Блокировка до INSERT (id берётся при flush) на время транзакции выстраивает коммиты событий компании в порядке id.
     # Порядок блокировок везде один: строки (FOR UPDATE, в том числе удаляемые каскадом) → эта; компании в emit_revoked и
-    # expire_invites — по возрастанию. Поэтому delete_me шлёт события после db.delete + flush.
+    # expire_invites — по возрастанию. Поэтому delete_me шлёт события после db.delete + flush, а здесь сначала flush:
+    # select(advisory) autoflush не запускает, и отложенный UPDATE строки ушёл бы уже после блокировки.
+    db.flush()
     db.execute(select(func.pg_advisory_xact_lock(LOCK_NS, company_id)))
     db.add(OutboxEvent(company_id=company_id, type=type, payload=payload))
 

@@ -95,6 +95,9 @@ const byCand = {}, revoked = new Set();
 const candId = e => e.type === "candidate.access_revoked" ? e.data.public_id : (e.data.candidate || {}).public_id;
 function render(e) {
   const d = e.data, ev = el("div", "ev"), box = {row: el("div", "row"), err: el("div", "err"), ok: el("div", "ok")};
+  ev.dataset.eventType = e.type;  // стабильные атрибуты для тестов и скриптов
+  if (d.application_id) ev.dataset.applicationId = d.application_id;
+  if (d.invitation_id) ev.dataset.invitationId = d.invitation_id;
   ev.append(el("h3", null, LABEL[e.type] || e.type), el("div", "meta", "#" + e.id + " · " + e.type + " · " + e.at));
   if (d.vacancy) ev.append(el("div", "meta", "Вакансия: " + (d.vacancy.title || "удалена") + (d.vacancy.external_id ? " (" + d.vacancy.external_id + ")" : "")));
   if (d.invitation) ev.append(el("div", "meta", "Приглашение: " + d.invitation.role + ", " + d.invitation.salary_from + "–" + d.invitation.salary_to));
@@ -109,6 +112,7 @@ function render(e) {
       old.card.classList.add("revoked");
     }
   } else {
+    if (d.candidate || d.contacts) revoked.delete(pid);  // API отдал карточку или контакты — доступ сейчас есть; старые очищенные карточки остаются очищенными
     const c = card(d.candidate), ct = d.contacts && !revoked.has(pid) ? el("div", "card contacts", "Контакты: " + [d.contacts.name, d.contacts.email, d.contacts.tg].filter(Boolean).join(" · ")) : null;
     if (revoked.has(pid)) c.textContent = "Доступ отозван — данные кандидата " + pid + " удалены.";
     ev.append(c); if (ct) ev.append(ct);

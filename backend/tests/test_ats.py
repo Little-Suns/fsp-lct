@@ -572,5 +572,6 @@ def test_mock_ats_page(client, monkeypatch):
     assert r.status_code == 200 and "Mock ATS" in r.text and "не настоящая ATS" in r.text
     assert "/api/ats/v1" in r.text and "sessionStorage" in r.text and "'salary'" in r.text and "__REASON__" not in r.text
     assert "src=" not in r.text and "http://" not in r.text and "https://" not in r.text  # без внешних ресурсов
+    assert "dataset.eventType" in r.text and "dataset.applicationId" in r.text and "revoked.delete(pid)" in r.text  # атрибуты для e2e, возврат доступа
     monkeypatch.setattr(config, "ATS_MOCK", False)
     assert client.get("/mock-ats").status_code == 404

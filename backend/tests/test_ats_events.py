@@ -24,7 +24,7 @@ NOW = datetime.now(UTC)
 H: dict[str, dict] = {}
 ID: dict[str, int] = {}
 REASON = next(iter(catalog.DECLINE_REASONS))
-NAMES = ["app", "wd", "i_seen", "i_acc", "i_dec", "i_exp", "i_blk", "r_consent", "r_hidden", "r_del", "r_late"]
+NAMES = ["app", "wd", "i_seen", "i_acc", "i_dec", "i_exp", "i_blk", "r_consent", "r_hidden", "r_del", "r_late", "r_del2", "race0", "race1", "race2"]
 
 
 def _cand(i: int, user_id: int) -> Candidate:
@@ -76,6 +76,13 @@ def client():
         ID.update({f"inv_{k}": i.id for k, i in invs.items()})
         # r_late: принятый отклик на вакансию «Первой» — контакты открыты и по нему
         db.add(Application(vacancy_id=v.id, candidate_id=by["r_late"].id, status="accepted"))
+        db.add(Application(vacancy_id=v.id, candidate_id=by["r_del2"].id, status="accepted"))
+        ID["apps_race"] = []
+        for n in ("race0", "race1", "race2"):  # отклики без ответа: гонка принятия компанией и удаления аккаунта
+            a = Application(vacancy_id=v.id, candidate_id=by[n].id, status="sent")
+            db.add(a)
+            db.flush()
+            ID["apps_race"].append(a.id)
         db.commit()
         for n, u in zip(NAMES, users):
             H[n] = {"Authorization": "Bearer " + issue_token(db, u)}
@@ -262,3 +269,54 @@ def test_emit_takes_company_advisory_lock():
         assert db.scalar(q, {"ns": ats.LOCK_NS, "cid": ID["co"]}) == 1
         db.rollback()
         assert db.scalar(q, {"ns": ats.LOCK_NS, "cid": ID["co"]}) == 0  # снимается с концом транзакции
+
+
+def test_emit_flushes_pending_changes_before_lock(client):
+    """Отложенное изменение строки уходит в базу до advisory-блокировки: строка занята к моменту, когда берётся блокировка ленты."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+    from app.services import ats
+    with SessionLocal() as db, SessionLocal() as other:
+        inv = db.get(Invitation, ID["inv_i_blk"])
+        inv.seen_at = NOW  # изменение в сессии, без flush
+        assert db.dirty
+        ats.emit(db, ID["co"], "invitation.seen", invitation_id=inv.id, status="seen", reason=None)
+        assert not db.dirty
+        with pytest.raises(OperationalError):  # строка уже заблокирована UPDATE-ом из flush
+            other.execute(text("select 1 from invitations where id=:i for update nowait"), {"i": inv.id})
+        other.rollback()
+        db.rollback()
+
+
+def test_delete_me_revokes_by_application_and_invitation(client):
+    # принятый отклик (без принятого приглашения) тоже даёт событие при удалении аккаунта
+    assert client.delete("/api/candidate/me", headers=H["r_del2"]).status_code == 200
+    assert _revoked("r_del2") == [(ID["co"], "deleted")]
+    # повторный вызов с тем же токеном — токена уже нет, события не плодятся
+    assert client.delete("/api/candidate/me", headers=H["r_del2"]).status_code in (401, 403)
+    assert _revoked("r_del2") == [(ID["co"], "deleted")]
+
+
+def test_delete_races_application_accept(client):
+    """Принятие отклика компанией параллельно с удалением аккаунта: если принятие прошло — компания получила access_revoked."""
+    import threading
+    for i, aid in enumerate(ID["apps_race"]):
+        name = f"race{i}"
+        bar = threading.Barrier(2)
+        res = {}
+
+        def accept():
+            bar.wait()
+            res["acc"] = client.post(f"/api/vacancies/applications/{aid}/status", json={"status": "accepted"}, headers=H["e"]).status_code
+
+        def delete():
+            bar.wait()
+            res["del"] = client.delete("/api/candidate/me", headers=H[name]).status_code
+
+        ts = [threading.Thread(target=f) for f in (accept, delete)]
+        [t.start() for t in ts]
+        [t.join(30) for t in ts]
+        assert res["del"] == 200, res
+        accepted = bool(_ev("application.status", application_id=aid, status="accepted"))
+        assert res["acc"] == (200 if accepted else 404), res
+        assert _revoked(name) == ([(ID["co"], "deleted")] if accepted else []), res

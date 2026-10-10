@@ -143,12 +143,13 @@ def _set_external(db: Session, c: Candidate, value: bool) -> None:
 def _withdraw_processing(db: Session, c: Candidate) -> None:
     """Отзыв согласия на обработку (вызывать под lock_candidate): снимает публикацию, отзывает внешние профили
     с удалением их данных, скрывает профиль."""
-    if c.consent_152:  # повторный отзыв событий не плодит
-        ats.revoke_access(db, c, "consent")  # компании с открытыми контактами узнают об отзыве
+    was_on = c.consent_152  # повторный отзыв событий не плодит
     _set_consent(db, c, "publish", False)
     _set_external(db, c, False)
     _set_consent(db, c, "processing", False)
     c.status = "off"
+    if was_on:
+        ats.revoke_access(db, c, "consent")  # компании с открытыми контактами узнают об отзыве; в конце: после advisory новых блокировок строк нет
 
 
 def _consents(db: Session, c: Candidate) -> dict:
@@ -383,10 +384,10 @@ def set_hidden(body: HiddenIn, c: Candidate = Depends(current_candidate), db: Se
     if bad:
         raise HTTPException(422, f"ИНН — 10 или 12 цифр: {', '.join(bad)}")
     new = set(inns) - set(c.hidden_from or [])
+    c.hidden_from = inns
     if new:
         ids = set(db.scalars(select(Company.id).where(Company.inn.in_(new))))
-        ats.revoke_access(db, c, "hidden", ids)
-    c.hidden_from = inns
+        ats.revoke_access(db, c, "hidden", ids)  # emit сбросит c.hidden_from до блокировки ленты
     db.commit()
     known = {co.inn: co.name for co in db.scalars(select(Company).where(Company.inn.in_(inns)))} if inns else {}
     return {"hidden_from": inns, "companies": [{"inn": i, "name": known.get(i)} for i in inns]}
@@ -620,13 +621,24 @@ def delete_me(c: Candidate = Depends(current_candidate), db: Session = Depends(g
     """Удаление аккаунта: кандидат (каскадом — достижения, приглашения, отклики, сообщения чата, решения, сессии теста) и пользователь.
     В журнале остаются только идентификаторы."""
     user = db.get(User, c.user_id) if c.user_id else None
+    # Порядок блокировок: отклики → кандидат → приглашения (по id). Принятие отклика компанией держит строку отклика и пишет
+    # AuditLog с FK на кандидата — FOR UPDATE на кандидата раньше отклика дал бы взаимную блокировку. Принятие либо завершилось
+    # до чтения access_companies, либо ждёт и увидит удалённую строку — компания без события не останется.
+    lock_apps = lambda: db.scalars(select(Application.id).where(Application.candidate_id == c.id).order_by(Application.id).with_for_update()).all()  # noqa: E731
+    lock_apps()
+    c = lock_candidate(db, c.id)
+    if c is None:
+        db.rollback()
+        return {"deleted": True}
+    lock_apps()  # отклик, поданный между первой блокировкой и блокировкой кандидата
+    db.scalars(select(Invitation.id).where(Invitation.candidate_id == c.id).order_by(Invitation.id).with_for_update()).all()
     revoked, public_id = ats.access_companies(db, c), c.public_id  # до удаления: нужны принятые приглашения и отклики
     db.add(AuditLog(actor_user_id=c.user_id, action="account_deleted", subject_candidate_id=c.id, detail=None))
     db.add(RetiredPublicId(public_id=c.public_id))
     db.delete(c)
-    db.flush()
-    ats.emit_revoked(db, revoked, public_id, "deleted")  # после удаления строк: порядок «строки → advisory», как в set_application_status
     if user:
         db.delete(user)
+    db.flush()
+    ats.emit_revoked(db, revoked, public_id, "deleted")  # после удаления строк: порядок «строки → advisory», как в set_application_status
     db.commit()
     return {"deleted": True}

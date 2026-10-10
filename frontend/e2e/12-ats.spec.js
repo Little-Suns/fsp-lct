@@ -101,16 +101,19 @@ test('Mock ATS: ключ → вакансия из ATS → отклик → со
   const { token } = await cand.json();
   const applied = await page.request.post(`/api/vacancies/${vac.id}/apply`, { headers: { Authorization: 'Bearer ' + token }, data: {} });
   expect(applied.status()).toBe(200);
+  const appId = (await applied.json()).id;
 
-  // событие отклика видно в ленте без контактов
-  const ev = page.locator('#feed .ev', { hasText: 'Новый отклик' }).filter({ hasText: title });
+  // событие нового отклика (старые события Орлова из других спеков — с его контактами — в ленте тоже есть, поэтому только по application_id)
+  const ev = page.locator(`#feed .ev[data-event-type="application.created"][data-application-id="${appId}"]`);
   await expect(ev).toBeVisible({ timeout: 10_000 });
+  await expect(ev).toContainText(title);
   await expect(ev.locator('.contacts')).toHaveCount(0);
-  await expect(page.getByText('d.orlov@example.ru')).toHaveCount(0);
+  await expect(ev).not.toContainText('d.orlov@example.ru');
 
-  // приглашение на интервью — контакты приходят событием статуса
-  const st = page.waitForResponse(r => r.request().method() === 'POST' && /\/applications\/\d+\/status$/.test(r.url()));
+  // приглашение на интервью — контакты приходят событием статуса этого отклика
+  const st = page.waitForResponse(r => r.request().method() === 'POST' && new RegExp(`/applications/${appId}/status$`).test(r.url()));
   await ev.getByRole('button', { name: 'Пригласить на интервью' }).click();
   expect((await st).ok()).toBe(true);
-  await expect(page.locator('#feed .contacts')).toContainText('d.orlov@example.ru', { timeout: 10_000 });
+  const accepted = page.locator(`#feed .ev[data-event-type="application.status"][data-application-id="${appId}"]`).filter({ hasText: 'Статус: accepted' });
+  await expect(accepted.locator('.contacts')).toContainText('d.orlov@example.ru', { timeout: 10_000 });
 });
